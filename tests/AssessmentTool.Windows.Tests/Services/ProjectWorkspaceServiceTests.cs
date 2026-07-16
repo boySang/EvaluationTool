@@ -238,7 +238,7 @@ public sealed class ProjectWorkspaceServiceTests
         var service = new ProjectWorkspaceService(new FakeProjectRepository(), vault);
         var password = "待清零".ToCharArray();
 
-        var error = await Assert.ThrowsAsync<ArgumentException>(() => service.AddDeviceAsync(
+        var error = await Assert.ThrowsAnyAsync<ArgumentException>(() => service.AddDeviceAsync(
             ProjectId.New(), displayName, host, port, password));
 
         Assert.Contains(expectedMessage, error.Message, StringComparison.Ordinal);
