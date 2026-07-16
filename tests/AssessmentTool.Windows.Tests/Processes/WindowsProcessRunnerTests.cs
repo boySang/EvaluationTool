@@ -513,7 +513,8 @@ public sealed class WindowsProcessRunnerTests
             PagingBehavior.NotApplicable,
             "版本信息",
             new DateTime(2026, 7, 16),
-            "https://vendor.example/docs"
+            "https://vendor.example/docs",
+            false
         });
     }
 
