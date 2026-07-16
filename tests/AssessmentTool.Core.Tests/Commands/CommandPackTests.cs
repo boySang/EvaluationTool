@@ -149,11 +149,11 @@ public sealed class CommandPackTests
     [Fact]
     public void Loader_rejects_non_array_commands_before_binding()
     {
-        var json = PackJson()
-            .Replace("\"commands\": [\n    {", "\"commands\": {")
-            .Replace("\n    }\n  ]\n}", "\n  }\n}");
+        var document = JObject.Parse(PackJson());
+        var commands = Assert.IsType<JArray>(document["commands"]);
+        document["commands"] = commands[0]!.DeepClone();
 
-        var error = Assert.Throws<CommandPackException>(() => LoadJson(json));
+        var error = Assert.Throws<CommandPackException>(() => LoadJson(document.ToString()));
 
         Assert.Contains("JSON 类型", error.Message);
     }
@@ -342,9 +342,12 @@ public sealed class CommandPackTests
     [Fact]
     public void Loader_rejects_a_command_with_missing_required_metadata()
     {
-        var json = PackJson().Replace("\"accountRequirement\": \"只读审计账户\",\n", string.Empty);
+        var document = JObject.Parse(PackJson());
+        var commands = Assert.IsType<JArray>(document["commands"]);
+        var command = Assert.IsType<JObject>(commands[0]);
+        Assert.True(command.Remove("accountRequirement"));
 
-        Assert.Throws<CommandPackException>(() => LoadJson(json));
+        Assert.Throws<CommandPackException>(() => LoadJson(document.ToString()));
     }
 
     [Fact]
