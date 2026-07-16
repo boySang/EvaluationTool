@@ -356,7 +356,7 @@ public sealed class CredentialFileLeaseTests
         });
     }
 
-    private static void ReleaseLeaseGuardWithoutCleanup(CredentialFileLease lease)
+    private static void ReleaseLeaseGuardWithoutCleanup(ICredentialFileLease lease)
     {
         var field = typeof(CredentialFileLease).GetField(
             "fileGuard",
@@ -366,7 +366,7 @@ public sealed class CredentialFileLeaseTests
         guard.Dispose();
     }
 
-    private static void AgeLeaseAndRestoreActiveGuard(CredentialFileLease lease, DateTime lastWriteTimeUtc)
+    private static void AgeLeaseAndRestoreActiveGuard(ICredentialFileLease lease, DateTime lastWriteTimeUtc)
     {
         var field = typeof(CredentialFileLease).GetField(
             "fileGuard",

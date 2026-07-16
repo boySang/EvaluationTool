@@ -8,9 +8,16 @@ namespace AssessmentTool.Windows.Credentials;
 
 internal interface ICredentialLeaseFactory
 {
-    CredentialFileLease Create(
+    ICredentialFileLease Create(
         CredentialReference credentialReference,
         CancellationToken cancellationToken = default);
+}
+
+internal interface ICredentialFileLease : IDisposable
+{
+    string Path { get; }
+
+    string RedactedIdentifier { get; }
 }
 
 internal interface ICredentialLeaseObserver
@@ -84,7 +91,7 @@ internal sealed class CredentialFileLeaseFactory : ICredentialLeaseFactory
         CleanupExpiredOrphans(DateTime.UtcNow.Subtract(OrphanMinimumAge));
     }
 
-    public CredentialFileLease Create(
+    public ICredentialFileLease Create(
         CredentialReference credentialReference,
         CancellationToken cancellationToken = default)
     {
@@ -401,7 +408,7 @@ internal sealed class CredentialFileLeaseFactory : ICredentialLeaseFactory
     }
 }
 
-internal sealed class CredentialFileLease : IDisposable
+internal sealed class CredentialFileLease : ICredentialFileLease
 {
     private readonly string runDirectory;
     private readonly CredentialFileIdentity fileIdentity;
@@ -429,9 +436,9 @@ internal sealed class CredentialFileLease : IDisposable
         this.fileGuard = fileGuard ?? throw new ArgumentNullException(nameof(fileGuard));
     }
 
-    internal string Path { get; }
+    public string Path { get; }
 
-    internal string RedactedIdentifier { get; }
+    public string RedactedIdentifier { get; }
 
     public void Dispose()
     {
