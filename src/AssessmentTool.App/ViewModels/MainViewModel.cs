@@ -11,18 +11,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly DelegateCommand toggleThemeCommand;
 
-    public MainViewModel(CollectionViewModel collection, Action toggleTheme)
-        : this(null, collection, toggleTheme)
+    public MainViewModel(
+        CollectionViewModel collection,
+        ComponentCenterViewModel componentCenter,
+        Action toggleTheme)
+        : this(null, collection, componentCenter, toggleTheme)
     {
     }
 
     public MainViewModel(
         ProjectWorkspaceViewModel? workspace,
         CollectionViewModel collection,
+        ComponentCenterViewModel componentCenter,
         Action toggleTheme)
     {
         Workspace = workspace;
         Collection = collection ?? throw new ArgumentNullException(nameof(collection));
+        ComponentCenter = componentCenter ?? throw new ArgumentNullException(nameof(componentCenter));
         DeviceEditor = new DeviceEditorViewModel();
         toggleThemeCommand = new DelegateCommand(
             toggleTheme ?? throw new ArgumentNullException(nameof(toggleTheme)),
@@ -48,6 +53,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public ProjectWorkspaceViewModel? Workspace { get; }
     public CollectionViewModel Collection { get; }
+    public ComponentCenterViewModel ComponentCenter { get; }
     public DeviceEditorViewModel DeviceEditor { get; }
     public IReadOnlyList<NavigationItemViewModel> NavigationItems { get; }
     public ICommand ToggleThemeCommand => toggleThemeCommand;

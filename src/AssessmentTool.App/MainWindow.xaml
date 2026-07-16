@@ -327,9 +327,67 @@
             <TextBlock Text="组件中心" Style="{StaticResource PageTitleStyle}" />
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>
-                <TextBlock Text="Plink 连接组件" Style="{StaticResource SectionTitleStyle}" />
-                <TextBlock Text="状态：等待检测" Foreground="{DynamicResource Brush.WarningText}" />
-                <TextBlock Text="缺少组件时只会禁用对应连接功能。安装前会说明来源、版本、体积、权限和联网要求，并再次征得确认。" Style="{StaticResource SecondaryTextStyle}" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding ComponentCenter.ComponentName}" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="{Binding ComponentCenter.StatusText}" FontWeight="SemiBold">
+                  <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="Foreground" Value="{DynamicResource Brush.WarningText}" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding ComponentCenter.ComponentState}" Value="Available">
+                          <Setter Property="Foreground" Value="{DynamicResource Brush.Success}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ComponentCenter.ComponentState}" Value="Invalid">
+                          <Setter Property="Foreground" Value="{DynamicResource Brush.Error}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ComponentCenter.ComponentState}" Value="CheckFailed">
+                          <Setter Property="Foreground" Value="{DynamicResource Brush.Error}" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding ComponentCenter.State}" Value="Failed">
+                          <Setter Property="Foreground" Value="{DynamicResource Brush.Error}" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </TextBlock.Style>
+                </TextBlock>
+
+                <Grid Margin="0,14,0,0">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                  </Grid.RowDefinitions>
+                  <TextBlock Grid.Row="0" Text="来源" Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ComponentCenter.Source}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Row="1" Text="体积" Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ComponentCenter.Size}" />
+                  <TextBlock Grid.Row="2" Text="联网" Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ComponentCenter.NetworkRequirement}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Row="3" Text="管理员权限" Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ComponentCenter.AdministratorRequirement}" />
+                  <TextBlock Grid.Row="4" Text="重启" Foreground="{DynamicResource Brush.TextSecondary}" />
+                  <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ComponentCenter.RestartRequirement}" />
+                </Grid>
+
+                <TextBlock Text="影响" FontWeight="SemiBold" Margin="0,16,0,2" />
+                <TextBlock Text="{Binding ComponentCenter.UserImpact}" TextWrapping="Wrap" />
+                <TextBlock Text="处理办法" FontWeight="SemiBold" Margin="0,12,0,2" />
+                <TextBlock Text="{Binding ComponentCenter.OfflineInstructions}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding ComponentCenter.AutomaticActionNotice}"
+                           Foreground="{DynamicResource Brush.WarningText}"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           Margin="0,12,0,0" />
+                <Button Content="重新检测"
+                        Command="{Binding ComponentCenter.RefreshCommand}"
+                        HorizontalAlignment="Left"
+                        Margin="0,14,0,0"
+                        automation:AutomationProperties.Name="重新检测 Plink 连接组件" />
               </StackPanel>
             </Border>
           </StackPanel>

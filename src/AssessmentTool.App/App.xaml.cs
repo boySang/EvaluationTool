@@ -37,9 +37,12 @@ public partial class App : Application
                 return;
             }
 
+            var componentCenter = new ComponentCenterViewModel(new ComponentStatusService());
+            await componentCenter.RefreshAsync();
             var mainViewModel = new MainViewModel(
                 workspace,
                 new CollectionViewModel(new UnavailableCollectionWorkflowService()),
+                componentCenter,
                 ToggleTheme);
             var window = new MainWindow(mainViewModel);
             MainWindow = window;

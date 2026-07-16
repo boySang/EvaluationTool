@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
@@ -21,7 +22,12 @@ public sealed class MainViewModelTests
         var service = new FakeWorkspaceService(device);
         var workspace = new ProjectWorkspaceViewModel(service);
         var collection = new CollectionViewModel(new FakeCollectionWorkflowService());
-        var viewModel = new MainViewModel(workspace, collection, () => { });
+        var componentCenter = new ComponentCenterViewModel(
+            new ComponentCenterViewModelTests.FakeComponentStatusService(
+                ComponentCenterViewModelTests.UnavailableStatus(
+                    AssessmentTool.Windows.Components.ComponentFailure.Missing)));
+        await componentCenter.RefreshAsync();
+        var viewModel = new MainViewModel(workspace, collection, componentCenter, () => { });
         var changes = new List<string>();
         viewModel.PropertyChanged += (_, args) => changes.Add(args.PropertyName ?? string.Empty);
 
@@ -32,6 +38,12 @@ public sealed class MainViewModelTests
         Assert.Equal("核心交换机", viewModel.CurrentDeviceName);
         Assert.Contains(nameof(MainViewModel.CurrentProjectName), changes);
         Assert.Contains(nameof(MainViewModel.CurrentDeviceName), changes);
+        Assert.Same(componentCenter, viewModel.ComponentCenter);
+        Assert.False(viewModel.ComponentCenter.IsSshAvailable);
+        var essentialNavigation = viewModel.NavigationItems.Where(item =>
+            item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
+        Assert.Equal(3, essentialNavigation.Length);
+        Assert.All(essentialNavigation, item => Assert.True(item.IsAvailable));
     }
 
     private sealed class FakeWorkspaceService : IProjectWorkspaceService
