@@ -107,7 +107,7 @@ public sealed class CollectionViewModelTests
     [Fact]
     public async Task Database_candidates_require_confirmation_without_starting_database_collection()
     {
-        var candidate = CreateDatabaseCandidate("PostgreSQL", "15", "postgresql.service");
+        var candidate = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
         var service = new FakeCollectionWorkflowService(
             CollectionWorkflowResult.RequiresDatabaseConfirmation(new[] { candidate }));
         var viewModel = CreateReadyViewModel(service);
@@ -146,8 +146,8 @@ public sealed class CollectionViewModelTests
     [Fact]
     public async Task Database_confirmation_rejects_candidate_outside_current_results()
     {
-        var candidate = CreateDatabaseCandidate("PostgreSQL", "15", "postgresql.service");
-        var other = CreateDatabaseCandidate("MySQL", "8.0", "mysql.service");
+        var candidate = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
+        var other = CreateDatabaseCandidate("MySQL", string.Empty, "mysql.service");
         var service = new FakeCollectionWorkflowService(
             CollectionWorkflowResult.RequiresDatabaseConfirmation(new[] { candidate }));
         var viewModel = CreateReadyViewModel(service);
@@ -338,7 +338,7 @@ public sealed class CollectionViewModelTests
         var awaiting = coordinator.RecordObservation(
             probing,
             "ssh-ed25519",
-            "SHA256:0123456789abcdef0123456789abcdef01234567890",
+            "ssh-ed25519 255 SHA256:fixture",
             observedAt);
 
         if (state == HostKeyTrustState.AwaitingConfirmation)
@@ -384,7 +384,9 @@ public sealed class CollectionViewModelTests
         string version,
         string instanceName)
     {
-        var processName = product == "PostgreSQL" ? "postgres-" + version : "mysqld-" + version;
+        var processName = product == "PostgreSQL"
+            ? string.IsNullOrWhiteSpace(version) ? "postgres" : "postgres-" + version
+            : string.IsNullOrWhiteSpace(version) ? "mysqld" : "mysqld-" + version;
         var timestamp = DateTimeOffset.UtcNow;
         var output = new CommandOutput(
             "database-host-discovery-linux-processes",
