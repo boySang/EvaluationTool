@@ -108,6 +108,41 @@ jobs:
             throw 'Application output does not contain x64\SQLite.Interop.dll.'
           }
 
+      - name: Smoke test application startup
+        run: |
+          $appExecutable = Get-ChildItem -Path 'src\AssessmentTool.App\bin\Release' `
+            -Filter 'AssessmentTool.App.exe' -Recurse
+          if ($appExecutable.Count -ne 1) {
+            throw 'Startup smoke test requires exactly one AssessmentTool.App.exe.'
+          }
+
+          $process = Start-Process `
+            -FilePath $appExecutable[0].FullName `
+            -WorkingDirectory $appExecutable[0].DirectoryName `
+            -PassThru
+          try {
+            if ($process.WaitForExit(10000)) {
+              $recentEvents = Get-WinEvent -FilterHashtable @{
+                LogName = 'Application'
+                StartTime = (Get-Date).AddMinutes(-2)
+              } -ErrorAction SilentlyContinue |
+                Where-Object { $_.ProviderName -in @('.NET Runtime', 'Application Error', 'Windows Error Reporting') } |
+                Select-Object -First 10 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                Format-List |
+                Out-String
+              Write-Host $recentEvents
+              throw "AssessmentTool.App.exe exited during startup with code $($process.ExitCode)."
+            }
+
+            Write-Host 'AssessmentTool.App.exe remained running for 10 seconds.'
+          }
+          finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+              $process.WaitForExit()
+            }
+          }
+
       - name: Collect copyable Release outputs
         run: |
           $artifactRoot = Join-Path $PWD 'artifacts\release\EvaluationTool'
