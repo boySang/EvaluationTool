@@ -108,41 +108,6 @@ jobs:
             throw 'Application output does not contain x64\SQLite.Interop.dll.'
           }
 
-      - name: Smoke test application startup
-        run: |
-          $appExecutable = Get-ChildItem -Path 'src\AssessmentTool.App\bin\Release' `
-            -Filter 'AssessmentTool.App.exe' -Recurse
-          if ($appExecutable.Count -ne 1) {
-            throw 'Startup smoke test requires exactly one AssessmentTool.App.exe.'
-          }
-
-          $process = Start-Process `
-            -FilePath $appExecutable[0].FullName `
-            -WorkingDirectory $appExecutable[0].DirectoryName `
-            -PassThru
-          try {
-            if ($process.WaitForExit(10000)) {
-              $recentEvents = Get-WinEvent -FilterHashtable @{
-                LogName = 'Application'
-                StartTime = (Get-Date).AddMinutes(-2)
-              } -ErrorAction SilentlyContinue |
-                Where-Object { $_.ProviderName -in @('.NET Runtime', 'Application Error', 'Windows Error Reporting') } |
-                Select-Object -First 10 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
-                Format-List |
-                Out-String
-              Write-Host $recentEvents
-              throw "AssessmentTool.App.exe exited during startup with code $($process.ExitCode)."
-            }
-
-            Write-Host 'AssessmentTool.App.exe remained running for 10 seconds.'
-          }
-          finally {
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force
-              $process.WaitForExit()
-            }
-          }
-
       - name: Collect copyable Release outputs
         run: |
           $artifactRoot = Join-Path $PWD 'artifacts\release\EvaluationTool'
@@ -230,6 +195,47 @@ jobs:
           $componentDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool\依赖组件'
           New-Item -ItemType Directory -Path $componentDirectory -Force | Out-Null
           Copy-Item -Path $downloadPath -Destination (Join-Path $componentDirectory 'plink.exe') -Force
+
+      - name: Smoke test packaged application startup
+        run: |
+          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          $appPath = Join-Path $releaseDirectory 'AssessmentTool.App.exe'
+          if (-not (Test-Path -LiteralPath $appPath -PathType Leaf)) {
+            throw "Packaged application is missing: $appPath"
+          }
+
+          $startedAt = Get-Date
+          $process = Start-Process `
+            -FilePath $appPath `
+            -WorkingDirectory $releaseDirectory `
+            -PassThru `
+            -ErrorAction Stop
+          try {
+            if ($process.WaitForExit(10000)) {
+              $exitCode = $process.ExitCode
+              Start-Sleep -Seconds 2
+              Get-WinEvent -FilterHashtable @{
+                LogName = 'Application'
+                StartTime = $startedAt.AddSeconds(-1)
+              } -ErrorAction SilentlyContinue |
+                Where-Object { $_.ProviderName -in @('.NET Runtime', 'Application Error', 'Windows Error Reporting') } |
+                Select-Object -First 10 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                Format-List
+              throw "AssessmentTool.App.exe exited during startup with code $exitCode."
+            }
+
+            Write-Host 'Packaged AssessmentTool.App.exe remained running for 10 seconds.'
+          }
+          finally {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+              if (-not $process.WaitForExit(5000)) {
+                throw 'AssessmentTool.App.exe could not be terminated within 5 seconds.'
+              }
+            }
+            $process.Dispose()
+          }
 
       - name: Upload test results
         if: ${{ always() }}

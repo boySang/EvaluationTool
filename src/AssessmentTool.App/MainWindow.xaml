@@ -141,7 +141,7 @@
                 <TextBlock Text="{Binding Workspace.PossibleCause}" TextWrapping="Wrap" Margin="0,8,0,0" />
                 <TextBlock Text="{Binding Workspace.HowToFix}" TextWrapping="Wrap" Margin="0,8,0,0" />
                 <Expander Header="技术详情" Margin="0,8,0,0">
-                  <TextBox Text="{Binding Workspace.TechnicalDetails}" IsReadOnly="True" />
+                  <TextBox Text="{Binding Workspace.TechnicalDetails, Mode=OneWay}" IsReadOnly="True" />
                 </Expander>
               </StackPanel>
             </Border>
@@ -239,7 +239,7 @@
                             <TextBlock Text="{Binding PortEvidence, StringFormat=端口依据：{0}, TargetNullValue=未发现端口依据}" />
                             <TextBlock Text="{Binding Confidence, StringFormat=可信度：{0:P0}}" />
                             <Expander Header="查看识别依据">
-                              <TextBox Text="{Binding Evidence}" IsReadOnly="True" TextWrapping="Wrap" />
+                              <TextBox Text="{Binding Evidence, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" />
                             </Expander>
                             <Button Content="确认此数据库实例"
                                     Command="{Binding DataContext.Collection.ConfirmDatabaseCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -295,7 +295,7 @@
                 <TextBlock Text="怎么处理" FontWeight="SemiBold" Margin="0,10,0,2" />
                 <TextBlock Text="{Binding Collection.Error.RecommendedAction}" TextWrapping="Wrap" />
                 <Expander Header="技术详情" Margin="0,10,0,0">
-                  <TextBox Text="{Binding Collection.Error.TechnicalDetails}" IsReadOnly="True" TextWrapping="Wrap" />
+                  <TextBox Text="{Binding Collection.Error.TechnicalDetails, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" />
                 </Expander>
               </StackPanel>
             </Border>
