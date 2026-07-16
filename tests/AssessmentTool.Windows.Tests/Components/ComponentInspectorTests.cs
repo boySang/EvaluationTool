@@ -210,6 +210,14 @@ public sealed class ComponentInspectorTests
     }
 
     [Fact]
+    public void Component_file_version_uses_fixed_numeric_parts_instead_of_display_text()
+    {
+        Assert.Equal(
+            "0.84.0.0",
+            PhysicalComponentVersionReader.FormatNumericVersion(0, 84, 0, 0));
+    }
+
+    [Fact]
     public void Dependency_injection_and_available_status_construction_are_internal_only()
     {
         Assert.False(typeof(IComponentFileSystem).IsPublic);

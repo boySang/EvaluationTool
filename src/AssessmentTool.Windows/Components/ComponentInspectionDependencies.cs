@@ -516,7 +516,12 @@ internal sealed class PhysicalComponentVersionReader : IComponentVersionReader
             throw new InvalidDataException("组件版本路径与已打开句柄不匹配。");
         }
 
-        var version = FileVersionInfo.GetVersionInfo(absolutePath).FileVersion ?? string.Empty;
+        var versionInfo = FileVersionInfo.GetVersionInfo(absolutePath);
+        var version = FormatNumericVersion(
+            versionInfo.FileMajorPart,
+            versionInfo.FileMinorPart,
+            versionInfo.FileBuildPart,
+            versionInfo.FilePrivatePart);
         handle.ValidateLease();
         var after = handle.CaptureSnapshot();
         if (!before.Equals(after))
@@ -525,6 +530,21 @@ internal sealed class PhysicalComponentVersionReader : IComponentVersionReader
         }
 
         return version;
+    }
+
+    internal static string FormatNumericVersion(
+        int major,
+        int minor,
+        int build,
+        int revision)
+    {
+        return string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "{0}.{1}.{2}.{3}",
+            major,
+            minor,
+            build,
+            revision);
     }
 }
 

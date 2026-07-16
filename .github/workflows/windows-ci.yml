@@ -182,7 +182,12 @@ jobs:
             throw "Plink signer certificate serial number mismatch. Expected $expectedSignerSerialNumber but received $signerSerialNumber."
           }
 
-          $actualVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($downloadPath).FileVersion
+          $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($downloadPath)
+          $actualVersion = '{0}.{1}.{2}.{3}' -f `
+            $versionInfo.FileMajorPart,
+            $versionInfo.FileMinorPart,
+            $versionInfo.FileBuildPart,
+            $versionInfo.FilePrivatePart
           if (-not [string]::Equals($actualVersion, $expectedVersion, [System.StringComparison]::Ordinal)) {
             throw "Plink file version mismatch. Expected $expectedVersion but received $actualVersion."
           }
