@@ -41,6 +41,7 @@ public sealed class SqliteProjectRepositoryTests
             var project = Assert.Single(await repository.GetProjectsAsync());
             var device = Assert.Single(await repository.GetDevicesAsync(projectId));
             var execution = Assert.Single(await repository.GetExecutionsAsync(projectId));
+            walArtifacts.Dispose();
             var artifacts = database.GetDatabaseArtifacts();
 
             Assert.Equal(FixtureSecret, vault.Get(credentialReference));
