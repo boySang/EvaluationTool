@@ -28,6 +28,13 @@ internal readonly struct CredentialFileIdentity
     public uint VolumeSerialNumber { get; }
     public ulong FileIndex { get; }
     public uint LinkCount { get; }
+
+    internal bool Matches(CredentialFileIdentity other)
+    {
+        return VolumeSerialNumber == other.VolumeSerialNumber
+            && FileIndex == other.FileIndex
+            && string.Equals(CanonicalAbsolutePath, other.CanonicalAbsolutePath, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 internal sealed class CredentialVerifiedFile : IDisposable
@@ -120,6 +127,13 @@ internal sealed class CredentialFileSecurity
         ValidateDirectoryPath(path, requireSecureAclOnTarget: true);
     }
 
+    public CredentialFileIdentity GetSecureDirectoryIdentity(string path)
+    {
+        EnsureWithinTrustedRoot(path);
+        ValidateDirectoryPath(Path.GetDirectoryName(path) ?? TrustedRoot, requireSecureAclOnTarget: false);
+        return OpenAndValidateDirectoryIdentity(path, DeleteAccess | ReadControl | FileReadAttributes);
+    }
+
     public FileStream CreateSecureFile(string path)
     {
         EnsureWithinTrustedRoot(path);
@@ -150,6 +164,17 @@ internal sealed class CredentialFileSecurity
             TryDeleteVerifiedPath(path);
             throw Failure(CredentialVaultFailure.StorageFailure, "无法安全创建凭据文件。");
         }
+    }
+
+    public CredentialFileIdentity GetSecureFileIdentity(FileStream stream, string path)
+    {
+        if (stream == null)
+        {
+            throw new ArgumentNullException(nameof(stream));
+        }
+
+        EnsureWithinTrustedRoot(path);
+        return ValidateFileHandle(stream.SafeFileHandle, path, requireSingleLink: true, requireSecureAcl: true);
     }
 
     public CredentialVerifiedFile OpenVerifiedRead(string path)
@@ -208,7 +233,15 @@ internal sealed class CredentialFileSecurity
 
     public void DeleteFile(string path)
     {
-        if (!TryDeleteFile(path, ignoreSharingViolation: false))
+        if (!TryDeleteFile(path, expectedIdentity: null, ignoreSharingViolation: false))
+        {
+            throw Failure(CredentialVaultFailure.StorageFailure, "凭据文件当前正在使用，无法安全删除。");
+        }
+    }
+
+    public void DeleteFile(string path, CredentialFileIdentity expectedIdentity)
+    {
+        if (!TryDeleteFile(path, expectedIdentity, ignoreSharingViolation: false))
         {
             throw Failure(CredentialVaultFailure.StorageFailure, "凭据文件当前正在使用，无法安全删除。");
         }
@@ -216,7 +249,42 @@ internal sealed class CredentialFileSecurity
 
     public bool TryDeleteFile(string path)
     {
-        return TryDeleteFile(path, ignoreSharingViolation: true);
+        return TryDeleteFile(path, expectedIdentity: null, ignoreSharingViolation: true);
+    }
+
+    public void DeleteDirectory(string path, CredentialFileIdentity expectedIdentity)
+    {
+        EnsureWithinTrustedRoot(path);
+        if (PathsEqual(path, TrustedRoot))
+        {
+            throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "拒绝删除凭据受信任根目录。");
+        }
+
+        ValidateDirectoryPath(Path.GetDirectoryName(path) ?? TrustedRoot, requireSecureAclOnTarget: false);
+        using (var handle = CreateFile(
+            path,
+            DeleteAccess | ReadControl | FileReadAttributes,
+            FileShare.ReadWrite | FileShare.Delete,
+            IntPtr.Zero,
+            OpenExisting,
+            FileFlagOpenReparsePoint | FileFlagBackupSemantics,
+            IntPtr.Zero))
+        {
+            if (handle.IsInvalid)
+            {
+                var error = Marshal.GetLastWin32Error();
+                if (error == FileNotFound || error == PathNotFound)
+                {
+                    return;
+                }
+
+                throw Failure(CredentialVaultFailure.StorageFailure, "凭据临时目录无法通过验证句柄删除。");
+            }
+
+            var actualIdentity = ValidateDirectoryHandleIdentity(handle, path, requireSecureAcl: true);
+            EnsureExpectedIdentity(actualIdentity, expectedIdentity);
+            DeleteByHandle(handle);
+        }
     }
 
     public bool TryDeleteStaleFile(string path, DateTime notNewerThanUtc)
@@ -261,7 +329,59 @@ internal sealed class CredentialFileSecurity
         }
     }
 
-    private bool TryDeleteFile(string path, bool ignoreSharingViolation)
+    public bool TryDeleteStaleDirectory(
+        string path,
+        CredentialFileIdentity expectedIdentity,
+        DateTime notNewerThanUtc)
+    {
+        EnsureWithinTrustedRoot(path);
+        if (PathsEqual(path, TrustedRoot))
+        {
+            throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "拒绝删除凭据受信任根目录。");
+        }
+
+        ValidateDirectoryPath(Path.GetDirectoryName(path) ?? TrustedRoot, requireSecureAclOnTarget: false);
+        using (var handle = CreateFile(
+            path,
+            DeleteAccess | ReadControl | FileReadAttributes,
+            FileShare.ReadWrite | FileShare.Delete,
+            IntPtr.Zero,
+            OpenExisting,
+            FileFlagOpenReparsePoint | FileFlagBackupSemantics,
+            IntPtr.Zero))
+        {
+            if (handle.IsInvalid)
+            {
+                var error = Marshal.GetLastWin32Error();
+                if (error == FileNotFound || error == PathNotFound)
+                {
+                    return true;
+                }
+
+                if (error == SharingViolation || error == LockViolation)
+                {
+                    return false;
+                }
+
+                throw Failure(CredentialVaultFailure.StorageFailure, "凭据临时目录无法通过验证句柄清理。");
+            }
+
+            var actualIdentity = ValidateDirectoryHandleIdentity(handle, path, requireSecureAcl: true);
+            EnsureExpectedIdentity(actualIdentity, expectedIdentity);
+            if (ReadLastWriteTimeUtc(ReadHandleInformation(handle)) > notNewerThanUtc.ToUniversalTime())
+            {
+                return false;
+            }
+
+            DeleteByHandle(handle);
+            return true;
+        }
+    }
+
+    private bool TryDeleteFile(
+        string path,
+        CredentialFileIdentity? expectedIdentity,
+        bool ignoreSharingViolation)
     {
         EnsureWithinTrustedRoot(path);
         ValidateDirectoryPath(Path.GetDirectoryName(path) ?? TrustedRoot, requireSecureAclOnTarget: true);
@@ -295,7 +415,12 @@ internal sealed class CredentialFileSecurity
                 throw Failure(CredentialVaultFailure.StorageFailure, "凭据文件无法通过验证句柄删除。");
             }
 
-            ValidateFileHandle(handle, path, requireSingleLink: true, requireSecureAcl: true);
+            var actualIdentity = ValidateFileHandle(handle, path, requireSingleLink: true, requireSecureAcl: true);
+            if (expectedIdentity.HasValue)
+            {
+                EnsureExpectedIdentity(actualIdentity, expectedIdentity.Value);
+            }
+
             DeleteByHandle(handle);
             return true;
         }
@@ -400,18 +525,53 @@ internal sealed class CredentialFileSecurity
                 throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "凭据目录身份无法验证。");
             }
 
-            var information = ReadHandleInformation(handle);
-            if ((information.FileAttributes & ReparsePointAttribute) != 0
-                || !PathsEqual(GetCanonicalFinalPath(handle), Path.GetFullPath(path)))
+            _ = ValidateDirectoryHandleIdentity(handle, path, requireSecureAcl);
+        }
+    }
+
+    private CredentialFileIdentity OpenAndValidateDirectoryIdentity(string path, uint desiredAccess)
+    {
+        using (var handle = CreateFile(
+            path,
+            desiredAccess,
+            FileShare.ReadWrite | FileShare.Delete,
+            IntPtr.Zero,
+            OpenExisting,
+            FileFlagOpenReparsePoint | FileFlagBackupSemantics,
+            IntPtr.Zero))
+        {
+            if (handle.IsInvalid)
             {
-                throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "凭据目录祖先链包含重解析或替换路径。");
+                throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "凭据目录身份无法验证。");
             }
 
-            if (requireSecureAcl)
-            {
-                ValidateHandleAcl(handle);
-            }
+            return ValidateDirectoryHandleIdentity(handle, path, requireSecureAcl: true);
         }
+    }
+
+    private CredentialFileIdentity ValidateDirectoryHandleIdentity(
+        SafeFileHandle handle,
+        string expectedPath,
+        bool requireSecureAcl)
+    {
+        var information = ReadHandleInformation(handle);
+        var finalPath = GetCanonicalFinalPath(handle);
+        if ((information.FileAttributes & ReparsePointAttribute) != 0
+            || !PathsEqual(finalPath, Path.GetFullPath(expectedPath)))
+        {
+            throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "凭据目录祖先链包含重解析或替换路径。");
+        }
+
+        if (requireSecureAcl)
+        {
+            ValidateHandleAcl(handle);
+        }
+
+        return new CredentialFileIdentity(
+            finalPath,
+            information.VolumeSerialNumber,
+            ((ulong)information.FileIndexHigh << 32) | information.FileIndexLow,
+            information.NumberOfLinks);
     }
 
     private CredentialFileIdentity ValidateFileHandle(
@@ -570,6 +730,18 @@ internal sealed class CredentialFileSecurity
             || string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void EnsureExpectedIdentity(
+        CredentialFileIdentity actualIdentity,
+        CredentialFileIdentity expectedIdentity)
+    {
+        if (!PathsEqual(actualIdentity.CanonicalAbsolutePath, expectedIdentity.CanonicalAbsolutePath)
+            || actualIdentity.VolumeSerialNumber != expectedIdentity.VolumeSerialNumber
+            || actualIdentity.FileIndex != expectedIdentity.FileIndex)
+        {
+            throw Failure(CredentialVaultFailure.UnsafeFileIdentity, "凭据路径身份已发生变化，已拒绝删除。");
+        }
+    }
+
     private static string EnsureTrailingSeparator(string path)
     {
         return path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
@@ -586,7 +758,7 @@ internal sealed class CredentialFileSecurity
     {
         try
         {
-            _ = TryDeleteFile(path);
+            _ = TryDeleteFile(path, expectedIdentity: null, ignoreSharingViolation: true);
         }
         catch
         {

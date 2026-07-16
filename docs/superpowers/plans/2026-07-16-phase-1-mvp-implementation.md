@@ -187,7 +187,8 @@ public sealed class ConnectionProfile
     public int Port { get; }
     public ConnectionProtocol Protocol { get; }
     public TargetCategory TargetCategory { get; set; }
-    public string? PinnedHostKey { get; set; }
+    public SshEndpointIdentity? SshEndpoint { get; }
+    public SshConnectionOptions? SshOptions { get; }
 }
 ```
 
@@ -587,16 +588,20 @@ Expected: PASS.
 - Create: `tests/AssessmentTool.Windows.Tests/Sessions/PlinkSessionTests.cs`
 
 **Interfaces:**
-- Consumes: `ConnectionProfile`, pinned host key, credential material supplied through a protected temporary file, and verified command text.
-- Produces: `IRemoteSession.ExecuteAsync(string command, CancellationToken): CommandOutput`.
+- Consumes: `ConnectionProfile` with endpoint-bound immutable `SshOptions.HostKeyTrust`, credential material supplied through a protected temporary file, and an automatically executable `CommandDefinition`.
+- Produces: `IRemoteSession.ExecuteAsync(CommandDefinition command, CancellationToken): CommandOutput`.
+
+`HostKeyTrustState.Pinned` and `HostKeyTrustState.Verified` are both eligible for automatic connection. `Verified` means the same immutable endpoint and pinned fingerprint most recently passed Plink host-key verification; it does not replace or clear the pinned fingerprint. `Unconfigured`, `AwaitingProbe`, `AwaitingConfirmation`, and `MismatchBlocked` must all be rejected before process startup.
+
+`HostKeyTrust` has no public constructor, public observation transition, public `AwaitingConfirmation` factory, or public `Confirm` transition. Windows production code obtains the sealed `HostKeyTrustCoordinator` from the public Core `HostKeyTrustServices.CreateCoordinator()` factory; only that coordinator can move `Unconfigured` through `AwaitingProbe`, record a validated endpoint-bound probe observation, create `AwaitingConfirmation`, and confirm it as `Pinned`. Callers cannot replace the coordinator with their own interface implementation or skip the probe state. Initial pins, matching verifications, mismatches, and every reconfirmation append immutable audit events containing endpoint, algorithm, fingerprint, UTC time, and source, so repeated key replacements never overwrite earlier history.
 
 - [ ] **Step 1: Test that secrets never enter arguments**
 
 ```csharp
 [Fact]
-public void Password_profile_uses_pwfile_and_pinned_host_key()
+public void Password_profile_uses_pwfile_and_endpoint_bound_host_key_trust()
 {
-    var profile = ProfileWithPinnedHostKey("ssh-ed25519 255 SHA256:fixture");
+    var profile = ProfileWithHostKeyTrust(HostKeyTrustState.Pinned, "ssh-ed25519 255 SHA256:fixture");
 
     var arguments = new PlinkArgumentsBuilder().Build(profile, @"C:\secure\pw.txt");
 
@@ -607,10 +612,10 @@ public void Password_profile_uses_pwfile_and_pinned_host_key()
 }
 
 [Fact]
-public void Missing_pinned_host_key_blocks_batch_connection()
+public void Untrusted_host_key_state_blocks_batch_connection()
 {
     Assert.Throws<HostKeyNotConfirmedException>(() =>
-        new PlinkArgumentsBuilder().Build(ProfileWithoutHostKey(), @"C:\secure\pw.txt"));
+        new PlinkArgumentsBuilder().Build(ProfileWithHostKeyTrust(HostKeyTrustState.AwaitingConfirmation), @"C:\secure\pw.txt"));
 }
 ```
 
@@ -914,7 +919,7 @@ public async Task Start_is_disabled_until_project_device_component_and_host_key_
     Assert.False(viewModel.StartCommand.CanExecute(null));
 
     viewModel.SelectProject(FixtureProject.Ready);
-    viewModel.SelectDevice(FixtureDevice.WithoutPinnedHostKey);
+    viewModel.SelectDevice(FixtureDevice.WithUntrustedHostKeyState);
     Assert.False(viewModel.StartCommand.CanExecute(null));
 
     viewModel.SelectDevice(FixtureDevice.Ready);
@@ -1021,7 +1026,7 @@ Expected:
 
 ## Plan Self-Review Results
 
-- Spec coverage for Phase 1: project/device data, SSH password/key architecture, pinned host key, automatic identification, manual fallback, permanent read-only enforcement, command packs, local/container database discovery, raw output, PNG evidence, hashes, dependency checks, green package, installer, and Windows 10/11 verification all map to explicit tasks.
+- Spec coverage for Phase 1: project/device data, SSH password/key architecture, endpoint-bound `SshOptions.HostKeyTrust`, automatic identification, manual fallback, permanent read-only enforcement, command packs, local/container database discovery, raw output, PNG evidence, hashes, dependency checks, green package, installer, and Windows 10/11 verification all map to explicit tasks.
 - Deferred by design: Telnet, serial, WinRM, jump hosts, direct database sessions and SQL collection, broad domestic database coverage, middleware, command editor UI, batch import, and production vendor packs each require a separate plan after the MVP closes successfully.
 - Type consistency: command, detection, session, collection, repository, evidence, component, and view-model interfaces are introduced before their consumers.
 - Placeholder scan: no implementation placeholder is part of a Phase 1 step; deferred subsystems are explicitly outside this plan rather than left incomplete.

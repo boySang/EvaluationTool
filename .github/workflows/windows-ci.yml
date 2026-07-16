@@ -55,7 +55,7 @@ jobs:
           --logger "console;verbosity=normal"
           --results-directory artifacts\test-results\core-net8
 
-      - name: Test SQLite repository (net48, x64)
+      - name: Test Windows platform services (net48, x64)
         run: >-
           dotnet test tests/AssessmentTool.Windows.Tests/AssessmentTool.Windows.Tests.csproj
           --configuration Release
