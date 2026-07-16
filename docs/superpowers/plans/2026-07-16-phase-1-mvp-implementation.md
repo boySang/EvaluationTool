@@ -646,7 +646,8 @@ Expected: PASS.
 ## Task 8: Orchestrate identify, confirm, execute, and stop states
 
 **Files:**
-- Create: `src/AssessmentTool.Core/Execution/IRemoteSession.cs`
+- Reuse: `src/AssessmentTool.Core/Domain/RemoteSessionContracts.cs`
+- Modify: `src/AssessmentTool.Core/Domain/DetectionResult.cs`
 - Create: `src/AssessmentTool.Core/Execution/CollectionRunner.cs`
 - Create: `src/AssessmentTool.Core/Execution/CollectionProgress.cs`
 - Create: `tests/AssessmentTool.Core.Tests/Execution/CollectionRunnerTests.cs`
@@ -655,7 +656,7 @@ Expected: PASS.
 - Consumes: `IRemoteSession`, fixed identification commands, `DetectionEngine`, user-confirmed candidate, `CommandMatcher`, and `CommandSafetyPolicy`.
 - Produces: `CollectionRunner.RunAsync(CollectionRequest, IProgress<CollectionProgress>, CancellationToken): CollectionResult`.
 
-- [ ] **Step 1: Write the safety-critical orchestration tests**
+- [x] **Step 1: Write the safety-critical orchestration tests**
 
 ```csharp
 [Fact]
@@ -681,13 +682,13 @@ public async Task Unsafe_command_is_rejected_before_session_receives_it()
 }
 ```
 
-- [ ] **Step 2: Run orchestration tests and verify they fail**
+- [x] **Step 2: Run orchestration tests and verify they fail**
 
 Run: `dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj --filter CollectionRunnerTests`
 
 Expected: FAIL because `CollectionRunner` does not exist.
 
-- [ ] **Step 3: Implement the explicit state machine**
+- [x] **Step 3: Implement the explicit state machine**
 
 States are `Connecting`, `Identifying`, `AwaitingConfirmation`, `PreparingCommands`, `Executing`, `SavingEvidence`, `Completed`, `Failed`, and `Stopped`. Identification commands are a separate fixed verified list. The runner revalidates every command immediately before `IRemoteSession.ExecuteAsync`. Cancellation stops before the next command and preserves completed outputs.
 
@@ -704,11 +705,11 @@ foreach (var command in commands)
 }
 ```
 
-- [ ] **Step 4: Add paging and timeout fixtures**
+- [x] **Step 4: Add timeout and partial-output fixtures**
 
-Add fake transcripts containing `--More--`, `---- More ----`, and a command that never reaches its completion prompt. Verify the runner sends only the command pack's declared paging response, enforces the command timeout, and records partial output as failed rather than successful evidence.
+Use a fake `IRemoteSession` to return a timed-out result with partial output. Verify the runner preserves that output, stops later commands, and never reports it as a completed collection. Paging prompts such as `--More--` and `---- More ----` remain the responsibility of the interactive session adapter because `CollectionRunner` deliberately has no protocol-level input/output channel.
 
-- [ ] **Step 5: Run orchestration tests**
+- [x] **Step 5: Run orchestration tests**
 
 Run: `dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj --filter CollectionRunnerTests`
 

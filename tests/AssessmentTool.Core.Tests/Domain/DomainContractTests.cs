@@ -184,6 +184,75 @@ public sealed class DomainContractTests
     }
 
     [Fact]
+    public void DetectionResult_confirm_preserves_original_confidence_and_marks_user_confirmation()
+    {
+        var candidate = CreateCandidate(0.42);
+        var result = new DetectionResult(new[] { candidate });
+
+        var confirmed = result.Confirm(candidate);
+
+        Assert.True(confirmed.WasUserConfirmed);
+        Assert.False(confirmed.RequiresUserConfirmation);
+        Assert.Equal(0.42, Assert.Single(confirmed.Candidates).Confidence);
+    }
+
+    [Fact]
+    public void DetectionResult_confirm_rejects_automatic_candidate()
+    {
+        var candidate = new DetectionCandidate(
+            TargetCategory.Automatic,
+            "厂商",
+            "系列",
+            "X1000",
+            "1.0",
+            "版本横幅",
+            1.0);
+        var result = new DetectionResult(new[] { candidate });
+
+        Assert.Throws<ArgumentException>(() => result.Confirm(candidate));
+    }
+
+    [Fact]
+    public void DetectionResult_confirm_rejects_candidate_outside_current_candidates()
+    {
+        var result = new DetectionResult(new[] { CreateCandidate(0.8) });
+        var outsideCandidate = new DetectionCandidate(
+            TargetCategory.Server,
+            "其他厂商",
+            "其他系列",
+            "S2000",
+            "2.0",
+            "其他识别依据",
+            0.8);
+
+        Assert.Throws<ArgumentException>(() => result.Confirm(outsideCandidate));
+    }
+
+    [Theory]
+    [InlineData("Category")]
+    [InlineData("Vendor")]
+    [InlineData("ProductFamily")]
+    [InlineData("Model")]
+    [InlineData("Version")]
+    [InlineData("Evidence")]
+    [InlineData("Confidence")]
+    public void DetectionResult_confirm_rejects_candidate_with_tampered_field(string field)
+    {
+        var candidate = CreateCandidate(0.8);
+        var result = new DetectionResult(new[] { candidate });
+        var tamperedCandidate = new DetectionCandidate(
+            field == "Category" ? TargetCategory.Server : candidate.Category,
+            field == "Vendor" ? "其他厂商" : candidate.Vendor,
+            field == "ProductFamily" ? "其他系列" : candidate.ProductFamily,
+            field == "Model" ? "S2000" : candidate.Model,
+            field == "Version" ? "2.0" : candidate.Version,
+            field == "Evidence" ? "其他识别依据" : candidate.Evidence,
+            field == "Confidence" ? 0.81 : candidate.Confidence);
+
+        Assert.Throws<ArgumentException>(() => result.Confirm(tamperedCandidate));
+    }
+
+    [Fact]
     public void ExecutionRecord_accepts_complete_successful_record_and_defensively_copies_evidence()
     {
         var startedAt = DateTimeOffset.UtcNow;
