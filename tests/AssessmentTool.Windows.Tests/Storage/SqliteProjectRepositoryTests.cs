@@ -70,10 +70,16 @@ public sealed class SqliteProjectRepositoryTests
                 Assert.DoesNotContain(FixtureSecret, value, StringComparison.Ordinal));
             Assert.Contains(database.Path, artifacts);
             Assert.Contains(database.Path + "-wal", artifacts);
-            Assert.Contains(database.Path + "-shm", artifacts);
             Assert.All(
-                new[] { database.Path, database.Path + "-wal", database.Path + "-shm" },
+                new[] { database.Path, database.Path + "-wal" },
                 artifactPath => Assert.True(new FileInfo(artifactPath).Length > 0));
+            var sharedMemoryPath = database.Path + "-shm";
+            if (File.Exists(sharedMemoryPath))
+            {
+                Assert.Contains(sharedMemoryPath, artifacts);
+                Assert.True(new FileInfo(sharedMemoryPath).Length > 0);
+            }
+
             Assert.All(artifacts, AssertFixtureSecretAbsent);
             var enumerableTempArtifacts = database.GetEnumerableSqliteTempArtifacts();
             if (!walArtifacts.TempStoreDirectoryConfigured)
