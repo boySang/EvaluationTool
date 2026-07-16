@@ -119,3 +119,41 @@ jobs:
           path: artifacts\release\EvaluationTool
           if-no-files-found: error
           retention-days: 14
+
+  publish-status:
+    name: Publish machine-readable status
+    if: ${{ always() }}
+    needs: build-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Publish status branch
+        env:
+          BUILD_RESULT: ${{ needs.build-test.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch --orphan ci-results
+          git rm -rf .
+          cat > status.txt <<EOF
+          result=${BUILD_RESULT}
+          source_sha=${SOURCE_SHA}
+          run_id=${RUN_ID}
+          run_attempt=${RUN_ATTEMPT}
+          run_url=${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}
+          EOF
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add status.txt
+          git commit -m "ci: record Windows result for ${SOURCE_SHA}"
+          git push --force origin HEAD:ci-results
