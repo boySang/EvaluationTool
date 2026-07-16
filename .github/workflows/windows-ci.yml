@@ -129,7 +129,7 @@ jobs:
           $expectedVersion = '0.84.0.0'
           $expectedSignerName = 'Simon Tatham'
           $expectedSignerThumbprint = '66C298D018034F29B8EA1D6E90F5497FE305D2E8'
-          $expectedSignerSerialNumber = 'BE8E1D85C5D2521B6D33379E3B8501A9'
+          $expectedSignerSerialNumber = '00BE8E1D85C5D2521B6D33379E3B8501A9'
           $downloadDirectory = Join-Path $env:RUNNER_TEMP 'EvaluationTool\putty-0.84'
           $downloadPath = Join-Path $downloadDirectory 'plink.exe'
 
