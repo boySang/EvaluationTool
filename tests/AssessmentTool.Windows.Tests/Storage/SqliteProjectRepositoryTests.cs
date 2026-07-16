@@ -68,19 +68,9 @@ public sealed class SqliteProjectRepositoryTests
                 .Concat(execution.EvidenceImageSha256s.Values);
             Assert.All(persistedDtoStrings, value =>
                 Assert.DoesNotContain(FixtureSecret, value, StringComparison.Ordinal));
-            Assert.All(new[] { database.Path, database.Path + "-wal" }, expectedPath =>
-            {
-                var actualPath = Assert.Single(artifacts, artifactPath =>
-                    string.Equals(artifactPath, expectedPath, StringComparison.OrdinalIgnoreCase));
-                Assert.True(new FileInfo(actualPath).Length > 0);
-            });
-            var sharedMemoryPath = database.Path + "-shm";
-            if (File.Exists(sharedMemoryPath))
-            {
-                var actualSharedMemoryPath = Assert.Single(artifacts, artifactPath =>
-                    string.Equals(artifactPath, sharedMemoryPath, StringComparison.OrdinalIgnoreCase));
-                Assert.True(new FileInfo(actualSharedMemoryPath).Length > 0);
-            }
+            var actualDatabasePath = Assert.Single(artifacts, artifactPath =>
+                string.Equals(artifactPath, database.Path, StringComparison.OrdinalIgnoreCase));
+            Assert.True(new FileInfo(actualDatabasePath).Length > 0);
 
             Assert.All(artifacts, AssertFixtureSecretAbsent);
             var enumerableTempArtifacts = database.GetEnumerableSqliteTempArtifacts();
@@ -664,7 +654,8 @@ public sealed class SqliteProjectRepositoryTests
             {
                 Path,
                 Path + "-wal",
-                Path + "-shm"
+                Path + "-shm",
+                Path + "-journal"
             };
             return GetDatabaseArtifacts()
                 .Where(artifactPath => !requiredArtifacts.Contains(artifactPath))
