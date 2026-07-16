@@ -1,0 +1,5 @@
+# command: database-host-discovery-linux-docker-containers
+{"Command":"docker-entrypoint.sh postgres","Image":"postgres:16.3","Names":"fixture-postgres","Ports":"127.0.0.1:15432->5432/tcp"}
+{"Command":"docker-entrypoint.sh mysqld","Image":"mysql:latest","Names":"fixture-mysql","Ports":"127.0.0.1:13306->3306/tcp"}
+# command: database-host-discovery-linux-podman-containers
+{"Command":"mariadbd","Image":"docker.io/library/mariadb:11.4","Names":"fixture-mariadb","Ports":"127.0.0.1:13307->3306/tcp"}

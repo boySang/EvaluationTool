@@ -60,7 +60,8 @@ public sealed class CommandPackLoader
         "pagingBehavior",
         "resultDescription",
         "verificationDate",
-        "officialSource"
+        "officialSource",
+        "optional"
     };
 
     private static readonly string[] RequiredPackStringProperties =
@@ -268,7 +269,8 @@ public sealed class CommandPackLoader
             pagingBehavior,
             RequiredText(document.ResultDescription, "结果说明"),
             ValidateVerificationDate(document.VerificationDate),
-            ValidateCommandOfficialSource(document.OfficialSource, vendor));
+            ValidateCommandOfficialSource(document.OfficialSource, vendor),
+            document.Optional);
     }
 
     private static string ValidateModelRange(string? value)
@@ -721,5 +723,8 @@ public sealed class CommandPackLoader
 
         [JsonProperty("officialSource", Required = Required.Always)]
         public string? OfficialSource { get; set; }
+
+        [JsonProperty("optional", Required = Required.Default)]
+        public bool Optional { get; set; }
     }
 }

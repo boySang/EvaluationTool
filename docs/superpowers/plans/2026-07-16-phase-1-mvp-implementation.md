@@ -801,11 +801,11 @@ Expected: PASS.
 - Consumes: outputs from fixed verified Linux host-discovery commands.
 - Produces: `HostDatabaseDiscovery.Detect(IReadOnlyList<CommandOutput>): IReadOnlyList<DatabaseInstanceCandidate>` with product, version, installation type, container/service name, port evidence, confidence, and `RequiresUserConfirmation`.
 
-- [ ] **Step 1: Add local-service and container discovery fixtures**
+- [x] **Step 1: Add local-service and container discovery fixtures**
 
 The native fixture contains representative output from `ps -eo pid,comm,args` and `systemctl list-units --type=service --state=running --no-pager`, including PostgreSQL and MySQL. The container fixture contains JSON-line output from `docker ps --no-trunc --format {{json .}}` and `podman ps --no-trunc --format {{json .}}`, including image tags and published ports. Remove customer names, real addresses, ids, and secrets from fixtures.
 
-- [ ] **Step 2: Write failing discovery tests**
+- [x] **Step 2: Write failing discovery tests**
 
 ```csharp
 [Fact]
@@ -833,13 +833,13 @@ public void Detects_container_image_but_requires_confirmation_when_version_is_la
 }
 ```
 
-- [ ] **Step 3: Run discovery tests and verify they fail**
+- [x] **Step 3: Run discovery tests and verify they fail**
 
 Run: `dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj --filter HostDatabaseDiscoveryTests`
 
 Expected: FAIL because `HostDatabaseDiscovery` does not exist.
 
-- [ ] **Step 4: Implement explicit product signatures**
+- [x] **Step 4: Implement explicit product signatures**
 
 ```csharp
 private static readonly DatabaseSignature[] Signatures =
@@ -853,9 +853,9 @@ private static readonly DatabaseSignature[] Signatures =
 };
 ```
 
-Parse only known command-output formats. Treat `latest`, missing tags, conflicting process/image evidence, and multiple matching instances as requiring user confirmation. Preserve the exact source line as evidence. Do not infer a version from a port number.
+Parse only known command-output formats. Treat `latest`, missing tags, conflicting process/image evidence, and multiple matching instances as requiring user confirmation. Preserve the exact source line as evidence after masking sensitive arguments in candidate metadata; keep the separately stored raw output unchanged. Do not infer a version from a port number.
 
-- [ ] **Step 5: Add the verified host-discovery command pack**
+- [x] **Step 5: Add the verified host-discovery command pack**
 
 Include only these exact read-only commands for an authorized Linux host:
 
@@ -868,7 +868,7 @@ podman ps --no-trunc --format {{json .}}
 
 Mark Docker and Podman commands optional: exit code indicating “not installed” is not a task failure. Do not include `docker exec`, `podman exec`, container lifecycle commands, network scans, or filesystem searches in Phase 1.
 
-- [ ] **Step 6: Run host database discovery tests**
+- [x] **Step 6: Run host database discovery tests**
 
 Run: `dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj --filter HostDatabaseDiscoveryTests`
 

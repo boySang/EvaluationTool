@@ -112,6 +112,7 @@
           "format": "date",
           "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
         },
+        "optional": { "type": "boolean" },
         "officialSource": {
           "type": "string",
           "anyOf": [

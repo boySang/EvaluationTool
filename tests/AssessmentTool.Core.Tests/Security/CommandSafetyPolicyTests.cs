@@ -147,6 +147,43 @@ public sealed class CommandSafetyPolicyTests
     }
 
     [Theory]
+    [InlineData("ps -eo pid,comm,args")]
+    [InlineData("systemctl list-units --type=service --state=running --no-pager")]
+    [InlineData("docker ps --no-trunc --format {{json .}}")]
+    [InlineData("podman ps --no-trunc --format {{json .}}")]
+    public void Allows_exact_inventory_command_templates(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.True(result.Allowed);
+        Assert.Equal("allowed", result.Code);
+    }
+
+    [Theory]
+    [InlineData("docker exec db ps", "unsafe-command")]
+    [InlineData("podman exec db ps", "unsafe-command")]
+    [InlineData("systemctl restart sshd", "unsafe-command")]
+    [InlineData("docker start db", "unsafe-command")]
+    [InlineData("podman restart db", "unsafe-command")]
+    [InlineData("docker ps --no-trunc --format {{.ID}}", "unsupported-command-shape")]
+    [InlineData("podman ps --no-trunc --format {{.Names}}", "unsupported-command-shape")]
+    [InlineData("ps -eo pid,comm,args --sort=pid", "unsupported-command-shape")]
+    [InlineData("systemctl list-units --type=service --state=running --no-pager --all", "unsupported-command-shape")]
+    [InlineData("docker ps --no-trunc --format {{json .}} --all", "unsupported-command-shape")]
+    [InlineData("podman ps --no-trunc --format {{json .}} --quiet", "unsupported-command-shape")]
+    [InlineData("ps -eo pid,comm,args | cat", "unsafe-command")]
+    [InlineData("systemctl list-units --type=service --state=running --no-pager > services.txt", "unsafe-command")]
+    [InlineData("docker ps --no-trunc --format {{json .}} | cat", "unsafe-command")]
+    [InlineData("podman ps --no-trunc --format {{json .}} >> containers.txt", "unsafe-command")]
+    public void Rejects_dangerous_variants_of_inventory_command_templates(string commandText, string expectedCode)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.False(result.Allowed);
+        Assert.Equal(expectedCode, result.Code);
+    }
+
+    [Theory]
     [InlineData("echo harmless")]
     [InlineData("ls -la")]
     [InlineData("Get-X")]

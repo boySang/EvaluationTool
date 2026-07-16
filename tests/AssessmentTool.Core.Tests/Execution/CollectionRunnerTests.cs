@@ -204,6 +204,48 @@ public sealed class CollectionRunnerTests
     }
 
     [Fact]
+    public async Task Optional_command_not_found_is_preserved_and_does_not_stop_later_commands()
+    {
+        var session = new FakeSession("VendorA Network OS 7.2 Model X100")
+        {
+            FailedCommandId = "collect-optional",
+            FailedExitCode = 127
+        };
+
+        var result = await Runner(session).RunAsync(
+            Request(
+                CollectionCommand("collect-optional", "show version", isOptional: true),
+                CollectionCommand("collect-required", "show clock")),
+            new ProgressRecorder(),
+            CancellationToken.None);
+
+        Assert.Equal(CollectionOutcome.Completed, result.Outcome);
+        Assert.Equal(2, result.CommandOutputs.Count);
+        Assert.Equal(RemoteExecutionOutcome.Failed, result.CommandOutputs[0].Outcome);
+        Assert.Contains(session.Commands, command => command.Id == "collect-required");
+    }
+
+    [Fact]
+    public async Task Optional_command_failure_other_than_not_found_still_stops_collection()
+    {
+        var session = new FakeSession("VendorA Network OS 7.2 Model X100")
+        {
+            FailedCommandId = "collect-optional",
+            FailedExitCode = 1
+        };
+
+        var result = await Runner(session).RunAsync(
+            Request(
+                CollectionCommand("collect-optional", "show version", isOptional: true),
+                CollectionCommand("collect-required", "show clock")),
+            new ProgressRecorder(),
+            CancellationToken.None);
+
+        Assert.Equal(CollectionOutcome.Failed, result.Outcome);
+        Assert.DoesNotContain(session.Commands, command => command.Id == "collect-required");
+    }
+
+    [Fact]
     public async Task No_matching_commands_is_not_reported_as_completed()
     {
         var result = await Runner(new FakeSession("VendorA Network OS 7.2 Model X100")).RunAsync(
@@ -291,9 +333,19 @@ public sealed class CollectionRunnerTests
             checkItem: "IDENTIFY");
     }
 
-    private static CommandDefinition CollectionCommand(string id, string commandText)
+    private static CommandDefinition CollectionCommand(
+        string id,
+        string commandText,
+        bool isOptional = false)
     {
-        return Command(id, commandText, TargetCategory.NetworkDevice, "VendorA", "Network OS", "AC-1");
+        return Command(
+            id,
+            commandText,
+            TargetCategory.NetworkDevice,
+            "VendorA",
+            "Network OS",
+            "AC-1",
+            isOptional);
     }
 
     private static CommandDefinition ServerCommand()
@@ -307,7 +359,8 @@ public sealed class CollectionRunnerTests
         TargetCategory category,
         string? vendor,
         string? productFamily,
-        string checkItem)
+        string checkItem,
+        bool isOptional = false)
     {
         return new CommandDefinition(
             id,
@@ -328,7 +381,8 @@ public sealed class CollectionRunnerTests
             PagingBehavior.DisablePaging,
             resultDescription: "测试输出",
             new DateTime(2025, 2, 3),
-            officialSource: "urn:assessment-tool:test-fixture");
+            officialSource: "urn:assessment-tool:test-fixture",
+            isOptional);
     }
 
     private sealed class ProgressRecorder : IProgress<CollectionProgress>
@@ -357,6 +411,8 @@ public sealed class CollectionRunnerTests
         public Func<CommandDefinition, string>? ReturnedCommandId { get; set; }
         public string? TimedOutCommandId { get; set; }
         public string? EmptyOutputCommandId { get; set; }
+        public string? FailedCommandId { get; set; }
+        public int FailedExitCode { get; set; } = 1;
         public IReadOnlyList<CommandDefinition> Commands => commands;
         public IReadOnlyList<string> CommandTexts => commands.Select(command => command.CommandText).ToArray();
 
@@ -376,13 +432,18 @@ public sealed class CollectionRunnerTests
             }
             var timestamp = new DateTimeOffset(2026, 7, 16, 8, 0, 0, TimeSpan.Zero);
             var timedOut = string.Equals(command.Id, TimedOutCommandId, StringComparison.Ordinal);
+            var failed = string.Equals(command.Id, FailedCommandId, StringComparison.Ordinal);
             var result = new CommandOutput(
                 ReturnedCommandId?.Invoke(command) ?? command.Id,
                 timedOut ? "partial:" + command.Id : output,
-                string.Empty,
-                timedOut ? null : 0,
-                timedOut ? RemoteExecutionOutcome.Stopped : RemoteExecutionOutcome.Succeeded,
-                timedOut ? RemoteFailureCategory.TimedOut : null,
+                failed ? "command not found" : string.Empty,
+                timedOut ? null : failed ? FailedExitCode : 0,
+                timedOut
+                    ? RemoteExecutionOutcome.Stopped
+                    : failed ? RemoteExecutionOutcome.Failed : RemoteExecutionOutcome.Succeeded,
+                timedOut
+                    ? RemoteFailureCategory.TimedOut
+                    : failed ? RemoteFailureCategory.ProcessFailed : null,
                 timestamp,
                 timestamp.AddSeconds(1));
 

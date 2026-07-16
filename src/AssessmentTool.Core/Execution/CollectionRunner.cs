@@ -94,6 +94,7 @@ public sealed class CollectionRunner
 
                 identificationOutputs.Add(output);
                 var terminal = FinishAfterNonSuccess(
+                    command,
                     output,
                     detection,
                     identificationOutputs,
@@ -187,6 +188,7 @@ public sealed class CollectionRunner
 
                 commandOutputs.Add(output);
                 var terminal = FinishAfterNonSuccess(
+                    command,
                     output,
                     detection,
                     identificationOutputs,
@@ -264,6 +266,7 @@ public sealed class CollectionRunner
     }
 
     private static CollectionResult? FinishAfterNonSuccess(
+        CommandDefinition command,
         CommandOutput output,
         DetectionResult? detection,
         IReadOnlyList<CommandOutput> identificationOutputs,
@@ -271,6 +274,14 @@ public sealed class CollectionRunner
         IProgress<CollectionProgress> progress)
     {
         if (output.Outcome == RemoteExecutionOutcome.Succeeded)
+        {
+            return null;
+        }
+
+        if (command.IsOptional
+            && output.Outcome == RemoteExecutionOutcome.Failed
+            && output.FailureCategory == RemoteFailureCategory.ProcessFailed
+            && output.ExitCode == 127)
         {
             return null;
         }
@@ -300,6 +311,11 @@ public sealed class CollectionRunner
         var transcript = new StringBuilder();
         foreach (var output in outputs)
         {
+            if (output.Outcome != RemoteExecutionOutcome.Succeeded)
+            {
+                continue;
+            }
+
             if (transcript.Length > 0)
             {
                 transcript.AppendLine();

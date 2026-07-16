@@ -44,7 +44,8 @@ public sealed class CommandDefinition
         PagingBehavior pagingBehavior,
         string resultDescription,
         DateTime verificationDate,
-        string officialSource)
+        string officialSource,
+        bool isOptional = false)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
         Title = title ?? throw new ArgumentNullException(nameof(title));
@@ -65,6 +66,7 @@ public sealed class CommandDefinition
         ResultDescription = resultDescription ?? throw new ArgumentNullException(nameof(resultDescription));
         VerificationDate = verificationDate;
         OfficialSource = officialSource ?? throw new ArgumentNullException(nameof(officialSource));
+        IsOptional = isOptional;
     }
 
     public string Id { get; }
@@ -86,5 +88,6 @@ public sealed class CommandDefinition
     public string ResultDescription { get; }
     public DateTime VerificationDate { get; }
     public string OfficialSource { get; }
+    public bool IsOptional { get; }
     public bool IsEligibleForAutomaticExecution => VerificationStatus == VerificationStatus.Verified && IsReadOnly;
 }
