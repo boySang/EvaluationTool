@@ -1,0 +1,50 @@
+{
+  "id": "test-network-device",
+  "name": "测试网络设备只读命令包",
+  "version": "1.0.0",
+  "officialSource": "urn:assessment-tool:test-fixture",
+  "commands": [
+    {
+      "id": "test-network-device-show-version",
+      "title": "读取测试设备版本",
+      "targetCategory": "NetworkDevice",
+      "commandText": "show version",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "AssessmentTool.TestFixture",
+      "productFamily": "TestNetworkOS",
+      "minimumVersion": null,
+      "maximumVersion": null,
+      "checkItem": "基础识别",
+      "modelRange": "*",
+      "accountRequirement": "测试只读账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 30,
+      "pagingBehavior": "DisablePaging",
+      "resultDescription": "确认测试设备系统版本。",
+      "verificationDate": "2026-07-16",
+      "officialSource": "urn:assessment-tool:test-fixture"
+    },
+    {
+      "id": "test-network-device-show-clock",
+      "title": "读取测试设备时钟",
+      "targetCategory": "NetworkDevice",
+      "commandText": "show clock",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "AssessmentTool.TestFixture",
+      "productFamily": "TestNetworkOS",
+      "minimumVersion": null,
+      "maximumVersion": null,
+      "checkItem": "基础识别",
+      "modelRange": "*",
+      "accountRequirement": "测试只读账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 30,
+      "pagingBehavior": "DisablePaging",
+      "resultDescription": "确认测试设备当前时钟。",
+      "verificationDate": "2026-07-16",
+      "officialSource": "urn:assessment-tool:test-fixture"
+    }
+  ]
+}

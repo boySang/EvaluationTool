@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Assessment Tool Command Pack",
+  "$comment": "PowerShell commands must be executed by later connection adapters with -NoProfile; loading a PowerShell profile is not authorized by a command pack.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "officialSource", "commands"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "version": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "officialSource": {
+      "type": "string",
+      "anyOf": [
+        { "const": "urn:assessment-tool:test-fixture" },
+        { "format": "uri", "pattern": "^https://" }
+      ]
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/command" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "officialSource": { "const": "urn:assessment-tool:test-fixture" }
+        },
+        "required": ["officialSource"]
+      },
+      "then": {
+        "properties": {
+          "commands": {
+            "items": {
+              "properties": {
+                "vendor": { "const": "AssessmentTool.TestFixture" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "commands": {
+            "contains": {
+              "type": "object",
+              "properties": {
+                "vendor": { "const": "AssessmentTool.TestFixture" }
+              },
+              "required": ["vendor"]
+            }
+          }
+        },
+        "required": ["commands"]
+      },
+      "then": {
+        "properties": {
+          "officialSource": { "const": "urn:assessment-tool:test-fixture" }
+        },
+        "required": ["officialSource"]
+      }
+    }
+  ],
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "title", "targetCategory", "commandText", "verificationStatus",
+        "isReadOnly", "vendor", "productFamily", "minimumVersion", "maximumVersion",
+        "checkItem", "modelRange", "accountRequirement", "riskLevel", "timeoutSeconds",
+        "pagingBehavior", "resultDescription", "verificationDate", "officialSource"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "targetCategory": {
+          "enum": ["NetworkDevice", "Server", "Database", "Middleware", "SecurityDevice"]
+        },
+        "commandText": { "type": "string", "minLength": 1 },
+        "verificationStatus": { "const": "Verified" },
+        "isReadOnly": { "const": true },
+        "vendor": { "type": ["string", "null"] },
+        "productFamily": { "type": ["string", "null"] },
+        "minimumVersion": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]+(?:\\.[0-9]+){0,3}$"
+        },
+        "maximumVersion": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]+(?:\\.[0-9]+){0,3}$"
+        },
+        "checkItem": { "type": "string", "minLength": 1 },
+        "modelRange": {
+          "type": "string",
+          "pattern": "^(?:\\*|[^*]+\\*?)$"
+        },
+        "accountRequirement": { "type": "string", "minLength": 1 },
+        "riskLevel": { "enum": ["Low", "Medium", "High"] },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "pagingBehavior": { "enum": ["NotApplicable", "DisablePaging", "HandlePagination"] },
+        "resultDescription": { "type": "string", "minLength": 1 },
+        "verificationDate": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "officialSource": {
+          "type": "string",
+          "anyOf": [
+            { "const": "urn:assessment-tool:test-fixture" },
+            { "format": "uri", "pattern": "^https://" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "officialSource": { "const": "urn:assessment-tool:test-fixture" }
+            },
+            "required": ["officialSource"]
+          },
+          "then": {
+            "properties": {
+              "vendor": { "const": "AssessmentTool.TestFixture" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
