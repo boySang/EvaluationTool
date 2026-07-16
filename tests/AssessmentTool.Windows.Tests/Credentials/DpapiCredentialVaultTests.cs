@@ -164,15 +164,17 @@ public sealed class DpapiCredentialVaultTests
     {
         using (var folder = new TemporaryFolder())
         {
-            var vault = new DpapiCredentialVault(folder.Path);
-            var actualReference = vault.Store(Secret.ToCharArray());
             var requestedReference = CredentialReference.New();
-            File.Copy(vault.GetCredentialFilePathForTesting(actualReference), vault.GetCredentialFilePathForTesting(requestedReference));
-            File.SetAccessControl(
-                vault.GetCredentialFilePathForTesting(requestedReference),
-                File.GetAccessControl(vault.GetCredentialFilePathForTesting(actualReference)));
+            var actualReference = CredentialReference.New();
+            var actualVault = new DpapiCredentialVault(folder.Path, new FixedCredentialReferenceGenerator(actualReference));
+            actualVault.Store(Secret.ToCharArray());
+            var requestedVault = new DpapiCredentialVault(folder.Path, new FixedCredentialReferenceGenerator(requestedReference));
+            requestedVault.Store("placeholder".ToCharArray());
+            File.WriteAllBytes(
+                requestedVault.GetCredentialFilePathForTesting(requestedReference),
+                File.ReadAllBytes(actualVault.GetCredentialFilePathForTesting(actualReference)));
 
-            var exception = Assert.Throws<CredentialVaultException>(() => vault.Retrieve(requestedReference));
+            var exception = Assert.Throws<CredentialVaultException>(() => requestedVault.Retrieve(requestedReference));
 
             Assert.Equal(CredentialVaultFailure.ReferenceMismatch, exception.Failure);
         }
@@ -189,13 +191,14 @@ public sealed class DpapiCredentialVaultTests
             vault.Store(Secret.ToCharArray());
             var firstPath = vault.GetCredentialFilePathForTesting(firstReference);
             var secondPath = vault.GetCredentialFilePathForTesting(secondReference);
+            var secondVault = new DpapiCredentialVault(folder.Path, new FixedCredentialReferenceGenerator(secondReference));
+            secondVault.Store("placeholder".ToCharArray());
             var file = File.ReadAllBytes(firstPath);
             var secondReferenceBytes = secondReference.Value.ToByteArray();
             try
             {
                 Buffer.BlockCopy(secondReferenceBytes, 0, file, 6, secondReferenceBytes.Length);
                 File.WriteAllBytes(secondPath, file);
-                File.SetAccessControl(secondPath, File.GetAccessControl(firstPath));
             }
             finally
             {
@@ -203,7 +206,7 @@ public sealed class DpapiCredentialVaultTests
                 Array.Clear(secondReferenceBytes, 0, secondReferenceBytes.Length);
             }
 
-            var exception = Assert.Throws<CredentialVaultException>(() => vault.Retrieve(secondReference));
+            var exception = Assert.Throws<CredentialVaultException>(() => secondVault.Retrieve(secondReference));
 
             Assert.Equal(CredentialVaultFailure.ReferenceMismatch, exception.Failure);
             Assert.DoesNotContain(Secret, exception.ToString());
