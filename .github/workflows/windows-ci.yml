@@ -65,6 +65,27 @@ jobs:
           --logger "console;verbosity=normal"
           --results-directory artifacts\test-results\windows-net48
 
+      - name: Publish failed test details
+        if: ${{ failure() }}
+        run: |
+          $trxFiles = Get-ChildItem -Path 'artifacts\test-results' -Filter '*.trx' -Recurse -ErrorAction SilentlyContinue
+          foreach ($trxFile in $trxFiles) {
+            [xml]$trx = Get-Content -Path $trxFile.FullName -Raw
+            $namespace = New-Object System.Xml.XmlNamespaceManager($trx.NameTable)
+            $namespace.AddNamespace('t', $trx.DocumentElement.NamespaceURI)
+            $failedResults = $trx.SelectNodes("//t:UnitTestResult[@outcome='Failed']", $namespace)
+
+            foreach ($failedResult in $failedResults) {
+              $testName = [string]$failedResult.GetAttribute('testName')
+              $messageNode = $failedResult.SelectSingleNode('t:Output/t:ErrorInfo/t:Message', $namespace)
+              $message = if ($null -eq $messageNode) { 'No assertion message was recorded.' } else { $messageNode.InnerText }
+              $detail = "$testName - $message"
+              $escaped = $detail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=Windows test failed::$escaped"
+              Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- ``$testName``: $message"
+            }
+          }
+
       - name: Build solution (Release x64)
         run: >-
           dotnet build AssessmentTool.sln
