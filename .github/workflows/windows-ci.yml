@@ -122,6 +122,43 @@ jobs:
           Copy-Item -Path (Join-Path $appExecutable[0].DirectoryName '*') `
             -Destination $artifactRoot -Recurse -Force
 
+      - name: Verify and bundle trusted Plink
+        run: |
+          $plinkUrl = 'https://the.earth.li/~sgtatham/putty/0.84/w64/plink.exe'
+          $expectedHash = 'e5621ffe4879f0ec39ed40f688db9399c2d43054d41ef14472fa335c4693b915'
+          $expectedVersion = '0.84.0.0'
+          $downloadDirectory = Join-Path $env:RUNNER_TEMP 'EvaluationTool\putty-0.84'
+          $downloadPath = Join-Path $downloadDirectory 'plink.exe'
+
+          Remove-Item -Path $downloadDirectory -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $downloadDirectory -Force | Out-Null
+          Invoke-WebRequest -Uri $plinkUrl -OutFile $downloadPath
+
+          $actualHash = (Get-FileHash -Path $downloadPath -Algorithm SHA256).Hash
+          if (-not [string]::Equals($actualHash, $expectedHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Plink SHA-256 mismatch. Expected $expectedHash but received $actualHash."
+          }
+
+          $signature = Get-AuthenticodeSignature -FilePath $downloadPath
+          if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+            throw "Plink Authenticode signature is not valid: $($signature.Status)."
+          }
+
+          $certificateSubject = $signature.SignerCertificate.Subject
+          if ([string]::IsNullOrWhiteSpace($certificateSubject) -or
+              $certificateSubject.IndexOf('Simon Tatham', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            throw "Plink signer certificate subject is not trusted: $certificateSubject."
+          }
+
+          $actualVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($downloadPath).FileVersion
+          if (-not [string]::Equals($actualVersion, $expectedVersion, [System.StringComparison]::Ordinal)) {
+            throw "Plink file version mismatch. Expected $expectedVersion but received $actualVersion."
+          }
+
+          $componentDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool\依赖组件'
+          New-Item -ItemType Directory -Path $componentDirectory -Force | Out-Null
+          Copy-Item -Path $downloadPath -Destination (Join-Path $componentDirectory 'plink.exe') -Force
+
       - name: Upload test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v6

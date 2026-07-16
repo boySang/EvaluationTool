@@ -18,6 +18,32 @@ public sealed class ComponentInspectorTests
     private const string MinimumVersion = "0.84.0.0";
 
     [Fact]
+    public void Trusted_catalog_exposes_only_the_fixed_read_only_plink_definition()
+    {
+        var plink = TrustedComponentCatalog.Plink;
+
+        Assert.Same(plink, TrustedComponentCatalog.Plink);
+        Assert.Equal("plink", plink.Id);
+        Assert.Equal(@"依赖组件\plink.exe", plink.TrustedRelativePath);
+        Assert.Equal("e5621ffe4879f0ec39ed40f688db9399c2d43054d41ef14472fa335c4693b915", plink.ExpectedSha256);
+        Assert.Equal("0.84.0.0", plink.MinimumVersion);
+        Assert.Equal(ComponentArchitecture.X64, plink.RequiredArchitecture);
+        Assert.Equal("SSH连接", plink.AffectedFeature);
+
+        var catalogType = typeof(TrustedComponentCatalog);
+        Assert.True(catalogType.IsPublic && catalogType.IsAbstract && catalogType.IsSealed);
+        var property = catalogType.GetProperty(nameof(TrustedComponentCatalog.Plink), BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(property);
+        Assert.True(property!.CanRead);
+        Assert.False(property.CanWrite);
+        Assert.Equal(typeof(ComponentDefinition), property.PropertyType);
+        Assert.Empty(typeof(ComponentDefinition).GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        Assert.DoesNotContain(
+            typeof(ComponentDefinition).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            method => method.ReturnType == typeof(ComponentDefinition));
+    }
+
+    [Fact]
     public void Missing_plink_reports_impact_and_offline_remediation()
     {
         var inspector = CreateInspector(new FakeFileSystem(false));
