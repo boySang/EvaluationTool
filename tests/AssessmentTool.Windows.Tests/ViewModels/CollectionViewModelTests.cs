@@ -37,6 +37,32 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public void Required_component_override_controls_start_and_navigation_suggestion()
+    {
+        var service = new FakeCollectionWorkflowService();
+        var project = CreateProject();
+        var viewModel = new CollectionViewModel(service);
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(CreateSelection(project, componentAvailable: true, HostKeyTrustState.Verified));
+
+        viewModel.SetRequiredComponentAvailability(false);
+
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+        Assert.True(viewModel.IsComponentCenterNavigationSuggested);
+
+        viewModel.SetRequiredComponentAvailability(true);
+
+        Assert.True(viewModel.StartCommand.CanExecute(null));
+        Assert.False(viewModel.IsComponentCenterNavigationSuggested);
+
+        viewModel.SetRequiredComponentAvailability(false);
+
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+        Assert.True(viewModel.IsComponentCenterNavigationSuggested);
+        Assert.Empty(service.Requests);
+    }
+
+    [Fact]
     public void Device_selection_rejects_host_key_trust_for_another_endpoint()
     {
         var project = CreateProject();

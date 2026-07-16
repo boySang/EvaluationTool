@@ -37,6 +37,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private readonly ParameterizedDelegateCommand<DatabaseInstanceCandidate> confirmDatabaseCommand;
     private ProjectRecord? selectedProject;
     private CollectionDeviceSelection? selectedDevice;
+    private bool? requiredComponentAvailabilityOverride;
     private CancellationTokenSource? activeCancellation;
     private CollectionViewModelState state;
     private IReadOnlyList<DetectionCandidate> detectionCandidates = Array.Empty<DetectionCandidate>();
@@ -87,7 +88,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public bool IsDetectionConfirmationVisible => State == CollectionViewModelState.AwaitingConfirmation;
     public bool IsDatabaseConfirmationVisible => State == CollectionViewModelState.AwaitingDatabaseConfirmation;
     public bool IsComponentCenterNavigationSuggested =>
-        selectedDevice != null && !selectedDevice.IsRequiredComponentAvailable;
+        selectedDevice != null && !IsRequiredComponentAvailable;
 
     public void SelectProject(ProjectRecord project)
     {
@@ -100,6 +101,13 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         EnsureSelectionCanChange();
         selectedDevice = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
+        OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
+        RefreshReadiness();
+    }
+
+    public void SetRequiredComponentAvailability(bool isAvailable)
+    {
+        requiredComponentAvailabilityOverride = isAvailable;
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         RefreshReadiness();
     }
@@ -166,9 +174,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             && selectedProject != null
             && selectedDevice != null
             && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)
-            && selectedDevice.IsRequiredComponentAvailable
+            && IsRequiredComponentAvailable
             && selectedDevice.IsHostKeyTrusted;
     }
+
+    private bool IsRequiredComponentAvailable =>
+        requiredComponentAvailabilityOverride
+        ?? selectedDevice?.IsRequiredComponentAvailable
+        ?? false;
 
     private async Task RunAsync(DetectionCandidate? confirmedCandidate)
     {

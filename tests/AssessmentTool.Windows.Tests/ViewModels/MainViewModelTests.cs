@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
 using AssessmentTool.App.ViewModels;
+using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using Xunit;
 
@@ -40,6 +41,63 @@ public sealed class MainViewModelTests
         Assert.Contains(nameof(MainViewModel.CurrentDeviceName), changes);
         Assert.Same(componentCenter, viewModel.ComponentCenter);
         Assert.False(viewModel.ComponentCenter.IsSshAvailable);
+        var essentialNavigation = viewModel.NavigationItems.Where(item =>
+            item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
+        Assert.Equal(3, essentialNavigation.Length);
+        Assert.All(essentialNavigation, item => Assert.True(item.IsAvailable));
+    }
+
+    [Fact]
+    public async Task Ssh_component_refresh_only_gates_collection_start()
+    {
+        var project = new ProjectRecord(ProjectId.New(), "客户", "等保项目", @"C:\Evidence", DateTimeOffset.UtcNow);
+        var device = new DeviceRecord(DeviceId.New(), project.Id, "核心交换机", "192.0.2.10", 22,
+            CredentialReference.New(), DateTimeOffset.UtcNow);
+        var collection = new CollectionViewModel(new FakeCollectionWorkflowService());
+        collection.SelectProject(project);
+        collection.SelectDevice(new CollectionDeviceSelection(device, true, CreateVerifiedHostKeyTrust(device)));
+        var componentCenter = new ComponentCenterViewModel(
+            new ComponentCenterViewModelTests.FakeComponentStatusService(
+                ComponentCenterViewModelTests.UnavailableStatus(
+                    AssessmentTool.Windows.Components.ComponentFailure.Missing),
+                ComponentCenterViewModelTests.AvailableStatus(),
+                ComponentCenterViewModelTests.UnavailableStatus(
+                    AssessmentTool.Windows.Components.ComponentFailure.Missing)));
+        await componentCenter.RefreshAsync();
+
+        var viewModel = new MainViewModel(collection, componentCenter, () => { });
+
+        Assert.False(collection.StartCommand.CanExecute(null));
+        AssertNavigationRemainsAvailable(viewModel);
+
+        await componentCenter.RefreshAsync();
+
+        Assert.True(collection.StartCommand.CanExecute(null));
+        AssertNavigationRemainsAvailable(viewModel);
+
+        await componentCenter.RefreshAsync();
+
+        Assert.False(collection.StartCommand.CanExecute(null));
+        AssertNavigationRemainsAvailable(viewModel);
+    }
+
+    private static HostKeyTrust CreateVerifiedHostKeyTrust(DeviceRecord device)
+    {
+        var coordinator = HostKeyTrustServices.CreateCoordinator();
+        var observedAt = DateTimeOffset.UtcNow;
+        var probing = coordinator.BeginProbe(
+            HostKeyTrust.Unconfigured(new SshEndpointIdentity(device.Host, device.Port)));
+        var awaiting = coordinator.RecordObservation(
+            probing,
+            "ssh-ed25519",
+            "ssh-ed25519 255 SHA256:fixture",
+            observedAt);
+        var pinned = coordinator.Confirm(awaiting, observedAt.AddSeconds(1), "测试固定指纹");
+        return coordinator.RecordMatchingObservation(pinned, observedAt.AddSeconds(2));
+    }
+
+    private static void AssertNavigationRemainsAvailable(MainViewModel viewModel)
+    {
         var essentialNavigation = viewModel.NavigationItems.Where(item =>
             item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
         Assert.Equal(3, essentialNavigation.Length);

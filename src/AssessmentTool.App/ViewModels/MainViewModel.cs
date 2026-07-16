@@ -43,6 +43,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             NavigationItemViewModel.Available("组件中心"),
             NavigationItemViewModel.Deferred("设置")
         });
+        Collection.SetRequiredComponentAvailability(ComponentCenter.IsSshAvailable);
+        ComponentCenter.PropertyChanged += OnComponentCenterPropertyChanged;
         if (Workspace != null)
         {
             Workspace.PropertyChanged += OnWorkspacePropertyChanged;
@@ -70,6 +72,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
         {
             OnPropertyChanged(nameof(CurrentDeviceName));
+        }
+    }
+
+    private void OnComponentCenterPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(ComponentCenterViewModel.IsSshAvailable))
+        {
+            Collection.SetRequiredComponentAvailability(ComponentCenter.IsSshAvailable);
         }
     }
 
