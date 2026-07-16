@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using AssessmentTool.App.Services;
 using AssessmentTool.App.ViewModels;
@@ -16,11 +18,15 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs eventArgs)
     {
         base.OnStartup(eventArgs);
+        var startupStage = "确定本地数据目录";
         try
         {
             var paths = ApplicationStoragePaths.ForCurrentUser();
+            startupStage = "创建本地项目数据库";
             var repository = new SqliteProjectRepository(paths.SqliteConnectionString);
+            startupStage = "初始化安全凭据存储";
             var credentialVault = new DpapiCredentialVault(paths.CredentialRootDirectory);
+            startupStage = "打开本地项目数据库";
             var workspace = new ProjectWorkspaceViewModel(
                 new ProjectWorkspaceService(repository, credentialVault));
             await workspace.InitializeAsync();
@@ -37,8 +43,10 @@ public partial class App : Application
                 return;
             }
 
+            startupStage = "检查 SSH 连接组件";
             var componentCenter = new ComponentCenterViewModel(new ComponentStatusService());
             await componentCenter.RefreshAsync();
+            startupStage = "加载软件主界面";
             var mainViewModel = new MainViewModel(
                 workspace,
                 new CollectionViewModel(new UnavailableCollectionWorkflowService()),
@@ -50,14 +58,41 @@ public partial class App : Application
         }
         catch (Exception exception)
         {
+            var diagnosticPath = TryWriteStartupDiagnostic(startupStage, exception);
             MessageBox.Show(
-                "软件无法初始化本机项目数据。请确认软件包完整，并检查当前 Windows 用户的本地数据目录权限。"
+                "软件启动失败，未对客户设备执行任何操作。"
                 + Environment.NewLine + Environment.NewLine
-                + "技术信息：" + exception.GetType().Name,
+                + "失败阶段：" + startupStage
+                + Environment.NewLine
+                + "具体原因：" + exception.Message
+                + Environment.NewLine
+                + "技术类型：" + exception.GetType().Name
+                + Environment.NewLine
+                + "诊断日志：" + diagnosticPath,
                 "软件初始化失败",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(1);
+        }
+    }
+
+    private static string TryWriteStartupDiagnostic(string startupStage, Exception exception)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "EvaluationTool-startup.log");
+        try
+        {
+            using (var writer = new StreamWriter(path, true, new UTF8Encoding(false)))
+            {
+                writer.WriteLine("[{0:O}] Startup failed during: {1}", DateTimeOffset.Now, startupStage);
+                writer.WriteLine(exception);
+                writer.WriteLine();
+            }
+
+            return path;
+        }
+        catch
+        {
+            return "无法写入临时诊断日志";
         }
     }
 

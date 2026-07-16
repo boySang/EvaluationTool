@@ -204,38 +204,43 @@ jobs:
             throw "Packaged application is missing: $appPath"
           }
 
-          $startedAt = Get-Date
-          $process = Start-Process `
-            -FilePath $appPath `
-            -WorkingDirectory $releaseDirectory `
-            -PassThru `
-            -ErrorAction Stop
-          try {
-            if ($process.WaitForExit(10000)) {
-              $exitCode = $process.ExitCode
-              Start-Sleep -Seconds 2
-              Get-WinEvent -FilterHashtable @{
-                LogName = 'Application'
-                StartTime = $startedAt.AddSeconds(-1)
-              } -ErrorAction SilentlyContinue |
-                Where-Object { $_.ProviderName -in @('.NET Runtime', 'Application Error', 'Windows Error Reporting') } |
-                Select-Object -First 10 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
-                Format-List
-              throw "AssessmentTool.App.exe exited during startup with code $exitCode."
-            }
-
-            Write-Host 'Packaged AssessmentTool.App.exe remained running for 10 seconds.'
-          }
-          finally {
-            $process.Refresh()
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force
-              if (-not $process.WaitForExit(5000)) {
-                throw 'AssessmentTool.App.exe could not be terminated within 5 seconds.'
+          function Test-PackagedApplicationStartup([string] $description) {
+            $startedAt = Get-Date
+            $process = Start-Process `
+              -FilePath $appPath `
+              -WorkingDirectory $releaseDirectory `
+              -PassThru `
+              -ErrorAction Stop
+            try {
+              if ($process.WaitForExit(10000)) {
+                $exitCode = $process.ExitCode
+                Start-Sleep -Seconds 2
+                Get-WinEvent -FilterHashtable @{
+                  LogName = 'Application'
+                  StartTime = $startedAt.AddSeconds(-1)
+                } -ErrorAction SilentlyContinue |
+                  Where-Object { $_.ProviderName -in @('.NET Runtime', 'Application Error', 'Windows Error Reporting') } |
+                  Select-Object -First 10 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                  Format-List
+                throw "$description exited during startup with code $exitCode."
               }
+
+              Write-Host "$description remained running for 10 seconds."
             }
-            $process.Dispose()
+            finally {
+              $process.Refresh()
+              if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force
+                if (-not $process.WaitForExit(5000)) {
+                  throw "$description could not be terminated within 5 seconds."
+                }
+              }
+              $process.Dispose()
+            }
           }
+
+          Test-PackagedApplicationStartup 'First packaged startup'
+          Test-PackagedApplicationStartup 'Second packaged startup with existing local data'
 
       - name: Upload test results
         if: ${{ always() }}
