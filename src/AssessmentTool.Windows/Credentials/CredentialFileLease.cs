@@ -18,6 +18,8 @@ internal interface ICredentialLeaseObserver
     void BuffersAllocated(char[] retrieved, byte[] encoded);
 
     void FileCreated(string path);
+
+    void BeforeFailedCreationCleanup(string path);
 }
 
 internal enum CredentialFileLeaseFailure
@@ -197,6 +199,7 @@ internal sealed class CredentialFileLeaseFactory : ICredentialLeaseFactory
         try
         {
             fileGuard?.Dispose();
+            observer.BeforeFailedCreationCleanup(filePath);
             if (File.Exists(filePath))
             {
                 if (!fileIdentity.HasValue)
@@ -389,6 +392,10 @@ internal sealed class CredentialFileLeaseFactory : ICredentialLeaseFactory
         }
 
         public void FileCreated(string path)
+        {
+        }
+
+        public void BeforeFailedCreationCleanup(string path)
         {
         }
     }

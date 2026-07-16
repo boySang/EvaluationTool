@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
@@ -11,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Windows.Credentials;
-using Microsoft.Win32.SafeHandles;
 using Xunit;
 
 namespace AssessmentTool.Windows.Tests.Credentials;
@@ -190,7 +188,7 @@ public sealed class CredentialFileLeaseTests
             var factory = new CredentialFileLeaseFactory(vault, root.Path);
             using (var active = factory.Create(reference, CancellationToken.None))
             {
-                File.SetLastWriteTimeUtc(active.Path, DateTime.UtcNow.AddDays(-2));
+                AgeLeaseAndRestoreActiveGuard(active, DateTime.UtcNow.AddDays(-2));
                 _ = new CredentialFileLeaseFactory(vault, root.Path);
                 Assert.True(File.Exists(active.Path));
             }
@@ -263,7 +261,7 @@ public sealed class CredentialFileLeaseTests
     {
         using (var root = new LocalAppDataLeaseRoot())
         using (var cancellation = new CancellationTokenSource())
-        using (var observer = new DirectoryBlockingObserver(cancellation))
+        using (var observer = new IdentityReplacingObserver(cancellation))
         {
             var reference = CredentialReference.New();
             var factory = new CredentialFileLeaseFactory(
@@ -368,6 +366,21 @@ public sealed class CredentialFileLeaseTests
         guard.Dispose();
     }
 
+    private static void AgeLeaseAndRestoreActiveGuard(CredentialFileLease lease, DateTime lastWriteTimeUtc)
+    {
+        var field = typeof(CredentialFileLease).GetField(
+            "fileGuard",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var previousGuard = Assert.IsAssignableFrom<IDisposable>(field!.GetValue(lease));
+        previousGuard.Dispose();
+        File.SetLastWriteTimeUtc(lease.Path, lastWriteTimeUtc);
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var replacementGuard = new CredentialFileSecurity(localAppData).OpenVerifiedRead(lease.Path);
+        field.SetValue(lease, replacementGuard);
+    }
+
     private sealed class RecordingVault : ICredentialVault
     {
         private readonly CredentialReference expectedReference;
@@ -470,17 +483,18 @@ public sealed class CredentialFileLeaseTests
         {
             onFileCreated?.Invoke();
         }
+
+        public void BeforeFailedCreationCleanup(string path)
+        {
+        }
     }
 
-    private sealed class DirectoryBlockingObserver : ICredentialLeaseObserver, IDisposable
+    private sealed class IdentityReplacingObserver : ICredentialLeaseObserver, IDisposable
     {
-        private const uint ReadAttributes = 0x00000080;
-        private const uint OpenExisting = 3;
-        private const uint BackupSemantics = 0x02000000;
         private readonly CancellationTokenSource cancellation;
-        private SafeFileHandle? directoryHandle;
+        private string? path;
 
-        internal DirectoryBlockingObserver(CancellationTokenSource cancellation)
+        internal IdentityReplacingObserver(CancellationTokenSource cancellation)
         {
             this.cancellation = cancellation;
         }
@@ -491,32 +505,20 @@ public sealed class CredentialFileLeaseTests
 
         public void FileCreated(string path)
         {
-            directoryHandle = CreateFile(
-                Directory.GetParent(path)!.FullName,
-                ReadAttributes,
-                FileShare.ReadWrite,
-                IntPtr.Zero,
-                OpenExisting,
-                BackupSemantics,
-                IntPtr.Zero);
-            Assert.False(directoryHandle.IsInvalid);
+            this.path = path;
             cancellation.Cancel();
+        }
+
+        public void BeforeFailedCreationCleanup(string path)
+        {
+            Assert.Equal(this.path, path);
+            File.Delete(path);
+            File.WriteAllText(path, "replacement-with-a-different-file-identity");
         }
 
         public void Dispose()
         {
-            directoryHandle?.Dispose();
         }
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern SafeFileHandle CreateFile(
-            string fileName,
-            uint desiredAccess,
-            FileShare shareMode,
-            IntPtr securityAttributes,
-            uint creationDisposition,
-            uint flagsAndAttributes,
-            IntPtr templateFile);
     }
 
     private sealed class LocalAppDataLeaseRoot : IDisposable
