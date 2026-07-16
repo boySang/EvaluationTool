@@ -1,0 +1,70 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows.Input;
+
+namespace AssessmentTool.App.ViewModels;
+
+public sealed class MainViewModel : INotifyPropertyChanged
+{
+    private readonly DelegateCommand toggleThemeCommand;
+
+    public MainViewModel(CollectionViewModel collection, Action toggleTheme)
+    {
+        Collection = collection ?? throw new ArgumentNullException(nameof(collection));
+        DeviceEditor = new DeviceEditorViewModel();
+        toggleThemeCommand = new DelegateCommand(
+            toggleTheme ?? throw new ArgumentNullException(nameof(toggleTheme)),
+            () => true);
+        NavigationItems = new ReadOnlyCollection<NavigationItemViewModel>(new[]
+        {
+            NavigationItemViewModel.Available("首页"),
+            NavigationItemViewModel.Available("项目"),
+            NavigationItemViewModel.Available("设备"),
+            NavigationItemViewModel.Available("采集任务"),
+            NavigationItemViewModel.Available("证据"),
+            NavigationItemViewModel.Deferred("命令库"),
+            NavigationItemViewModel.Available("组件中心"),
+            NavigationItemViewModel.Deferred("设置")
+        });
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public CollectionViewModel Collection { get; }
+    public DeviceEditorViewModel DeviceEditor { get; }
+    public IReadOnlyList<NavigationItemViewModel> NavigationItems { get; }
+    public ICommand ToggleThemeCommand => toggleThemeCommand;
+    public string CurrentProjectName => "尚未选择项目";
+    public string CurrentDeviceName => "尚未选择设备";
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+public sealed class NavigationItemViewModel
+{
+    private NavigationItemViewModel(string title, bool isAvailable)
+    {
+        Title = title;
+        IsAvailable = isAvailable;
+    }
+
+    public string Title { get; }
+    public bool IsAvailable { get; }
+    public string StatusText => IsAvailable ? string.Empty : "后续版本";
+
+    public static NavigationItemViewModel Available(string title)
+    {
+        return new NavigationItemViewModel(title, true);
+    }
+
+    public static NavigationItemViewModel Deferred(string title)
+    {
+        return new NavigationItemViewModel(title, false);
+    }
+}

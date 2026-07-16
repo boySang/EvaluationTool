@@ -94,14 +94,18 @@ jobs:
           --nologo
           -p:PlatformTarget=x64
 
-      - name: Verify SQLite x64 native asset
+      - name: Verify application x64 output
         run: |
-          $nativeSqlite = Get-ChildItem -Path 'src\AssessmentTool.Windows\bin\Release' `
-            -Filter 'SQLite.Interop.dll' -Recurse |
-            Where-Object { $_.FullName -match '\\x64\\SQLite\.Interop\.dll$' }
+          $appExecutable = Get-ChildItem -Path 'src\AssessmentTool.App\bin\Release' `
+            -Filter 'AssessmentTool.App.exe' -Recurse
 
-          if ($nativeSqlite.Count -eq 0) {
-            throw 'Release output does not contain x64\SQLite.Interop.dll.'
+          if ($appExecutable.Count -ne 1) {
+            throw 'Release output must contain exactly one AssessmentTool.App.exe.'
+          }
+
+          $nativeSqlite = Join-Path $appExecutable[0].DirectoryName 'x64\SQLite.Interop.dll'
+          if (-not (Test-Path $nativeSqlite)) {
+            throw 'Application output does not contain x64\SQLite.Interop.dll.'
           }
 
       - name: Collect copyable Release outputs
@@ -109,18 +113,14 @@ jobs:
           $artifactRoot = Join-Path $PWD 'artifacts\release\EvaluationTool'
           New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
 
-          Get-ChildItem -Path 'src' -Filter '*.csproj' -Recurse | ForEach-Object {
-            $projectName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
-            $releaseRoot = Join-Path $_.DirectoryName 'bin\Release'
-
-            if (-not (Test-Path $releaseRoot)) {
-              return
-            }
-
-            $projectDestination = Join-Path $artifactRoot $projectName
-            New-Item -ItemType Directory -Path $projectDestination -Force | Out-Null
-            Copy-Item -Path (Join-Path $releaseRoot '*') -Destination $projectDestination -Recurse -Force
+          $appExecutable = Get-ChildItem -Path 'src\AssessmentTool.App\bin\Release' `
+            -Filter 'AssessmentTool.App.exe' -Recurse
+          if ($appExecutable.Count -ne 1) {
+            throw 'Cannot collect application output because the executable is missing or ambiguous.'
           }
+
+          Copy-Item -Path (Join-Path $appExecutable[0].DirectoryName '*') `
+            -Destination $artifactRoot -Recurse -Force
 
       - name: Upload test results
         if: ${{ always() }}
