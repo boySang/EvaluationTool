@@ -12,7 +12,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly DelegateCommand toggleThemeCommand;
 
     public MainViewModel(CollectionViewModel collection, Action toggleTheme)
+        : this(null, collection, toggleTheme)
     {
+    }
+
+    public MainViewModel(
+        ProjectWorkspaceViewModel? workspace,
+        CollectionViewModel collection,
+        Action toggleTheme)
+    {
+        Workspace = workspace;
         Collection = collection ?? throw new ArgumentNullException(nameof(collection));
         DeviceEditor = new DeviceEditorViewModel();
         toggleThemeCommand = new DelegateCommand(
@@ -29,16 +38,34 @@ public sealed class MainViewModel : INotifyPropertyChanged
             NavigationItemViewModel.Available("组件中心"),
             NavigationItemViewModel.Deferred("设置")
         });
+        if (Workspace != null)
+        {
+            Workspace.PropertyChanged += OnWorkspacePropertyChanged;
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    public ProjectWorkspaceViewModel? Workspace { get; }
     public CollectionViewModel Collection { get; }
     public DeviceEditorViewModel DeviceEditor { get; }
     public IReadOnlyList<NavigationItemViewModel> NavigationItems { get; }
     public ICommand ToggleThemeCommand => toggleThemeCommand;
-    public string CurrentProjectName => "尚未选择项目";
-    public string CurrentDeviceName => "尚未选择设备";
+    public string CurrentProjectName => Workspace?.SelectedProject?.ProjectName ?? "尚未选择项目";
+    public string CurrentDeviceName => Workspace?.SelectedDevice?.DisplayName ?? "尚未选择设备";
+
+    private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedProject))
+        {
+            OnPropertyChanged(nameof(CurrentProjectName));
+        }
+
+        if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
+        {
+            OnPropertyChanged(nameof(CurrentDeviceName));
+        }
+    }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

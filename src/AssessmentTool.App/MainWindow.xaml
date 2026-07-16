@@ -38,9 +38,9 @@
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
           <TextBlock Text="项目：" Foreground="{DynamicResource Brush.TextSecondary}" />
-          <TextBlock Text="{Binding CurrentProjectName}" FontWeight="SemiBold" Margin="0,0,20,0" />
+          <TextBlock Text="{Binding CurrentProjectName}" FontWeight="SemiBold" Margin="0,0,20,0" MaxWidth="220" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentProjectName}" />
           <TextBlock Text="设备：" Foreground="{DynamicResource Brush.TextSecondary}" />
-          <TextBlock Text="{Binding CurrentDeviceName}" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding CurrentDeviceName}" FontWeight="SemiBold" MaxWidth="220" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentDeviceName}" />
         </StackPanel>
         <Button Grid.Column="2"
                 Content="切换主题"
@@ -83,7 +83,7 @@
             <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
               <StackPanel>
                 <TextBlock Text="当前需要完成初始化" FontWeight="SemiBold" Foreground="{DynamicResource Brush.WarningText}" />
-                <TextBlock Text="当前为界面与安全流程骨架，项目保存和真实设备连接尚未接通，不会连接客户设备。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                <TextBlock Text="项目和设备已支持本机加密保存；真实设备连接与命令采集尚未接通，不会连接客户设备。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" Margin="0,6,0,0" />
               </StackPanel>
             </Border>
           </StackPanel>
@@ -99,12 +99,50 @@
               <StackPanel>
                 <TextBlock Text="新建项目" Style="{StaticResource SectionTitleStyle}" />
                 <TextBlock Text="客户名称" />
-                <TextBox automation:AutomationProperties.Name="客户名称" />
+                <TextBox Text="{Binding Workspace.CustomerName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="客户名称" />
                 <TextBlock Text="项目名称" />
-                <TextBox automation:AutomationProperties.Name="项目名称" />
+                <TextBox Text="{Binding Workspace.ProjectName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="项目名称" />
                 <TextBlock Text="证据保存目录" />
-                <TextBox automation:AutomationProperties.Name="证据保存目录" />
-                <TextBlock Text="当前表单仅用于界面预览，尚未写入 SQLite；不会保存您输入的客户资料。" Style="{StaticResource SecondaryTextStyle}" />
+                <TextBox Text="{Binding Workspace.EvidenceRoot, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="证据保存目录" />
+                <Button Content="创建并保存项目" Click="CreateProject_Click" automation:AutomationProperties.Name="创建并保存项目" />
+                <TextBlock Text="项目资料保存在当前 Windows 用户的本地 SQLite 数据库中，不会自动上传。" Style="{StaticResource SecondaryTextStyle}" />
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardStyle}">
+              <StackPanel>
+                <TextBlock Text="已保存项目" Style="{StaticResource SectionTitleStyle}" />
+                <ListBox ItemsSource="{Binding Workspace.Projects}"
+                         SelectedItem="{Binding Workspace.SelectedProject, Mode=OneWay}"
+                         SelectionChanged="ProjectSelection_Changed"
+                         MinHeight="120"
+                         automation:AutomationProperties.Name="已保存项目列表">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <StackPanel Margin="4">
+                        <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding CustomerName}" Style="{StaticResource SecondaryTextStyle}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+            </Border>
+            <Border BorderBrush="{DynamicResource Brush.Error}" BorderThickness="1" Background="{DynamicResource Brush.ErrorBackground}" CornerRadius="10" Padding="20">
+              <Border.Style>
+                <Style TargetType="Border">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Workspace.State}" Value="Failed"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Border.Style>
+              <StackPanel automation:AutomationProperties.LiveSetting="Assertive">
+                <TextBlock Text="{Binding Workspace.WhatHappened}" Foreground="{DynamicResource Brush.Error}" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding Workspace.PossibleCause}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding Workspace.HowToFix}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                <Expander Header="技术详情" Margin="0,8,0,0">
+                  <TextBox Text="{Binding Workspace.TechnicalDetails}" IsReadOnly="True" />
+                </Expander>
               </StackPanel>
             </Border>
           </StackPanel>
@@ -125,13 +163,33 @@
                 <StackPanel>
                   <TextBlock Text="基础信息" Style="{StaticResource SectionTitleStyle}" />
                   <TextBlock Text="设备名称" />
-                  <TextBox Text="{Binding DeviceEditor.DisplayName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="设备名称" />
+                  <TextBox Text="{Binding Workspace.DeviceDisplayName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="设备名称" />
                   <TextBlock Text="主机地址" />
-                  <TextBox Text="{Binding DeviceEditor.Host, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="主机地址" />
+                  <TextBox Text="{Binding Workspace.DeviceHost, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="主机地址" />
                   <TextBlock Text="SSH 端口" />
-                  <TextBox Text="{Binding DeviceEditor.PortText, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 端口" />
-                  <TextBlock Text="{Binding DeviceEditor.ValidationMessage}" Style="{StaticResource SecondaryTextStyle}" />
-                  <TextBlock Text="当前只进行本地格式校验，尚未保存设备或凭据。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                  <TextBox Text="{Binding Workspace.DevicePortText, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 端口" />
+                  <TextBlock Text="连接密码" />
+                  <PasswordBox x:Name="DevicePasswordBox" automation:AutomationProperties.Name="连接密码" />
+                  <Button Content="加密保存设备" Click="SaveDevice_Click" automation:AutomationProperties.Name="使用 DPAPI 加密保存设备" />
+                  <TextBlock Text="密码由当前 Windows 用户的 DPAPI 加密，SQLite 只保存不可逆的凭据引用。" Style="{StaticResource SecondaryTextStyle}" />
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                  <TextBlock Text="当前项目设备" Style="{StaticResource SectionTitleStyle}" />
+                  <ListBox ItemsSource="{Binding Workspace.Devices}"
+                           SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}"
+                           MinHeight="120"
+                           automation:AutomationProperties.Name="当前项目设备列表">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <StackPanel Margin="4">
+                          <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                          <TextBlock Text="{Binding Host, StringFormat={}{0}}" Style="{StaticResource SecondaryTextStyle}" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
                 </StackPanel>
               </Border>
               <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
@@ -204,7 +262,7 @@
             <TextBlock Text="只读采集任务" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="自动采集区不提供自由命令输入，只执行已验证命令包。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
             <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
-              <TextBlock Text="当前版本尚未接通项目保存和真实设备连接；本页仅用于验证只读采集状态、确认和停止流程。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
+              <TextBlock Text="当前版本尚未接通真实设备连接；本页仅用于验证只读采集状态、确认和停止流程。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
             </Border>
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>

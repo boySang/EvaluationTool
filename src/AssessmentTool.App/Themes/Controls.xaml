@@ -55,6 +55,31 @@
     <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
   </Style>
 
+  <Style TargetType="PasswordBox">
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="Margin" Value="0,4,0,12" />
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+  </Style>
+
+  <Style TargetType="ListBox">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="Padding" Value="4" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+  </Style>
+
+  <Style TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="Padding" Value="6" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+  </Style>
+
   <Style TargetType="ComboBox">
     <Setter Property="MinHeight" Value="36" />
     <Setter Property="MinWidth" Value="220" />
