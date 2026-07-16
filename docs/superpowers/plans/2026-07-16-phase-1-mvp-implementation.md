@@ -728,7 +728,7 @@ Expected: PASS.
 - Consumes: project/device/check names, exact raw output, timestamps, and execution metadata.
 - Produces: deterministic safe paths, `执行记录.json`, `原始输出.txt`, numbered PNG files, and SHA-256 values.
 
-- [ ] **Step 1: Test path sanitization and non-overwrite behavior**
+- [x] **Step 1: Test path sanitization and non-overwrite behavior**
 
 ```csharp
 [Theory]
@@ -748,17 +748,17 @@ public void Repeated_execution_gets_a_new_batch_directory()
 }
 ```
 
-- [ ] **Step 2: Run core evidence tests and verify they fail**
+- [x] **Step 2: Run core evidence tests and verify they fail**
 
 Run: `dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj --filter EvidencePathBuilderTests`
 
 Expected: FAIL because the path builder does not exist.
 
-- [ ] **Step 3: Implement safe paths and manifests**
+- [x] **Step 3: Implement safe paths and manifests**
 
 Replace Windows-invalid characters, trim trailing dots/spaces, cap each segment at 80 characters, append an 8-character SHA-256 suffix when shortened, and cap total path length before writing. Write raw output as UTF-8 without BOM. Write files to a temporary name, flush, then rename. Manifest fields include command-pack version, exact command, start/end time, status, raw-output hash, image hashes, and error category.
 
-- [ ] **Step 4: Write a Windows PNG pagination test**
+- [x] **Step 4: Write a Windows PNG pagination test**
 
 ```csharp
 [Fact]
@@ -775,11 +775,11 @@ public void Long_output_creates_numbered_pages_with_matching_hashes()
 }
 ```
 
-- [ ] **Step 5: Implement WPF rendering**
+- [x] **Step 5: Implement WPF rendering**
 
 Use `DrawingVisual`, `FormattedText`, and `RenderTargetBitmap`; do not capture the desktop. Render a header containing project, device, check item, command, timestamp, and page number. Render exact normalized transcript lines in a monospace font. Never invent or summarize output in the PNG.
 
-- [ ] **Step 6: Run evidence tests**
+- [x] **Step 6: Run evidence tests**
 
 Run core: `dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj --filter EvidencePathBuilderTests`
 
