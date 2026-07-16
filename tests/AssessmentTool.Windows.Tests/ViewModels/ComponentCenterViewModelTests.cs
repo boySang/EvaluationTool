@@ -141,7 +141,7 @@ public sealed class ComponentCenterViewModelTests
     {
         var service = new FakeComponentStatusService(
             Task.FromException<ComponentStatus>(new InvalidOperationException("secret path")),
-            AvailableStatus());
+            Task.FromResult(AvailableStatus()));
         var viewModel = new ComponentCenterViewModel(service);
 
         await viewModel.RefreshAsync();
