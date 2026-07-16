@@ -25,17 +25,17 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.4xx'
           dotnet-quality: 'ga'
           architecture: x64
 
       - name: Cache NuGet global packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.NUGET_PACKAGES }}
           key: nuget-${{ runner.os }}-dotnet-8.0.4xx-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'NuGet.config', 'nuget.config', 'global.json') }}
@@ -50,7 +50,6 @@ jobs:
           dotnet test tests/AssessmentTool.Core.Tests/AssessmentTool.Core.Tests.csproj
           --configuration Release
           --framework net8.0
-          --arch x64
           --no-restore
           --logger "trx;LogFileName=core-net8.trx"
           --logger "console;verbosity=normal"
@@ -61,7 +60,6 @@ jobs:
           dotnet test tests/AssessmentTool.Windows.Tests/AssessmentTool.Windows.Tests.csproj
           --configuration Release
           --framework net48
-          --arch x64
           --no-restore
           --logger "trx;LogFileName=windows-net48-sqlite.trx"
           --logger "console;verbosity=normal"
@@ -105,7 +103,7 @@ jobs:
 
       - name: Upload test results
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: EvaluationTool-test-results-windows
           path: artifacts\test-results
@@ -113,47 +111,9 @@ jobs:
           retention-days: 14
 
       - name: Upload copyable Release build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: EvaluationTool-Release-windows-x64
           path: artifacts\release\EvaluationTool
           if-no-files-found: error
           retention-days: 14
-
-  publish-status:
-    name: Publish machine-readable status
-    if: ${{ always() }}
-    needs: build-test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Publish status branch
-        env:
-          BUILD_RESULT: ${{ needs.build-test.result }}
-          SOURCE_SHA: ${{ github.sha }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-          SERVER_URL: ${{ github.server_url }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git switch --orphan ci-results
-          git rm -rf .
-          cat > status.txt <<EOF
-          result=${BUILD_RESULT}
-          source_sha=${SOURCE_SHA}
-          run_id=${RUN_ID}
-          run_attempt=${RUN_ATTEMPT}
-          run_url=${SERVER_URL}/${REPOSITORY}/actions/runs/${RUN_ID}
-          EOF
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add status.txt
-          git commit -m "ci: record Windows result for ${SOURCE_SHA}"
-          git push --force origin HEAD:ci-results
