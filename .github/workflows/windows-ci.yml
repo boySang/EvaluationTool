@@ -127,6 +127,9 @@ jobs:
           $plinkUrl = 'https://the.earth.li/~sgtatham/putty/0.84/w64/plink.exe'
           $expectedHash = 'e5621ffe4879f0ec39ed40f688db9399c2d43054d41ef14472fa335c4693b915'
           $expectedVersion = '0.84.0.0'
+          $expectedSignerName = 'Simon Tatham'
+          $expectedSignerThumbprint = '66C298D018034F29B8EA1D6E90F5497FE305D2E8'
+          $expectedSignerSerialNumber = 'BE8E1D85C5D2521B6D33379E3B8501A9'
           $downloadDirectory = Join-Path $env:RUNNER_TEMP 'EvaluationTool\putty-0.84'
           $downloadPath = Join-Path $downloadDirectory 'plink.exe'
 
@@ -144,10 +147,39 @@ jobs:
             throw "Plink Authenticode signature is not valid: $($signature.Status)."
           }
 
-          $certificateSubject = $signature.SignerCertificate.Subject
-          if ([string]::IsNullOrWhiteSpace($certificateSubject) -or
-              $certificateSubject.IndexOf('Simon Tatham', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
-            throw "Plink signer certificate subject is not trusted: $certificateSubject."
+          $signerCertificate = $signature.SignerCertificate
+          if ($null -eq $signerCertificate) {
+            throw 'Plink Authenticode signature does not contain a signer certificate.'
+          }
+
+          $signerName = $signerCertificate.GetNameInfo(
+            [System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName,
+            $false)
+          if ([string]::IsNullOrWhiteSpace($signerName) -or
+              -not [string]::Equals($signerName, $expectedSignerName, [System.StringComparison]::Ordinal)) {
+            throw "Plink signer name mismatch. Expected $expectedSignerName but received $signerName."
+          }
+
+          $signerThumbprint = $signerCertificate.Thumbprint
+          if ([string]::IsNullOrWhiteSpace($signerThumbprint)) {
+            throw 'Plink signer certificate thumbprint is empty.'
+          }
+
+          $normalizedSignerThumbprint = $signerThumbprint.Replace(' ', '')
+          if (-not [string]::Equals(
+              $normalizedSignerThumbprint,
+              $expectedSignerThumbprint,
+              [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Plink signer certificate thumbprint mismatch. Expected $expectedSignerThumbprint but received $normalizedSignerThumbprint."
+          }
+
+          $signerSerialNumber = $signerCertificate.SerialNumber
+          if ([string]::IsNullOrWhiteSpace($signerSerialNumber) -or
+              -not [string]::Equals(
+                $signerSerialNumber,
+                $expectedSignerSerialNumber,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Plink signer certificate serial number mismatch. Expected $expectedSignerSerialNumber but received $signerSerialNumber."
           }
 
           $actualVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($downloadPath).FileVersion
