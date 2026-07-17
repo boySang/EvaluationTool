@@ -207,7 +207,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         try
         {
             ClearError();
-            await fileLocator.ShowInFolderAsync(project.Id, relativePath);
+            await fileLocator.ShowInFolderAsync(project.Id, relativePath!);
         }
         catch (Exception exception)
         {
@@ -245,7 +245,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
             SetState(EvidenceCenterViewModelState.Loading);
             var result = await manifestExporter.ExportAsync(
                 project,
-                destinationPath,
+                destinationPath!,
                 CancellationToken.None);
             SetExportSummary(result.Summary + " 保存位置：" + result.Path);
             SetState(EvidenceCenterViewModelState.Ready);
