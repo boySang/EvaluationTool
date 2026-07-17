@@ -74,7 +74,8 @@ public partial class App : Application
                 new EvidenceCenterViewModel(
                     new EvidenceCenterService(repository, repository),
                     new ProjectEvidenceFolderLauncher(repository)),
-                commandLibrary);
+                commandLibrary,
+                new CollectionTaskHistoryViewModel(repository));
             var window = new MainWindow(mainViewModel);
             MainWindow = window;
             EventHandler? contentRenderedHandler = null;

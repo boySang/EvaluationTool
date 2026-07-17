@@ -9,6 +9,7 @@ using AssessmentTool.App.ViewModels;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Execution;
+using AssessmentTool.Windows.Storage;
 using Xunit;
 
 namespace AssessmentTool.Windows.Tests.ViewModels;
@@ -138,13 +139,17 @@ public sealed class MainViewModelTests
         var evidenceService = new CountingEvidenceCenterService();
         var evidenceCenter = new EvidenceCenterViewModel(evidenceService);
         await evidenceCenter.SelectProjectAsync(project);
+        var taskRepository = new CountingTaskRepository();
+        var taskHistory = new CollectionTaskHistoryViewModel(taskRepository);
+        await taskHistory.SelectProjectAsync(project);
         var viewModel = new MainViewModel(
             null,
             collection,
             componentCenter,
             new DeviceConnectionViewModel(null),
             () => { },
-            evidenceCenter);
+            evidenceCenter,
+            taskHistory: taskHistory);
 
         await collection.StartAsync();
         await collection.ConfirmDatabaseAsync(Assert.Single(collection.DatabaseCandidates));
@@ -153,6 +158,8 @@ public sealed class MainViewModelTests
         Assert.Equal(CollectionViewModelState.DatabaseConfirmed, collection.State);
         Assert.Equal(2, evidenceService.LoadCount);
         Assert.Same(evidenceCenter, viewModel.EvidenceCenter);
+        Assert.Same(taskHistory, viewModel.TaskHistory);
+        Assert.True(taskRepository.LoadCount >= 2);
     }
 
     private static DatabaseInstanceCandidate CreateDatabaseCandidate()
@@ -326,5 +333,43 @@ public sealed class MainViewModelTests
         {
             return LoadAsync(projectId, cancellationToken);
         }
+    }
+
+    private sealed class CountingTaskRepository : ICollectionTaskRepository
+    {
+        public int LoadCount { get; private set; }
+
+        public Task<IReadOnlyList<CollectionTaskRecord>> GetCollectionTasksAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            LoadCount++;
+            return Task.FromResult<IReadOnlyList<CollectionTaskRecord>>(Array.Empty<CollectionTaskRecord>());
+        }
+
+        public Task<IReadOnlyList<CollectionTaskEventRecord>> GetCollectionTaskEventsAsync(
+            CollectionTaskId taskId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CollectionTaskEventRecord>>(
+                Array.Empty<CollectionTaskEventRecord>());
+        }
+
+        public Task<CollectionTaskRecord> CreateCollectionTaskAsync(
+            CollectionTaskRecord task,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<CollectionTaskEventRecord> AppendCollectionTaskEventAsync(
+            CollectionTaskId taskId,
+            long expectedRevision,
+            CollectionTaskState state,
+            int? commandOrdinal,
+            string eventCode,
+            DateTimeOffset occurredAt,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<int> MarkInterruptedCollectionTasksAsync(
+            DateTimeOffset interruptedAt,
+            CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 }

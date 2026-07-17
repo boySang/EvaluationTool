@@ -605,6 +605,59 @@
               </StackPanel>
             </Border>
 
+            <Border Style="{StaticResource CardStyle}" automation:AutomationProperties.Name="采集任务历史">
+              <StackPanel>
+                <Grid Margin="0,0,0,12">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="任务历史" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="{Binding TaskHistory.StatusMessage}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Content="刷新" Command="{Binding TaskHistory.RefreshCommand}" Margin="12,0,0,0" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding TaskHistory.Items}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                              BorderBrush="{DynamicResource Brush.Border}"
+                              BorderThickness="1"
+                              CornerRadius="8"
+                              Padding="14"
+                              Margin="0,0,0,9">
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                          <StackPanel>
+                            <TextBlock Text="{Binding Host, StringFormat=目标主机：{0}}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding StatusDescription}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Margin="0,4,14,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                              <TextBlock Text="{Binding CommandCount, StringFormat=锁定命令：{0} 条}" Style="{StaticResource SecondaryTextStyle}" />
+                              <TextBlock Text="{Binding LastUpdatedAt, StringFormat=最后更新：{0:yyyy-MM-dd HH:mm:ss}}" Style="{StaticResource SecondaryTextStyle}" Margin="18,0,0,0" />
+                            </StackPanel>
+                          </StackPanel>
+                          <Border Grid.Column="1" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="11" Padding="10,4" VerticalAlignment="Top">
+                            <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource Brush.Accent}" FontWeight="SemiBold" />
+                          </Border>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border Background="{DynamicResource Brush.ErrorBackground}" BorderBrush="{DynamicResource Brush.Error}" BorderThickness="1" CornerRadius="8" Padding="12">
+                  <Border.Style>
+                    <Style TargetType="Border">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                      <Style.Triggers><DataTrigger Binding="{Binding TaskHistory.State}" Value="Failed"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <StackPanel>
+                    <TextBlock Text="{Binding TaskHistory.WhatHappened}" Foreground="{DynamicResource Brush.Error}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding TaskHistory.PossibleCause}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding TaskHistory.HowToFix}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
             <Border automation:AutomationProperties.Name="数据库候选人工确认">
               <Border.Style>
                 <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">

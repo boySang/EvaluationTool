@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AssessmentTool.App.Services;
+using AssessmentTool.Core.Domain;
+using AssessmentTool.Windows.Storage;
 
 namespace AssessmentTool.App.ViewModels;
 
@@ -38,7 +40,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceConnectionViewModel deviceConnection,
         Action toggleTheme,
         EvidenceCenterViewModel? evidenceCenter = null,
-        CommandLibraryViewModel? commandLibrary = null)
+        CommandLibraryViewModel? commandLibrary = null,
+        CollectionTaskHistoryViewModel? taskHistory = null)
     {
         Workspace = workspace;
         Collection = collection ?? throw new ArgumentNullException(nameof(collection));
@@ -47,6 +50,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         EvidenceCenter = evidenceCenter
             ?? new EvidenceCenterViewModel(new EmptyEvidenceCenterService());
         CommandLibrary = commandLibrary ?? CommandLibraryViewModel.CreateEmpty();
+        TaskHistory = taskHistory ?? new CollectionTaskHistoryViewModel(new EmptyCollectionTaskRepository());
         DeviceEditor = new DeviceEditorViewModel();
         toggleThemeCommand = new DelegateCommand(
             toggleTheme ?? throw new ArgumentNullException(nameof(toggleTheme)),
@@ -69,6 +73,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (Workspace != null)
         {
             Workspace.PropertyChanged += OnWorkspacePropertyChanged;
+            _ = TaskHistory.SelectProjectAsync(Workspace.SelectedProject);
         }
     }
 
@@ -80,6 +85,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public DeviceConnectionViewModel DeviceConnection { get; }
     public EvidenceCenterViewModel EvidenceCenter { get; }
     public CommandLibraryViewModel CommandLibrary { get; }
+    public CollectionTaskHistoryViewModel TaskHistory { get; }
     public DeviceEditorViewModel DeviceEditor { get; }
     public IReadOnlyList<NavigationItemViewModel> NavigationItems { get; }
     public ICommand ToggleThemeCommand => toggleThemeCommand;
@@ -105,6 +111,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             }
 
             _ = EvidenceCenter.SelectProjectAsync(Workspace?.SelectedProject);
+            _ = TaskHistory.SelectProjectAsync(Workspace?.SelectedProject);
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
@@ -193,6 +200,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 _ = EvidenceCenter.RefreshAsync();
             }
 
+            if (Collection.State == CollectionViewModelState.AwaitingConfirmation
+                || Collection.State == CollectionViewModelState.AwaitingDatabaseConfirmation
+                || Collection.State == CollectionViewModelState.DatabaseConfirmed
+                || Collection.State == CollectionViewModelState.Completed
+                || Collection.State == CollectionViewModelState.Stopped
+                || Collection.State == CollectionViewModelState.Failed)
+            {
+                _ = TaskHistory.RefreshAsync();
+            }
+
             if (Workspace != null
                 && (Collection.State == CollectionViewModelState.AwaitingConfirmation
                     || Collection.State == CollectionViewModelState.AwaitingDatabaseConfirmation
@@ -234,6 +251,50 @@ public sealed class MainViewModel : INotifyPropertyChanged
             CancellationToken cancellationToken = default)
         {
             return LoadAsync(projectId, cancellationToken);
+        }
+    }
+
+    private sealed class EmptyCollectionTaskRepository : ICollectionTaskRepository
+    {
+        public Task<CollectionTaskRecord> CreateCollectionTaskAsync(
+            CollectionTaskRecord task,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<CollectionTaskEventRecord> AppendCollectionTaskEventAsync(
+            CollectionTaskId taskId,
+            long expectedRevision,
+            CollectionTaskState state,
+            int? commandOrdinal,
+            string eventCode,
+            DateTimeOffset occurredAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<IReadOnlyList<CollectionTaskRecord>> GetCollectionTasksAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CollectionTaskRecord>>(Array.Empty<CollectionTaskRecord>());
+        }
+
+        public Task<IReadOnlyList<CollectionTaskEventRecord>> GetCollectionTaskEventsAsync(
+            CollectionTaskId taskId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CollectionTaskEventRecord>>(
+                Array.Empty<CollectionTaskEventRecord>());
+        }
+
+        public Task<int> MarkInterruptedCollectionTasksAsync(
+            DateTimeOffset interruptedAt,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0);
         }
     }
 }

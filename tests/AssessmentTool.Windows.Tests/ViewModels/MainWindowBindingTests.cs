@@ -59,9 +59,11 @@ public sealed class MainWindowBindingTests
         Assert.Contains("自动探测指纹 → 人工确认 → 无命令测试登录", text);
         Assert.Contains("确认并测试登录", text);
         Assert.Contains("设备身份", text);
+        Assert.Contains("任务历史", text);
         Assert.Contains("保留识别依据、可信度和人工确认来源", text);
         Assert.DoesNotContain("扫描内网", text);
         Assert.DoesNotContain("漏洞扫描", text);
+        Assert.Contains("TaskHistory.Items", File.ReadAllText(FindMainWindowXaml()));
     }
 
     [Fact]
