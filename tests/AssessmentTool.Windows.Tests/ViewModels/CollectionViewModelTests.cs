@@ -51,7 +51,9 @@ public sealed class CollectionViewModelTests
             CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
 
         Assert.True(viewModel.IsAdapterSelectionVisible);
-        var option = Assert.Single(viewModel.AdapterOptions.Where(item => item.Id == CollectionAdapterId.HuaweiVrp));
+        var option = Assert.Single(
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.HuaweiVrp);
         Assert.Contains(viewModel.AdapterOptions, item => item.Id == CollectionAdapterId.H3cComware);
         Assert.Equal(CollectionAdapterId.HuaweiVrp, option.Id);
         Assert.Null(viewModel.SelectedAdapterOption);
@@ -77,7 +79,8 @@ public sealed class CollectionViewModelTests
             true,
             CreateHostKeyTrust(firstDevice.Host, firstDevice.Port, HostKeyTrustState.Verified)));
         viewModel.SelectedAdapterOption = Assert.Single(
-            viewModel.AdapterOptions.Where(item => item.Id == CollectionAdapterId.HuaweiVrp));
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.HuaweiVrp);
 
         var secondDevice = CreateDevice(project, TargetCategory.NetworkDevice);
         viewModel.SelectDevice(new CollectionDeviceSelection(
