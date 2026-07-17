@@ -560,7 +560,8 @@ public sealed class CollectionWorkflowServiceTests
             DeviceId deviceId,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(Records.LastOrDefault(record => record.DeviceId.Equals(deviceId)));
+            return Task.FromResult<DeviceIdentificationRecord?>(
+                Records.LastOrDefault(record => record.DeviceId.Equals(deviceId)));
         }
 
         public Task<IReadOnlyList<DeviceIdentificationRecord>> GetDeviceIdentificationHistoryAsync(
