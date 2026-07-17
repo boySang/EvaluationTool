@@ -31,6 +31,7 @@ public sealed class HostMiddlewareDiscoveryTests
         Assert.Contains(candidates, candidate => candidate.Product == "Nginx");
         Assert.Contains(candidates, candidate => candidate.Product == "Apache HTTP Server");
         Assert.Contains(candidates, candidate => candidate.Product == "Apache Tomcat");
+        Assert.Equal("9", Assert.Single(candidates, candidate => candidate.Product == "Apache Tomcat").Version);
         Assert.DoesNotContain(candidates, candidate => candidate.InstanceName == "java");
         Assert.All(candidates, candidate => Assert.True(candidate.RequiresUserConfirmation));
         Assert.All(candidates, candidate => Assert.Equal(MiddlewareInstallationType.LocalService, candidate.InstallationType));
@@ -98,6 +99,9 @@ public sealed class HostMiddlewareDiscoveryTests
         Assert.Equal(
             new[] { "tomcat10.service", "tomcat9.service" },
             candidates.Select(candidate => candidate.InstanceName).OrderBy(value => value, StringComparer.Ordinal));
+        Assert.Equal(
+            new[] { "10", "9" },
+            candidates.Select(candidate => candidate.Version).OrderBy(value => value, StringComparer.Ordinal));
         Assert.All(candidates, candidate => Assert.True(candidate.RequiresUserConfirmation));
     }
 

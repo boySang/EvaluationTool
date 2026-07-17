@@ -158,6 +158,7 @@ public sealed class CollectionWorkflowServiceTests
             var middleware = Assert.Single(result.MiddlewareCandidates);
             Assert.Equal("Apache Tomcat", middleware.Product);
             Assert.Equal("9", middleware.Version);
+            Assert.Equal(2, result.HostSoftwareCandidates.Count);
             Assert.Equal(8, session.ExecutedIds.Count);
             Assert.Equal(session.ExecutedIds, evidence.SavedCommandIds);
             var identification = Assert.Single(identifications.Records);

@@ -19,6 +19,7 @@ public sealed class HostMiddlewareDiscovery
     private static readonly Regex NginxService = Pattern(@"^(?<name>nginx\.service)\s+loaded\s+active\s+running\s+.+$");
     private static readonly Regex ApacheService = Pattern(@"^(?<name>(?:apache2|httpd)\.service)\s+loaded\s+active\s+running\s+.+$");
     private static readonly Regex TomcatService = Pattern(@"^(?<name>tomcat(?:8|9|10)?\.service)\s+loaded\s+active\s+running\s+.+$");
+    private static readonly Regex TomcatServiceVersion = Pattern(@"^tomcat(?<version>8|9|10)\.service$");
     private static readonly Regex NumericVersionPrefix = Pattern(@"^(?<version>\d+(?:\.\d+)*)(?:[-_].*)?$");
 
     private const string ProcessCommandId = "database-host-discovery-linux-processes";
@@ -86,11 +87,11 @@ public sealed class HostMiddlewareDiscovery
             var command = shape.Groups["command"].Value;
             if (NginxProcess.IsMatch(command))
             {
-                observations.Add(new LocalObservation("Nginx", command, line.Trim(), false));
+                observations.Add(new LocalObservation("Nginx", null, command, line.Trim(), false));
             }
             else if (ApacheProcess.IsMatch(command))
             {
-                observations.Add(new LocalObservation("Apache HTTP Server", command, line.Trim(), false));
+                observations.Add(new LocalObservation("Apache HTTP Server", null, command, line.Trim(), false));
             }
         }
     }
@@ -114,8 +115,25 @@ public sealed class HostMiddlewareDiscovery
         var match = signature.Match(line);
         if (match.Success)
         {
-            observations.Add(new LocalObservation(product, match.Groups["name"].Value, line, true));
+            var instanceName = match.Groups["name"].Value;
+            observations.Add(new LocalObservation(
+                product,
+                InferServiceVersion(product, instanceName),
+                instanceName,
+                line,
+                true));
         }
+    }
+
+    private static string? InferServiceVersion(string product, string instanceName)
+    {
+        if (!string.Equals(product, "Apache Tomcat", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var match = TomcatServiceVersion.Match(instanceName);
+        return match.Success ? match.Groups["version"].Value : null;
     }
 
     private static IEnumerable<MiddlewareInstanceCandidate> MergeLocal(
@@ -139,7 +157,7 @@ public sealed class HostMiddlewareDiscovery
                 {
                     yield return new MiddlewareInstanceCandidate(
                         process.Product,
-                        null,
+                        process.Version,
                         MiddlewareInstallationType.LocalService,
                         process.InstanceName,
                         null,
@@ -154,7 +172,7 @@ public sealed class HostMiddlewareDiscovery
             {
                 yield return new MiddlewareInstanceCandidate(
                     service.Product,
-                    null,
+                    service.Version,
                     MiddlewareInstallationType.LocalService,
                     service.InstanceName,
                     null,
@@ -316,15 +334,22 @@ public sealed class HostMiddlewareDiscovery
 
     private sealed class LocalObservation
     {
-        public LocalObservation(string product, string instanceName, string evidence, bool isService)
+        public LocalObservation(
+            string product,
+            string? version,
+            string instanceName,
+            string evidence,
+            bool isService)
         {
             Product = product;
+            Version = version;
             InstanceName = instanceName;
             Evidence = evidence;
             IsService = isService;
         }
 
         public string Product { get; }
+        public string? Version { get; }
         public string InstanceName { get; }
         public string Evidence { get; }
         public bool IsService { get; }

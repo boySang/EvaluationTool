@@ -199,7 +199,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                         progress,
                         cancellationToken);
                 workflowStage = "保存数据库与中间件待确认结果";
-                Guid? hostSoftwareBatchId = null;
+                HostSoftwareDiscoveryBatchRecord? hostSoftwareBatch = null;
                 if (discoveryResult.DatabaseCandidates.Count != 0
                     || discoveryResult.MiddlewareCandidates.Count != 0)
                 {
@@ -212,7 +212,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     var inputs = new HostSoftwareDiscoveryBatchBuilder().Build(
                         discoveryResult,
                         executionObserver.RawOutputSha256ByCommand);
-                    var batch = await hostSoftwareDiscoveryRepository
+                    hostSoftwareBatch = await hostSoftwareDiscoveryRepository
                         .AppendHostSoftwareDiscoveryBatchAsync(
                             request.Project.Id,
                             device.Id,
@@ -225,7 +225,6 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                             DateTimeOffset.UtcNow,
                             cancellationToken)
                         .ConfigureAwait(false);
-                    hostSoftwareBatchId = batch.BatchId;
                 }
 
                 workflowStage = "整理数据库与中间件发现结果";
@@ -237,7 +236,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                             : CollectionTaskState.Failed,
                     discoveryResult.Outcome.ToString(),
                     CancellationToken.None).ConfigureAwait(false);
-                return MapDatabaseDiscovery(result, discoveryResult, hostSoftwareBatchId);
+                return MapDatabaseDiscovery(result, discoveryResult, hostSoftwareBatch);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -696,7 +695,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     private static CollectionWorkflowResult MapDatabaseDiscovery(
         CollectionResult collection,
         DatabaseDiscoveryResult discovery,
-        Guid? hostSoftwareBatchId)
+        HostSoftwareDiscoveryBatchRecord? hostSoftwareBatch)
     {
         if (discovery.Outcome == DatabaseDiscoveryOutcome.Stopped)
         {
@@ -725,7 +724,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         return CollectionWorkflowResult.RequiresHostSoftwareConfirmation(
             discovery.DatabaseCandidates.Select(candidate => candidate.RequireConfirmation()),
             discovery.MiddlewareCandidates,
-            hostSoftwareBatchId
+            hostSoftwareBatch
                 ?? throw new InvalidOperationException("主机软件候选缺少可恢复的持久化批次。"),
             completed);
     }
