@@ -91,6 +91,24 @@ public sealed class DatabaseDiscoveryRunnerTests
         Assert.Equal(3, session.ExecutedIds.Count);
     }
 
+    [Fact]
+    public async Task Systemd_permission_failure_is_not_silently_treated_as_unavailable()
+    {
+        var pack = LoadPack();
+        var session = new ScriptedSession(new Dictionary<string, CommandOutput>
+        {
+            [pack.Commands[0].Id] = Success(pack.Commands[0].Id, "202 mysqld-8.0"),
+            [pack.Commands[1].Id] = Failed(pack.Commands[1].Id)
+        });
+
+        var result = await CreateRunner(session).RunAsync(pack, new RecordingProgress(), CancellationToken.None);
+
+        Assert.Equal(DatabaseDiscoveryOutcome.Failed, result.Outcome);
+        Assert.Equal(2, result.Outputs.Count);
+        Assert.Equal(2, session.ExecutedIds.Count);
+        Assert.Empty(result.Candidates);
+    }
+
     private static DatabaseDiscoveryRunner CreateRunner(IRemoteSession session)
     {
         return new DatabaseDiscoveryRunner(session, new CommandSafetyPolicy(), new HostDatabaseDiscovery());
