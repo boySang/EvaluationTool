@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using AssessmentTool.App.Services;
 using AssessmentTool.Core.Commands;
+using AssessmentTool.Core.Domain;
 using AssessmentTool.Windows.Storage;
 
 namespace AssessmentTool.App.ViewModels;
