@@ -39,11 +39,14 @@ public sealed class SqliteProjectRepository :
 
     private static readonly KeyedAsyncLock InitializationLock =
         new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
+    private static readonly KeyedAsyncLock DeviceIdentificationWriteLock =
+        new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
 
     private readonly string connectionString;
     private readonly string databasePath;
 
     internal static int InitializationLockCount => InitializationLock.Count;
+    internal static int DeviceIdentificationWriteLockCount => DeviceIdentificationWriteLock.Count;
 
     public SqliteProjectRepository(string connectionString)
     {
@@ -549,7 +552,7 @@ public sealed class SqliteProjectRepository :
             cancellationToken);
     }
 
-    public Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
+    public async Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
         DeviceId deviceId,
         DetectionCandidate candidate,
         bool wasUserConfirmed,
@@ -562,49 +565,55 @@ public sealed class SqliteProjectRepository :
             throw new ArgumentNullException(nameof(candidate));
         }
 
-        return RunDatabaseOperationAsync(
-            token =>
-            {
-                using (var connection = OpenConnection())
-                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+        var lockKey = databasePath + "\0" + deviceId;
+        using (var lease = await DeviceIdentificationWriteLock
+            .AcquireAsync(lockKey, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return await RunDatabaseOperationAsync(
+                token =>
                 {
-                    token.ThrowIfCancellationRequested();
-                    long revision;
-                    using (var command = connection.CreateCommand())
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
                     {
-                        command.Transaction = transaction;
-                        command.CommandText = "SELECT COALESCE(MAX(revision), 0) FROM device_identifications WHERE device_id = @deviceId;";
-                        command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
-                        revision = checked(Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) + 1L);
-                    }
+                        token.ThrowIfCancellationRequested();
+                        long revision;
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "SELECT COALESCE(MAX(revision), 0) FROM device_identifications WHERE device_id = @deviceId;";
+                            command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                            revision = checked(Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) + 1L);
+                        }
 
-                    var record = new DeviceIdentificationRecord(
-                        deviceId,
-                        revision,
-                        candidate.Category,
-                        candidate.Vendor,
-                        candidate.ProductFamily,
-                        candidate.Model,
-                        candidate.Version,
-                        candidate.Evidence,
-                        candidate.Confidence,
-                        wasUserConfirmed,
-                        confirmationSource,
-                        recordedAt);
-                    using (var command = connection.CreateCommand())
-                    {
-                        command.Transaction = transaction;
-                        command.CommandText = "INSERT INTO device_identifications(device_id, revision, target_category, vendor, product_family, model, version, detection_evidence, confidence, was_user_confirmed, confirmation_source, recorded_at_utc) VALUES(@deviceId, @revision, @targetCategory, @vendor, @productFamily, @model, @version, @evidence, @confidence, @wasUserConfirmed, @confirmationSource, @recordedAtUtc);";
-                        AddDeviceIdentificationParameters(command, record);
-                        command.ExecuteNonQuery();
-                    }
+                        var record = new DeviceIdentificationRecord(
+                            deviceId,
+                            revision,
+                            candidate.Category,
+                            candidate.Vendor,
+                            candidate.ProductFamily,
+                            candidate.Model,
+                            candidate.Version,
+                            candidate.Evidence,
+                            candidate.Confidence,
+                            wasUserConfirmed,
+                            confirmationSource,
+                            recordedAt);
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO device_identifications(device_id, revision, target_category, vendor, product_family, model, version, detection_evidence, confidence, was_user_confirmed, confirmation_source, recorded_at_utc) VALUES(@deviceId, @revision, @targetCategory, @vendor, @productFamily, @model, @version, @evidence, @confidence, @wasUserConfirmed, @confirmationSource, @recordedAtUtc);";
+                            AddDeviceIdentificationParameters(command, record);
+                            command.ExecuteNonQuery();
+                        }
 
-                    token.ThrowIfCancellationRequested();
-                    transaction.Commit();
-                    return record;
-                }
-            },
-            cancellationToken);
+                        token.ThrowIfCancellationRequested();
+                        transaction.Commit();
+                        return record;
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(

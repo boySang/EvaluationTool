@@ -80,6 +80,7 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(SelectedIdentification));
             OnPropertyChanged(nameof(HasSelectedIdentification));
+            OnPropertyChanged(nameof(SelectedIdentificationRecordedAtText));
             IdentificationStatusMessage = value == null
                 ? "选择设备后显示最近一次识别结果。"
                 : "尚未读取该设备的识别记录。";
@@ -88,6 +89,9 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
 
     public DeviceIdentificationRecord? SelectedIdentification => selectedIdentification;
     public bool HasSelectedIdentification => selectedIdentification != null;
+    public string SelectedIdentificationRecordedAtText => selectedIdentification == null
+        ? string.Empty
+        : selectedIdentification.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
     public string IdentificationStatusMessage
     {
         get => identificationStatusMessage;
@@ -197,7 +201,7 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
             return;
         }
 
-        var generation = identificationLoadGeneration;
+        var generation = unchecked(++identificationLoadGeneration);
         IdentificationStatusMessage = "正在读取最近一次设备识别记录…";
         try
         {
@@ -212,6 +216,7 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
             selectedIdentification = loaded;
             OnPropertyChanged(nameof(SelectedIdentification));
             OnPropertyChanged(nameof(HasSelectedIdentification));
+            OnPropertyChanged(nameof(SelectedIdentificationRecordedAtText));
             IdentificationStatusMessage = loaded == null
                 ? "尚无识别记录；完成只读采集的识别阶段后会在此显示。"
                 : loaded.WasUserConfirmed
@@ -228,6 +233,7 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
             selectedIdentification = null;
             OnPropertyChanged(nameof(SelectedIdentification));
             OnPropertyChanged(nameof(HasSelectedIdentification));
+            OnPropertyChanged(nameof(SelectedIdentificationRecordedAtText));
             IdentificationStatusMessage = "无法读取识别记录；请稍后重试。技术信息：" + exception.GetType().Name;
         }
     }

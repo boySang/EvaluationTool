@@ -186,6 +186,35 @@ public sealed class ProjectWorkspaceViewModelTests
         Assert.Same(identification, viewModel.SelectedIdentification);
         Assert.True(viewModel.HasSelectedIdentification);
         Assert.Contains("人工确认", viewModel.IdentificationStatusMessage);
+        Assert.Equal(identification.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz"),
+            viewModel.SelectedIdentificationRecordedAtText);
+    }
+
+    [Fact]
+    public async Task Newer_identification_refresh_cannot_be_overwritten_by_an_older_request()
+    {
+        var project = CreateProject("项目");
+        var device = CreateDevice(project, "服务器");
+        var older = CreateIdentification(device, 1, "22.04");
+        var newer = CreateIdentification(device, 2, "24.04");
+        var olderCompletion = new TaskCompletionSource<DeviceIdentificationRecord?>();
+        var newerCompletion = new TaskCompletionSource<DeviceIdentificationRecord?>();
+        var service = new FakeProjectWorkspaceService();
+        service.DeviceLoads[project.Id] = Task.FromResult<IReadOnlyList<DeviceRecord>>(new[] { device });
+        service.IdentificationLoads.Enqueue(olderCompletion.Task);
+        service.IdentificationLoads.Enqueue(newerCompletion.Task);
+        var viewModel = new ProjectWorkspaceViewModel(service);
+        await viewModel.SelectProjectAsync(project);
+        viewModel.SelectedDevice = device;
+
+        var olderRefresh = viewModel.RefreshSelectedIdentificationAsync();
+        var newerRefresh = viewModel.RefreshSelectedIdentificationAsync();
+        newerCompletion.SetResult(newer);
+        await newerRefresh;
+        olderCompletion.SetResult(older);
+        await olderRefresh;
+
+        Assert.Same(newer, viewModel.SelectedIdentification);
     }
 
     [Fact]
@@ -311,6 +340,26 @@ public sealed class ProjectWorkspaceViewModelTests
             CredentialReference.New(), DateTimeOffset.UtcNow);
     }
 
+    private static DeviceIdentificationRecord CreateIdentification(
+        DeviceRecord device,
+        long revision,
+        string version)
+    {
+        return new DeviceIdentificationRecord(
+            device.Id,
+            revision,
+            TargetCategory.Server,
+            "ubuntu",
+            "Linux",
+            null,
+            version,
+            "ID=ubuntu",
+            0.95,
+            false,
+            null,
+            DateTimeOffset.UtcNow.AddMinutes(revision));
+    }
+
     private sealed class FakeProjectWorkspaceService : IProjectWorkspaceService
     {
         public IReadOnlyList<ProjectRecord> Projects { get; set; } = Array.Empty<ProjectRecord>();
@@ -329,6 +378,8 @@ public sealed class ProjectWorkspaceViewModelTests
         public (ProjectId Project, string Name, string Host, int Port, string UserName, TargetCategory Category) PrivateKeyAddArguments { get; private set; }
         public int PrivateKeyAddCallCount { get; private set; }
         public DeviceIdentificationRecord? LatestIdentification { get; set; }
+        public Queue<Task<DeviceIdentificationRecord?>> IdentificationLoads { get; } =
+            new Queue<Task<DeviceIdentificationRecord?>>();
 
         public Task InitializeAsync(CancellationToken cancellationToken = default)
         {
@@ -362,7 +413,9 @@ public sealed class ProjectWorkspaceViewModelTests
             DeviceId deviceId,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(LatestIdentification);
+            return IdentificationLoads.Count == 0
+                ? Task.FromResult(LatestIdentification)
+                : IdentificationLoads.Dequeue();
         }
 
         public async Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port,

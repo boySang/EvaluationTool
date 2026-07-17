@@ -391,7 +391,7 @@
                   <TextBlock Grid.Row="2" Text="系列 / 版本" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
                   <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.ProductFamily, TargetNullValue=未识别}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Version, TargetNullValue=未识别}" /></TextBlock>
                   <TextBlock Grid.Row="3" Text="可信度 / 时间" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
-                  <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Confidence, StringFormat={}{0:P0}}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.RecordedAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" /></TextBlock>
+                  <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Confidence, StringFormat={}{0:P0}}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentificationRecordedAtText}" /></TextBlock>
                   <TextBlock Grid.Row="4" Text="识别依据" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
                   <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Workspace.SelectedIdentification.Evidence}" TextWrapping="Wrap" Margin="0,6,0,0" />
                   <TextBlock Grid.Row="5" Text="确认方式" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />

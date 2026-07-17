@@ -255,6 +255,39 @@ public sealed class SqliteProjectRepositoryTests
     }
 
     [Fact]
+    public async Task Concurrent_repository_instances_assign_contiguous_identification_revisions()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var firstRepository = new SqliteProjectRepository(database.ConnectionString);
+            var secondRepository = new SqliteProjectRepository(database.ConnectionString);
+            await firstRepository.InitializeAsync();
+            var projectId = await firstRepository.CreateProjectAsync("客户", "并发识别项目", @"C:\Evidence");
+            var deviceId = await firstRepository.AddDeviceAsync(
+                projectId, "Linux服务器", "192.0.2.31", 22, CredentialReference.New());
+            var candidate = new DetectionCandidate(
+                TargetCategory.Server, "ubuntu", "Linux", null, "24.04", "ID=ubuntu", 0.95);
+
+            var writes = Enumerable.Range(0, 12)
+                .Select(index => (index & 1) == 0 ? firstRepository : secondRepository)
+                .Select((repository, index) => repository.AppendDeviceIdentificationAsync(
+                    deviceId,
+                    candidate,
+                    false,
+                    null,
+                    DateTimeOffset.UtcNow.AddSeconds(index)))
+                .ToArray();
+
+            await Task.WhenAll(writes);
+
+            var history = await firstRepository.GetDeviceIdentificationHistoryAsync(deviceId);
+            Assert.Equal(Enumerable.Range(1, 12).Select(value => (long)value),
+                history.Select(record => record.Revision));
+            Assert.Equal(0, SqliteProjectRepository.DeviceIdentificationWriteLockCount);
+        }
+    }
+
+    [Fact]
     public async Task Device_identification_rejects_unknown_device_and_invalid_confirmation_metadata()
     {
         using (var database = new TemporaryDatabase())
