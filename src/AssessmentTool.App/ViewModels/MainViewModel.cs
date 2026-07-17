@@ -37,7 +37,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ComponentCenterViewModel componentCenter,
         DeviceConnectionViewModel deviceConnection,
         Action toggleTheme,
-        EvidenceCenterViewModel? evidenceCenter = null)
+        EvidenceCenterViewModel? evidenceCenter = null,
+        CommandLibraryViewModel? commandLibrary = null)
     {
         Workspace = workspace;
         Collection = collection ?? throw new ArgumentNullException(nameof(collection));
@@ -45,6 +46,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         DeviceConnection = deviceConnection ?? throw new ArgumentNullException(nameof(deviceConnection));
         EvidenceCenter = evidenceCenter
             ?? new EvidenceCenterViewModel(new EmptyEvidenceCenterService());
+        CommandLibrary = commandLibrary ?? CommandLibraryViewModel.CreateEmpty();
         DeviceEditor = new DeviceEditorViewModel();
         toggleThemeCommand = new DelegateCommand(
             toggleTheme ?? throw new ArgumentNullException(nameof(toggleTheme)),
@@ -56,7 +58,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             NavigationItemViewModel.Available("设备"),
             NavigationItemViewModel.Available("采集任务"),
             NavigationItemViewModel.Available("证据"),
-            NavigationItemViewModel.Deferred("命令库"),
+            NavigationItemViewModel.Available("命令库"),
             NavigationItemViewModel.Available("组件中心"),
             NavigationItemViewModel.Deferred("设置")
         });
@@ -77,6 +79,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ComponentCenterViewModel ComponentCenter { get; }
     public DeviceConnectionViewModel DeviceConnection { get; }
     public EvidenceCenterViewModel EvidenceCenter { get; }
+    public CommandLibraryViewModel CommandLibrary { get; }
     public DeviceEditorViewModel DeviceEditor { get; }
     public IReadOnlyList<NavigationItemViewModel> NavigationItems { get; }
     public ICommand ToggleThemeCommand => toggleThemeCommand;

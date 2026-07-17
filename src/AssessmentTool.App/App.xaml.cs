@@ -49,6 +49,11 @@ public partial class App : Application
             startupStage = "检查 SSH 连接组件";
             var componentCenter = new ComponentCenterViewModel(new ComponentStatusService());
             await componentCenter.RefreshAsync();
+            startupStage = "加载本地命令草稿";
+            var commandLibrary = new CommandLibraryViewModel(
+                new CommandDraftService(repository),
+                new JsonCommandDraftFilePicker());
+            await commandLibrary.InitializeAsync();
             startupStage = "加载软件主界面";
             var mainViewModel = new MainViewModel(
                 workspace,
@@ -63,7 +68,8 @@ public partial class App : Application
                 ToggleTheme,
                 new EvidenceCenterViewModel(
                     new EvidenceCenterService(repository, repository),
-                    new ProjectEvidenceFolderLauncher(repository)));
+                    new ProjectEvidenceFolderLauncher(repository)),
+                commandLibrary);
             var window = new MainWindow(mainViewModel);
             MainWindow = window;
             EventHandler? contentRenderedHandler = null;

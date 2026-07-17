@@ -60,8 +60,8 @@
           <ListBoxItem>
             <StackPanel Orientation="Horizontal"><TextBlock Text="▧" FontSize="17" Width="30" /><TextBlock Text="证据中心" VerticalAlignment="Center" /></StackPanel>
           </ListBoxItem>
-          <ListBoxItem IsEnabled="False">
-            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="&gt;_" FontSize="13" /><TextBlock Grid.Column="1" Text="命令库" /><TextBlock Grid.Column="2" Text="后续" FontSize="10" Foreground="{DynamicResource Brush.DisabledText}" /></Grid>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="&gt;_" FontSize="13" Width="30" /><TextBlock Text="命令库" VerticalAlignment="Center" /></StackPanel>
           </ListBoxItem>
           <ListBoxItem>
             <StackPanel Orientation="Horizontal"><TextBlock Text="▦" FontSize="17" Width="30" /><TextBlock Text="组件中心" VerticalAlignment="Center" /></StackPanel>
@@ -888,8 +888,75 @@
         </ScrollViewer>
       </TabItem>
 
-      <TabItem IsEnabled="False" Focusable="False">
-        <TabItem.Header><StackPanel><TextBlock Text="命令库" /><TextBlock Text="后续版本" FontSize="11" Foreground="{DynamicResource Brush.DisabledText}" /></StackPanel></TabItem.Header>
+      <TabItem Header="命令库">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="28" MaxWidth="1100" HorizontalAlignment="Left">
+            <Grid Margin="0,0,0,18">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="命令库草稿" Style="{StaticResource PageTitleStyle}" />
+                <TextBlock Text="导入用户已有命令进行离线检查。所有导入内容强制处于待校验状态，不能发布或执行。" Style="{StaticResource SecondaryTextStyle}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="导入 JSON 草稿" Command="{Binding CommandLibrary.ImportCommand}" Margin="0,0,8,0" automation:AutomationProperties.Name="导入待校验命令草稿" />
+                <Button Content="刷新草稿" Command="{Binding CommandLibrary.RefreshCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" />
+              </StackPanel>
+            </Grid>
+
+            <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
+              <StackPanel>
+                <TextBlock Text="安全隔离已启用" Style="{StaticResource SectionTitleStyle}" Foreground="{DynamicResource Brush.WarningText}" />
+                <TextBlock Text="导入过程不会连接客户设备、不会建立 SSH 或数据库会话、不会执行任何命令。文件中自称“已验证”或“只读”的字段不会被信任。" TextWrapping="Wrap" />
+                <TextBlock Text="当前版本仅支持导入、保存和查看风险，不提供发布按钮。单个 JSON 文件最大 1 MB。" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+              <StackPanel>
+                <TextBlock Text="{Binding CommandLibrary.StatusMessage, Mode=OneWay}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding CommandLibrary.Drafts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                      <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding SourceFileName}" Style="{StaticResource SectionTitleStyle}" />
+                          <TextBlock Text="{Binding ImportedAtText, StringFormat=导入时间：{0}}" Style="{StaticResource SecondaryTextStyle}" />
+                        </StackPanel>
+                        <Border Grid.Column="1" Background="{DynamicResource Brush.ErrorBackground}" CornerRadius="12" Padding="10,4" VerticalAlignment="Top">
+                          <TextBlock Text="{Binding ReviewStatusText}" Foreground="{DynamicResource Brush.Error}" FontWeight="SemiBold" />
+                        </Border>
+                      </Grid>
+                      <Grid Margin="0,12,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="160" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding CommandCount, StringFormat=命令数量：{0}}" />
+                        <TextBlock Grid.Column="1" Text="{Binding BlockerCount, StringFormat=阻断项：{0}}" Foreground="{DynamicResource Brush.Error}" />
+                        <TextBlock Grid.Column="2" Text="{Binding RawSha256, StringFormat=原始 SHA-256：{0}}" FontFamily="Consolas" TextTrimming="CharacterEllipsis" ToolTip="{Binding RawSha256}" />
+                      </Grid>
+                      <ItemsControl ItemsSource="{Binding Findings}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Border Background="{DynamicResource Brush.SurfaceSubtle}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,3">
+                              <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Severity, StringFormat=[{0}]}" FontWeight="SemiBold" Margin="0,0,8,0" />
+                                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
 
       <TabItem Header="组件中心">

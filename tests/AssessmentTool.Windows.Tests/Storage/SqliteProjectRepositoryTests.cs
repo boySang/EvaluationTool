@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
+using AssessmentTool.Core.Commands;
 using AssessmentTool.Windows.Storage;
 using Xunit;
 
@@ -114,8 +115,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(4, version));
-            Assert.Equal(4, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(5, version));
+            Assert.Equal(5, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -143,7 +144,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(4, await repository.GetSchemaVersionAsync());
+            Assert.Equal(5, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -382,9 +383,37 @@ public sealed class SqliteProjectRepositoryTests
     }
 
     [Fact]
+    public async Task Command_draft_round_trip_preserves_raw_hash_findings_and_non_executable_state()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var json = "{\"id\":\"draft\",\"name\":\"待审查\",\"version\":\"1.0.0\",\"commands\":[{\"id\":\"unsafe\",\"title\":\"危险样例\",\"targetCategory\":\"Server\",\"commandText\":\"rm -rf /tmp/demo\",\"verificationStatus\":\"Verified\",\"isReadOnly\":true,\"riskLevel\":\"High\"}]}";
+            var draft = new CommandDraftImporter().Import(
+                Encoding.UTF8.GetBytes(json),
+                @"C:\imports\draft.json",
+                new DateTimeOffset(2026, 7, 17, 8, 30, 0, TimeSpan.Zero));
+
+            var id = await repository.SaveCommandDraftAsync(draft);
+            var stored = Assert.Single(await repository.GetCommandDraftsAsync());
+
+            Assert.Equal(id, stored.Id);
+            Assert.Equal("draft.json", stored.SourceFileName);
+            Assert.Equal(draft.RawSha256, stored.RawSha256);
+            Assert.Equal(json, stored.RawJson);
+            Assert.True(stored.IsPendingReview);
+            Assert.False(stored.IsExecutable);
+            Assert.False(Assert.Single(stored.Commands).IsExecutable);
+            Assert.Contains(stored.Findings, finding => finding.Code == "OBVIOUS_MUTATION");
+            Assert.Contains(stored.Findings, finding => finding.Code == "DECLARED_VERIFICATION_IGNORED");
+        }
+    }
+
+    [Fact]
     public void Built_in_migration_versions_must_be_unique_and_contiguous_from_one()
     {
-        MigrationSequence.Validate(new[] { 1, 2, 3, 4 });
+        MigrationSequence.Validate(new[] { 1, 2, 3, 4, 5 });
 
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(Array.Empty<int>()));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 2 }));

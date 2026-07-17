@@ -11,13 +11,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Detection;
+using AssessmentTool.Core.Commands;
 
 namespace AssessmentTool.Windows.Storage;
 
 public sealed class SqliteProjectRepository :
     IProjectRepository,
     ISshHostKeyTrustRepository,
-    IDatabaseConfirmationRepository
+    IDatabaseConfirmationRepository,
+    ICommandDraftRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
 
@@ -26,7 +28,8 @@ public sealed class SqliteProjectRepository :
         new Migration(1, "AssessmentTool.Windows.Storage.Migrations.001_initial.sql"),
         new Migration(2, "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql"),
         new Migration(3, "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql"),
-        new Migration(4, "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql")
+        new Migration(4, "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql"),
+        new Migration(5, "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -500,6 +503,208 @@ public sealed class SqliteProjectRepository :
                 return records.AsReadOnly();
             },
             cancellationToken);
+    }
+
+    public Task<Guid> SaveCommandDraftAsync(
+        CommandDraftImportResult draft,
+        CancellationToken cancellationToken = default)
+    {
+        if (draft == null)
+        {
+            throw new ArgumentNullException(nameof(draft));
+        }
+
+        if (draft.IsExecutable || !draft.IsPendingReview)
+        {
+            throw new InvalidOperationException("导入内容只能作为待校验、禁止执行的命令草稿保存。");
+        }
+
+        return RunDatabaseOperationAsync(
+            token =>
+            {
+                var draftId = Guid.NewGuid();
+                using (var connection = OpenConnection())
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                {
+                    token.ThrowIfCancellationRequested();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "INSERT INTO command_drafts(id, source_file_name, raw_sha256, raw_json, imported_at_utc, review_status, is_executable) VALUES(@id, @sourceFileName, @rawSha256, @rawJson, @importedAtUtc, 0, 0);";
+                        command.Parameters.AddWithValue("@id", draftId.ToString("D"));
+                        command.Parameters.AddWithValue("@sourceFileName", draft.SourceFileName);
+                        command.Parameters.AddWithValue("@rawSha256", draft.RawSha256);
+                        command.Parameters.AddWithValue("@rawJson", draft.RawJson);
+                        command.Parameters.AddWithValue("@importedAtUtc", FormatUtc(draft.ImportedAt));
+                        command.ExecuteNonQuery();
+                    }
+
+                    foreach (var item in draft.Commands)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO command_draft_items(draft_id, ordinal, command_id, title, command_text, target_category, declared_risk_level, is_executable) VALUES(@draftId, @ordinal, @commandId, @title, @commandText, @targetCategory, @declaredRiskLevel, 0);";
+                            command.Parameters.AddWithValue("@draftId", draftId.ToString("D"));
+                            command.Parameters.AddWithValue("@ordinal", item.Index);
+                            command.Parameters.AddWithValue("@commandId", (object?)item.Id ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@title", (object?)item.Title ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@commandText", (object?)item.CommandText ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@targetCategory", (object?)item.TargetCategory ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@declaredRiskLevel", (object?)item.DeclaredRiskLevel ?? DBNull.Value);
+                            command.ExecuteNonQuery();
+                        }
+                    }
+
+                    for (var ordinal = 0; ordinal < draft.Findings.Count; ordinal++)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var finding = draft.Findings[ordinal];
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO command_draft_findings(draft_id, ordinal, severity, code, message, command_index) VALUES(@draftId, @ordinal, @severity, @code, @message, @commandIndex);";
+                            command.Parameters.AddWithValue("@draftId", draftId.ToString("D"));
+                            command.Parameters.AddWithValue("@ordinal", ordinal);
+                            command.Parameters.AddWithValue("@severity", (int)finding.Severity);
+                            command.Parameters.AddWithValue("@code", finding.Code);
+                            command.Parameters.AddWithValue("@message", finding.Message);
+                            command.Parameters.AddWithValue("@commandIndex", (object?)finding.CommandIndex ?? DBNull.Value);
+                            command.ExecuteNonQuery();
+                        }
+                    }
+
+                    token.ThrowIfCancellationRequested();
+                    transaction.Commit();
+                }
+
+                return draftId;
+            },
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<CommandDraftArchiveRecord>> GetCommandDraftsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<IReadOnlyList<CommandDraftArchiveRecord>>(
+            token =>
+            {
+                var records = new List<CommandDraftArchiveRecord>();
+                var headers = new List<StoredCommandDraftHeader>();
+                using (var connection = OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT id, source_file_name, raw_sha256, raw_json, imported_at_utc FROM command_drafts WHERE review_status = 0 AND is_executable = 0 ORDER BY imported_at_utc DESC, rowid DESC;";
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            token.ThrowIfCancellationRequested();
+                            headers.Add(new StoredCommandDraftHeader(
+                                Guid.Parse(reader.GetString(0)),
+                                reader.GetString(1),
+                                reader.GetString(2),
+                                reader.GetString(3),
+                                ParseUtc(reader.GetString(4))));
+                        }
+                    }
+
+                    foreach (var header in headers)
+                    {
+                        records.Add(new CommandDraftArchiveRecord(
+                            header.Id,
+                            header.SourceFileName,
+                            header.RawSha256,
+                            header.RawJson,
+                            header.ImportedAt,
+                            ReadCommandDraftItems(connection, header.Id, token),
+                            ReadCommandDraftFindings(connection, header.Id, token)));
+                    }
+                }
+
+                return records.AsReadOnly();
+            },
+            cancellationToken);
+    }
+
+    private static IReadOnlyList<CommandDraftItem> ReadCommandDraftItems(
+        SQLiteConnection connection,
+        Guid draftId,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<CommandDraftItem>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT ordinal, command_id, title, command_text, target_category, declared_risk_level FROM command_draft_items WHERE draft_id = @draftId AND is_executable = 0 ORDER BY ordinal;";
+            command.Parameters.AddWithValue("@draftId", draftId.ToString("D"));
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    items.Add(new CommandDraftItem(
+                        reader.GetInt32(0),
+                        ReadNullableString(reader, 1),
+                        ReadNullableString(reader, 2),
+                        ReadNullableString(reader, 3),
+                        ReadNullableString(reader, 4),
+                        ReadNullableString(reader, 5)));
+                }
+            }
+        }
+
+        return items.AsReadOnly();
+    }
+
+    private static IReadOnlyList<CommandDraftFinding> ReadCommandDraftFindings(
+        SQLiteConnection connection,
+        Guid draftId,
+        CancellationToken cancellationToken)
+    {
+        var findings = new List<CommandDraftFinding>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT severity, code, message, command_index FROM command_draft_findings WHERE draft_id = @draftId ORDER BY ordinal;";
+            command.Parameters.AddWithValue("@draftId", draftId.ToString("D"));
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    findings.Add(new CommandDraftFinding(
+                        ReadEnum<CommandDraftFindingSeverity>(reader.GetInt32(0), "command draft finding severity"),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.IsDBNull(3) ? (int?)null : reader.GetInt32(3)));
+                }
+            }
+        }
+
+        return findings.AsReadOnly();
+    }
+
+    private sealed class StoredCommandDraftHeader
+    {
+        public StoredCommandDraftHeader(
+            Guid id,
+            string sourceFileName,
+            string rawSha256,
+            string rawJson,
+            DateTimeOffset importedAt)
+        {
+            Id = id;
+            SourceFileName = sourceFileName;
+            RawSha256 = rawSha256;
+            RawJson = rawJson;
+            ImportedAt = importedAt;
+        }
+
+        public Guid Id { get; }
+        public string SourceFileName { get; }
+        public string RawSha256 { get; }
+        public string RawJson { get; }
+        public DateTimeOffset ImportedAt { get; }
     }
 
     public Task<int> GetSchemaVersionAsync(CancellationToken cancellationToken = default)

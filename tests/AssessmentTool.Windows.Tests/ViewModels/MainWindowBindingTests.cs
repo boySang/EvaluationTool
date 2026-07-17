@@ -133,6 +133,25 @@ public sealed class MainWindowBindingTests
         Assert.Contains("x:Key=\"FluentPrimaryButtonStyle\"", theme);
     }
 
+    [Fact]
+    public void Command_library_only_imports_non_executable_drafts()
+    {
+        var document = XDocument.Load(FindMainWindowXaml());
+        var commandLibrary = Assert.Single(document.Descendants()
+            .Where(element => element.Name.LocalName == "TabItem")
+            .Where(element => string.Equals((string?)element.Attribute("Header"), "命令库", StringComparison.Ordinal)));
+        var source = commandLibrary.ToString();
+
+        Assert.Contains("CommandLibrary.ImportCommand", source);
+        Assert.Contains("CommandLibrary.RefreshCommand", source);
+        Assert.Contains("待校验", source);
+        Assert.Contains("不能发布或执行", source);
+        Assert.Contains("不会连接客户设备", source);
+        Assert.Contains("单个 JSON 文件最大 1 MB", source);
+        Assert.DoesNotContain("Content=\"发布", source);
+        Assert.DoesNotContain("Content=\"执行", source);
+    }
+
     private static string FindMainWindowXaml()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)

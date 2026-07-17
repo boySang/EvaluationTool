@@ -16,5 +16,6 @@
     <EmbeddedResource Include="Storage/Migrations/002_device_connection_identity.sql" />
     <EmbeddedResource Include="Storage/Migrations/003_ssh_host_key_trust.sql" />
     <EmbeddedResource Include="Storage/Migrations/004_database_confirmations.sql" />
+    <EmbeddedResource Include="Storage/Migrations/005_command_drafts.sql" />
   </ItemGroup>
 </Project>
