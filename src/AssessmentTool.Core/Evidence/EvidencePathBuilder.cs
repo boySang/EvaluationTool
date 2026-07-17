@@ -36,7 +36,8 @@ public sealed class EvidencePathBuilder
             throw new ArgumentOutOfRangeException(nameof(maximumTotalPathLength), "证据完整路径上限不能小于 80 个字符。");
         }
 
-        this.rootPath = Path.GetFullPath(rootPath);
+        this.rootPath = WindowsEvidenceRootPolicy.Normalize(rootPath, nameof(rootPath));
+        WindowsEvidenceRootPolicy.EnsureNoExistingReparsePoints(this.rootPath);
         this.maximumTotalPathLength = maximumTotalPathLength;
         if (this.rootPath.Length >= maximumTotalPathLength)
         {

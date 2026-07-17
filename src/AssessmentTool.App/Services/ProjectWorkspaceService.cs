@@ -223,48 +223,15 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
 
     private static void ValidateEvidenceRoot(string evidenceRoot)
     {
-        ValidateRequiredText(evidenceRoot, nameof(evidenceRoot), "请选择证据保存目录后重试。");
-        if (evidenceRoot.Length > 1024
-            || evidenceRoot.Any(char.IsControl)
-            || !IsFullyQualifiedWindowsPath(evidenceRoot))
+        try
+        {
+            WindowsEvidenceRootPolicy.Normalize(evidenceRoot, nameof(evidenceRoot));
+        }
+        catch (ArgumentException)
         {
             throw new ArgumentException(
                 "请选择完整的 Windows 证据目录，例如 C:\\测评证据 或 \\\\服务器\\共享目录。",
                 nameof(evidenceRoot));
         }
-    }
-
-    private static bool IsFullyQualifiedWindowsPath(string path)
-    {
-        if (path.Length >= 3
-            && char.IsLetter(path[0])
-            && path[1] == ':'
-            && (path[2] == '\\' || path[2] == '/'))
-        {
-            return true;
-        }
-
-        var isUnc = path.StartsWith("\\\\", StringComparison.Ordinal)
-            || path.StartsWith("//", StringComparison.Ordinal);
-        if (!isUnc
-            || path.StartsWith("\\\\?\\", StringComparison.Ordinal)
-            || path.StartsWith("\\\\.\\", StringComparison.Ordinal)
-            || path.StartsWith("//?/", StringComparison.Ordinal)
-            || path.StartsWith("//./", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var segments = path.Substring(2).Split(new[] { '/', '\\' }, StringSplitOptions.None);
-        return segments.Length >= 2
-            && IsValidUncSegment(segments[0])
-            && IsValidUncSegment(segments[1]);
-    }
-
-    private static bool IsValidUncSegment(string segment)
-    {
-        return !string.IsNullOrWhiteSpace(segment)
-            && segment != "."
-            && segment != "..";
     }
 }

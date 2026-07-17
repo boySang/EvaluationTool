@@ -591,12 +591,17 @@
                 <TextBlock Text="证据中心" Style="{StaticResource PageTitleStyle}" />
                 <TextBlock Text="按当前项目查看命令执行记录、原始输出索引、截图数量和 SHA-256 索引状态。" Style="{StaticResource SecondaryTextStyle}" />
               </StackPanel>
-              <Button Grid.Column="1" Content="刷新证据" Command="{Binding EvidenceCenter.RefreshCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="打开证据目录" Command="{Binding EvidenceCenter.OpenFolderCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" />
+                <Button Content="复核文件 SHA-256" Command="{Binding EvidenceCenter.VerifyCommand}" Style="{StaticResource FluentPrimaryButtonStyle}" Margin="0,0,8,0" />
+                <Button Content="刷新索引" Command="{Binding EvidenceCenter.RefreshCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" />
+              </StackPanel>
             </Grid>
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>
                 <TextBlock Text="{Binding EvidenceCenter.State, StringFormat=当前状态：{0}}" Style="{StaticResource SectionTitleStyle}" />
-                <TextBlock Text="“索引完整”表示 SQLite 中的原始输出和截图哈希记录齐全；证据文件本身不会在浏览列表时被修改。" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                <TextBlock Text="普通刷新只核对 SQLite 索引，不读取证据文件；单击“复核文件 SHA-256”才会逐个只读计算原始输出和截图哈希。" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding EvidenceCenter.VerificationSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 

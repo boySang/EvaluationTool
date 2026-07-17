@@ -12,15 +12,19 @@ namespace AssessmentTool.App.Services;
 public enum EvidenceShaStatus
 {
     Complete,
+    Verified,
     Missing,
     Mismatch,
+    UnsafePath,
+    Unavailable,
     NotAvailable
 }
 
 public enum EvidenceCenterFailure
 {
     InvalidProject,
-    IndexUnavailable
+    IndexUnavailable,
+    VerificationUnavailable
 }
 
 public sealed class EvidenceCenterException : InvalidOperationException
@@ -146,11 +150,17 @@ public sealed class EvidenceCenterItem
             switch (ShaStatus)
             {
                 case EvidenceShaStatus.Complete:
-                    return "索引完整";
+                    return "索引完整（未复核文件）";
+                case EvidenceShaStatus.Verified:
+                    return "文件与索引 SHA-256 一致";
                 case EvidenceShaStatus.Missing:
-                    return "索引缺失";
+                    return "证据或索引缺失";
                 case EvidenceShaStatus.Mismatch:
-                    return "索引不一致";
+                    return "SHA-256 不一致";
+                case EvidenceShaStatus.UnsafePath:
+                    return "证据路径不安全";
+                case EvidenceShaStatus.Unavailable:
+                    return "文件暂时无法读取";
                 default:
                     return "暂无 SHA";
             }
@@ -185,20 +195,47 @@ public interface IEvidenceCenterService
     Task<EvidenceCenterSnapshot> LoadAsync(
         ProjectId projectId,
         CancellationToken cancellationToken = default);
+    Task<EvidenceCenterSnapshot> VerifyAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class EvidenceCenterService : IEvidenceCenterService
 {
     private readonly IProjectRepository repository;
+    private readonly EvidenceFileIntegrityVerifier integrityVerifier;
 
     public EvidenceCenterService(IProjectRepository repository)
+        : this(repository, new EvidenceFileIntegrityVerifier())
+    {
+    }
+
+    internal EvidenceCenterService(
+        IProjectRepository repository,
+        EvidenceFileIntegrityVerifier integrityVerifier)
     {
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        this.integrityVerifier = integrityVerifier ?? throw new ArgumentNullException(nameof(integrityVerifier));
     }
 
     public async Task<EvidenceCenterSnapshot> LoadAsync(
         ProjectId projectId,
         CancellationToken cancellationToken = default)
+    {
+        return await LoadCoreAsync(projectId, verifyFiles: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<EvidenceCenterSnapshot> VerifyAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return LoadCoreAsync(projectId, verifyFiles: true, cancellationToken);
+    }
+
+    private async Task<EvidenceCenterSnapshot> LoadCoreAsync(
+        ProjectId projectId,
+        bool verifyFiles,
+        CancellationToken cancellationToken)
     {
         if (projectId.Equals(default(ProjectId)))
         {
@@ -215,6 +252,20 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
                 .ConfigureAwait(false);
             var devices = await repository.GetDevicesAsync(projectId, cancellationToken)
                 .ConfigureAwait(false);
+            string? evidenceRoot = null;
+            if (verifyFiles)
+            {
+                var projects = await repository.GetProjectsAsync(cancellationToken).ConfigureAwait(false);
+                var persistedProject = projects.SingleOrDefault(project => project.Id.Equals(projectId));
+                if (persistedProject == null)
+                {
+                    throw new EvidenceCenterException(
+                        EvidenceCenterFailure.InvalidProject,
+                        "当前项目不存在，已阻止读取证据目录。");
+                }
+
+                evidenceRoot = persistedProject.EvidenceRoot;
+            }
             cancellationToken.ThrowIfCancellationRequested();
 
             if (executions == null || evidenceFiles == null || devices == null)
@@ -228,7 +279,12 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
                 device => device.DisplayName,
                 StringComparer.OrdinalIgnoreCase);
             var items = executions
-                .Select(execution => CreateItem(execution, evidenceIndex, deviceNames))
+                .Select(execution => CreateItem(
+                    execution,
+                    evidenceIndex,
+                    deviceNames,
+                    evidenceRoot,
+                    cancellationToken))
                 .OrderByDescending(item => item.StartedAt)
                 .ThenBy(item => item.DeviceId, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.CommandId, StringComparer.OrdinalIgnoreCase)
@@ -246,15 +302,21 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
         catch (Exception)
         {
             throw new EvidenceCenterException(
-                EvidenceCenterFailure.IndexUnavailable,
-                "证据索引暂时无法读取。请确认本地项目数据库可用后重试。");
+                verifyFiles
+                    ? EvidenceCenterFailure.VerificationUnavailable
+                    : EvidenceCenterFailure.IndexUnavailable,
+                verifyFiles
+                    ? "证据文件复核暂时无法完成。请确认项目数据库和证据目录可访问后重试。"
+                    : "证据索引暂时无法读取。请确认本地项目数据库可用后重试。");
         }
     }
 
-    private static EvidenceCenterItem CreateItem(
+    private EvidenceCenterItem CreateItem(
         ExecutionRecord execution,
         EvidenceIndex evidenceIndex,
-        IReadOnlyDictionary<string, string> deviceNames)
+        IReadOnlyDictionary<string, string> deviceNames,
+        string? evidenceRoot,
+        CancellationToken cancellationToken)
     {
         if (execution == null)
         {
@@ -273,12 +335,14 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
             execution.Status,
             execution.RawOutputPath,
             execution.EvidenceImagePaths.Count,
-            EvaluateShaStatus(execution, evidenceIndex));
+            EvaluateShaStatus(execution, evidenceIndex, evidenceRoot, cancellationToken));
     }
 
-    private static EvidenceShaStatus EvaluateShaStatus(
+    private EvidenceShaStatus EvaluateShaStatus(
         ExecutionRecord execution,
-        EvidenceIndex evidenceIndex)
+        EvidenceIndex evidenceIndex,
+        string? evidenceRoot,
+        CancellationToken cancellationToken)
     {
         var expectedCount = (execution.RawOutputPath == null ? 0 : 1)
             + execution.EvidenceImagePaths.Count;
@@ -325,7 +389,32 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
             return EvidenceShaStatus.Mismatch;
         }
 
-        return missing ? EvidenceShaStatus.Missing : EvidenceShaStatus.Complete;
+        if (missing)
+        {
+            return EvidenceShaStatus.Missing;
+        }
+
+        if (evidenceRoot == null)
+        {
+            return EvidenceShaStatus.Complete;
+        }
+
+        var expectedFiles = new List<ExpectedEvidenceFile>();
+        if (execution.RawOutputPath != null && execution.RawOutputSha256 != null)
+        {
+            expectedFiles.Add(new ExpectedEvidenceFile(
+                execution.RawOutputPath,
+                execution.RawOutputSha256));
+        }
+
+        foreach (var imagePath in execution.EvidenceImagePaths)
+        {
+            expectedFiles.Add(new ExpectedEvidenceFile(
+                imagePath,
+                execution.EvidenceImageSha256s[imagePath]));
+        }
+
+        return integrityVerifier.Verify(evidenceRoot, expectedFiles, cancellationToken);
     }
 
     private static void EvaluateExpectedFile(

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
@@ -54,7 +56,7 @@ public sealed class EvidenceCenterServiceTests
         Assert.Equal(later.RawOutputPath, item.RawOutputPathText);
         Assert.Equal(1, item.ScreenshotCount);
         Assert.Equal("1 张", item.ScreenshotCountText);
-        Assert.Equal("索引完整", item.ShaStatusText);
+        Assert.Equal("索引完整（未复核文件）", item.ShaStatusText);
         Assert.Equal(1, repository.ExecutionQueryCount);
         Assert.Equal(1, repository.EvidenceQueryCount);
         Assert.Equal(1, repository.DeviceQueryCount);
@@ -141,6 +143,67 @@ public sealed class EvidenceCenterServiceTests
             () => new EvidenceCenterService(repository).LoadAsync(ProjectId.New(), cancellation.Token));
     }
 
+    [Fact]
+    public async Task Verify_reads_contained_files_and_reports_verified_missing_and_mismatch()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AssessmentTool-EvidenceVerify-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var projectId = ProjectId.New();
+            var deviceId = DeviceId.New();
+            var rawPath = @"设备甲\批次甲\原始输出.txt";
+            var imagePath = @"设备甲\批次甲\证据_001.png";
+            var rawBytes = new byte[] { 1, 2, 3, 4 };
+            var imageBytes = new byte[] { 5, 6, 7, 8 };
+            WriteRelative(root, rawPath, rawBytes);
+            WriteRelative(root, imagePath, imageBytes);
+            var execution = CreateExecutionWithHashes(
+                projectId,
+                deviceId,
+                rawPath,
+                Hash(rawBytes),
+                imagePath,
+                Hash(imageBytes));
+            var repository = new FakeProjectRepository
+            {
+                Executions = new[] { execution },
+                EvidenceFiles = CreateEvidenceFiles(projectId, deviceId, execution).ToArray(),
+                Projects = new[] { new ProjectRecord(projectId, "客户", "项目", root, DateTimeOffset.UtcNow) }
+            };
+            var service = new EvidenceCenterService(repository);
+
+            var verified = await service.VerifyAsync(projectId);
+            Assert.Equal(EvidenceShaStatus.Verified, Assert.Single(verified.Items).ShaStatus);
+            Assert.Equal("文件与索引 SHA-256 一致", verified.Items[0].ShaStatusText);
+
+            File.WriteAllBytes(ResolveRelative(root, imagePath), new byte[] { 9, 9, 9 });
+            var mismatch = await service.VerifyAsync(projectId);
+            Assert.Equal(EvidenceShaStatus.Mismatch, Assert.Single(mismatch.Items).ShaStatus);
+
+            File.Delete(ResolveRelative(root, rawPath));
+            var missing = await service.VerifyAsync(projectId);
+            Assert.Equal(EvidenceShaStatus.Missing, Assert.Single(missing.Items).ShaStatus);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task Verify_rejects_project_missing_from_persisted_repository()
+    {
+        var projectId = ProjectId.New();
+        var repository = new FakeProjectRepository();
+
+        var error = await Assert.ThrowsAsync<EvidenceCenterException>(
+            () => new EvidenceCenterService(repository).VerifyAsync(projectId));
+
+        Assert.Equal(EvidenceCenterFailure.InvalidProject, error.Failure);
+        Assert.DoesNotContain("path", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static ExecutionRecord CreateExecution(
         ProjectId projectId,
         DeviceId deviceId,
@@ -168,6 +231,53 @@ public sealed class EvidenceCenterServiceTests
                 [imagePath] = ImageHash
             },
             null);
+    }
+
+    private static ExecutionRecord CreateExecutionWithHashes(
+        ProjectId projectId,
+        DeviceId deviceId,
+        string rawPath,
+        string rawHash,
+        string imagePath,
+        string imageHash)
+    {
+        var startedAt = DateTimeOffset.UtcNow;
+        return new ExecutionRecord(
+            projectId.ToString(),
+            deviceId.ToString(),
+            ConnectionProtocol.Ssh,
+            "1.0.0",
+            "verify",
+            "hostname",
+            startedAt,
+            startedAt.AddSeconds(1),
+            ExecutionStatus.Succeeded,
+            0,
+            rawPath,
+            rawHash,
+            new[] { imagePath },
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [imagePath] = imageHash },
+            null);
+    }
+
+    private static void WriteRelative(string root, string relativePath, byte[] bytes)
+    {
+        var path = ResolveRelative(root, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+    }
+
+    private static string ResolveRelative(string root, string relativePath)
+    {
+        return Path.Combine(root, relativePath.Replace('\\', Path.DirectorySeparatorChar));
+    }
+
+    private static string Hash(byte[] bytes)
+    {
+        using (var sha256 = SHA256.Create())
+        {
+            return string.Concat(sha256.ComputeHash(bytes).Select(value => value.ToString("x2")));
+        }
     }
 
     private static DeviceRecord CreateDevice(ProjectId projectId, DeviceId deviceId, string displayName)
@@ -237,6 +347,7 @@ public sealed class EvidenceCenterServiceTests
         public IReadOnlyList<ExecutionRecord> Executions { get; set; } = Array.Empty<ExecutionRecord>();
         public IReadOnlyList<EvidenceFileRecord> EvidenceFiles { get; set; } = Array.Empty<EvidenceFileRecord>();
         public IReadOnlyList<DeviceRecord> Devices { get; set; } = Array.Empty<DeviceRecord>();
+        public IReadOnlyList<ProjectRecord> Projects { get; set; } = Array.Empty<ProjectRecord>();
         public Exception? ExecutionError { get; set; }
         public int ExecutionQueryCount { get; private set; }
         public int EvidenceQueryCount { get; private set; }
@@ -273,7 +384,11 @@ public sealed class EvidenceCenterServiceTests
         public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port, CredentialReference credentialReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port, string userName, TargetCategory category, ConnectionProtocol protocol, CredentialReference credentialReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SaveExecutionAsync(ExecutionRecord record, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<IReadOnlyList<ProjectRecord>> GetProjectsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<ProjectRecord>> GetProjectsAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Projects);
+        }
         public Task<IReadOnlyList<DeviceRecord>> GetDevicesAsync(ProjectId projectId, CancellationToken cancellationToken = default)
         {
             DeviceQueryCount++;

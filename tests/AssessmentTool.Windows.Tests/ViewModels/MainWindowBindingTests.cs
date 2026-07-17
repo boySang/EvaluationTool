@@ -84,8 +84,11 @@ public sealed class MainWindowBindingTests
         Assert.Contains("Collection.CompletedCommands", source);
         Assert.Contains("EvidenceCenter.Items", source);
         Assert.Contains("EvidenceCenter.RefreshCommand", source);
+        Assert.Contains("EvidenceCenter.VerifyCommand", source);
+        Assert.Contains("EvidenceCenter.OpenFolderCommand", source);
         Assert.Contains("ShaStatusText", source);
         Assert.Contains("RawOutputPathText", source);
+        Assert.Contains("复核文件 SHA-256", source);
         Assert.Contains("开始只读采集", source);
         Assert.DoesNotContain("开始只读采集（尚未接通）", source);
     }

@@ -59,7 +59,9 @@ public partial class App : Application
                 new DeviceConnectionViewModel(
                     new SshConnectionWorkflowService(repository, credentialVault)),
                 ToggleTheme,
-                new EvidenceCenterViewModel(new EvidenceCenterService(repository)));
+                new EvidenceCenterViewModel(
+                    new EvidenceCenterService(repository),
+                    new ProjectEvidenceFolderLauncher(repository)));
             var window = new MainWindow(mainViewModel);
             MainWindow = window;
             EventHandler? contentRenderedHandler = null;

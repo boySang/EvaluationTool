@@ -136,6 +136,57 @@ public sealed class EvidenceCenterViewModelTests
         Assert.True(viewModel.CanRefresh);
     }
 
+    [Fact]
+    public async Task Verify_reloads_files_and_reports_summary()
+    {
+        var project = CreateProject("项目甲");
+        var indexed = CreateItem("indexed");
+        var verified = new EvidenceCenterItem(
+            indexed.DeviceId,
+            indexed.CommandId,
+            indexed.CommandText,
+            indexed.StartedAt,
+            indexed.CompletedAt,
+            indexed.ExecutionStatus,
+            indexed.RawOutputPath,
+            indexed.ScreenshotCount,
+            EvidenceShaStatus.Verified);
+        var service = new FakeEvidenceCenterService(
+            Task.FromResult(new EvidenceCenterSnapshot(project.Id, new[] { indexed })),
+            Task.FromResult(new EvidenceCenterSnapshot(project.Id, new[] { verified })));
+        var viewModel = new EvidenceCenterViewModel(service);
+        await viewModel.SelectProjectAsync(project);
+
+        await viewModel.VerifyAsync();
+
+        Assert.Equal(EvidenceShaStatus.Verified, Assert.Single(viewModel.Items).ShaStatus);
+        Assert.Contains("1 条与索引 SHA-256 一致", viewModel.VerificationSummary, StringComparison.Ordinal);
+        Assert.Single(service.VerifiedProjects);
+        Assert.Equal(project.Id, service.VerifiedProjects[0]);
+    }
+
+    [Fact]
+    public async Task Open_folder_uses_selected_project_and_sanitizes_failure()
+    {
+        var project = CreateProject("项目甲");
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(project.Id, new[] { CreateItem("command") })));
+        var launcher = new FakeFolderLauncher();
+        var viewModel = new EvidenceCenterViewModel(service, launcher);
+        await viewModel.SelectProjectAsync(project);
+
+        await viewModel.OpenEvidenceFolderAsync();
+        Assert.Equal(project.Id, Assert.Single(launcher.OpenedProjects));
+
+        launcher.Error = new InvalidOperationException(@"secret C:\customer");
+        await viewModel.OpenEvidenceFolderAsync();
+        Assert.Equal(EvidenceCenterViewModelState.Failed, viewModel.State);
+        Assert.Equal("证据目录打开失败", viewModel.WhatHappened);
+        Assert.DoesNotContain("secret", string.Join(" ", viewModel.WhatHappened,
+            viewModel.PossibleCause, viewModel.HowToFix, viewModel.TechnicalDetails),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private static ProjectRecord CreateProject(string name)
     {
         return new ProjectRecord(ProjectId.New(), "测试客户", name, @"C:\Evidence", DateTimeOffset.UtcNow);
@@ -165,6 +216,7 @@ public sealed class EvidenceCenterViewModelTests
         }
 
         internal List<ProjectId> RequestedProjectIds { get; } = new List<ProjectId>();
+        internal List<ProjectId> VerifiedProjects { get; } = new List<ProjectId>();
 
         public Task<EvidenceCenterSnapshot> LoadAsync(
             ProjectId projectId,
@@ -177,6 +229,31 @@ public sealed class EvidenceCenterViewModelTests
             }
 
             return results.Dequeue();
+        }
+
+        public Task<EvidenceCenterSnapshot> VerifyAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            VerifiedProjects.Add(projectId);
+            return LoadAsync(projectId, cancellationToken);
+        }
+    }
+
+    private sealed class FakeFolderLauncher : IProjectEvidenceFolderLauncher
+    {
+        internal List<ProjectId> OpenedProjects { get; } = new List<ProjectId>();
+        internal Exception? Error { get; set; }
+
+        public Task OpenAsync(ProjectId projectId, CancellationToken cancellationToken = default)
+        {
+            if (Error != null)
+            {
+                throw Error;
+            }
+
+            OpenedProjects.Add(projectId);
+            return Task.CompletedTask;
         }
     }
 }

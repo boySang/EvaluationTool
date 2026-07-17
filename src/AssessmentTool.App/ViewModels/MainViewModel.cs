@@ -202,6 +202,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 projectId,
                 Array.Empty<EvidenceCenterItem>()));
         }
+
+        public Task<EvidenceCenterSnapshot> VerifyAsync(
+            AssessmentTool.Core.Domain.ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return LoadAsync(projectId, cancellationToken);
+        }
     }
 }
 

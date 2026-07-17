@@ -73,7 +73,7 @@ public sealed class SqliteProjectRepository : IProjectRepository, ISshHostKeyTru
                     ProjectId.New(),
                     customerName,
                     projectName,
-                    NormalizeEvidenceRoot(evidenceRoot),
+                    WindowsEvidenceRootPolicy.Normalize(evidenceRoot, nameof(evidenceRoot)),
                     DateTimeOffset.UtcNow);
                 using (var connection = OpenConnection())
                 using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
@@ -627,75 +627,14 @@ public sealed class SqliteProjectRepository : IProjectRepository, ISshHostKeyTru
         return new NormalizedEvidence(rawOutputPath, images);
     }
 
-    private static string NormalizeEvidenceRoot(string evidenceRoot)
-    {
-        if (string.IsNullOrWhiteSpace(evidenceRoot) || evidenceRoot.IndexOf('\0') >= 0)
-        {
-            throw new ArgumentException("Evidence root cannot be blank or contain NUL.", nameof(evidenceRoot));
-        }
-
-        if (!IsFullyQualifiedWindowsPath(evidenceRoot))
-        {
-            throw new ArgumentException("Evidence root must be a fully-qualified drive or UNC path.", nameof(evidenceRoot));
-        }
-
-        var fullPath = Path.GetFullPath(evidenceRoot);
-        if (!Path.IsPathRooted(fullPath))
-        {
-            throw new ArgumentException("Evidence root must be an absolute Windows path.", nameof(evidenceRoot));
-        }
-
-        var pathRoot = Path.GetPathRoot(fullPath);
-        return string.Equals(fullPath, pathRoot, StringComparison.OrdinalIgnoreCase)
-            ? fullPath
-            : fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    }
-
-    private static bool IsFullyQualifiedWindowsPath(string path)
-    {
-        var isDriveAbsolute = path.Length >= 3
-            && char.IsLetter(path[0])
-            && path[1] == ':'
-            && (path[2] == '\\' || path[2] == '/');
-        if (isDriveAbsolute)
-        {
-            return true;
-        }
-
-        var isUnc = path.StartsWith("\\\\", StringComparison.Ordinal)
-            || path.StartsWith("//", StringComparison.Ordinal);
-        if (!isUnc
-            || path.StartsWith("\\\\?\\", StringComparison.Ordinal)
-            || path.StartsWith("\\\\.\\", StringComparison.Ordinal)
-            || path.StartsWith("//?/", StringComparison.Ordinal)
-            || path.StartsWith("//./", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var uncSegments = path.Substring(2).Split(new[] { '/', '\\' }, StringSplitOptions.None);
-        return uncSegments.Length >= 2
-            && !string.IsNullOrWhiteSpace(uncSegments[0])
-            && !string.IsNullOrWhiteSpace(uncSegments[1])
-            && uncSegments[0] != "."
-            && uncSegments[0] != ".."
-            && uncSegments[1] != "."
-            && uncSegments[1] != "..";
-    }
-
     private static string NormalizeRelativeEvidencePath(string evidenceRoot, string path, string parameterName)
     {
-        var normalizedRelativePath = WindowsEvidenceRelativePathPolicy.Normalize(path, parameterName);
-
-        var normalizedRoot = Path.GetFullPath(evidenceRoot);
-        var rootWithSeparator = normalizedRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        var combinedPath = Path.GetFullPath(Path.Combine(normalizedRoot, normalizedRelativePath));
-        if (!combinedPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("Evidence path resolves outside the project evidence root.", parameterName);
-        }
-
+        var normalizedRoot = WindowsEvidenceRootPolicy.Normalize(evidenceRoot, nameof(evidenceRoot));
+        var rootWithSeparator = WindowsEvidenceRootPolicy.EnsureTrailingSeparator(normalizedRoot);
+        var combinedPath = WindowsEvidenceRootPolicy.ResolveContainedPath(
+            normalizedRoot,
+            path,
+            parameterName);
         return combinedPath.Substring(rootWithSeparator.Length);
     }
 
