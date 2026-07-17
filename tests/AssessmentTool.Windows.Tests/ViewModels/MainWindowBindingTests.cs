@@ -29,6 +29,22 @@ public sealed class MainWindowBindingTests
     }
 
     [Fact]
+    public void Only_device_management_list_can_write_the_selected_device()
+    {
+        var document = XDocument.Load(FindMainWindowXaml());
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        var writableSelections = document
+            .Descendants(presentation + "ListBox")
+            .Select(element => (string?)element.Attribute("SelectedItem"))
+            .Where(value => value != null
+                && value.IndexOf("Workspace.SelectedDevice", StringComparison.Ordinal) >= 0
+                && value.IndexOf("Mode=TwoWay", StringComparison.Ordinal) >= 0)
+            .ToArray();
+
+        Assert.Single(writableSelections);
+    }
+
+    [Fact]
     public void Main_shell_exposes_compact_navigation_and_read_only_dashboard()
     {
         var document = XDocument.Load(FindMainWindowXaml());

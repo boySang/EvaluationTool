@@ -186,7 +186,7 @@
                   <TextBlock Text="最近设备" Style="{StaticResource SectionTitleStyle}" Margin="0" VerticalAlignment="Center" />
                   <Button Content="进入设备列表" Style="{StaticResource FluentSecondaryButtonStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="NavigateToDevices_Click" />
                 </Grid>
-                <ListBox Grid.Row="1" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" IsEnabled="{Binding IsWorkspaceSelectionEnabled}" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}">
+                <ListBox Grid.Row="1" ItemsSource="{Binding Workspace.Devices}" IsHitTestVisible="False" Focusable="False" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}" automation:AutomationProperties.Name="最近设备只读列表">
                   <ListBox.ItemTemplate>
                     <DataTemplate>
                       <Grid>
