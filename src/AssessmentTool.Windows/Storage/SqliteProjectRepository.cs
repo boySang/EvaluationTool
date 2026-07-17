@@ -13,14 +13,15 @@ using AssessmentTool.Core.Domain;
 
 namespace AssessmentTool.Windows.Storage;
 
-public sealed class SqliteProjectRepository : IProjectRepository
+public sealed class SqliteProjectRepository : IProjectRepository, ISshHostKeyTrustRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
 
     private static readonly Migration[] Migrations =
     {
         new Migration(1, "AssessmentTool.Windows.Storage.Migrations.001_initial.sql"),
-        new Migration(2, "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql")
+        new Migration(2, "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql"),
+        new Migration(3, "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -253,6 +254,94 @@ public sealed class SqliteProjectRepository : IProjectRepository
                 }
 
                 return devices.AsReadOnly();
+            },
+            cancellationToken);
+    }
+
+    public Task<SshHostKeyTrustRecord> GetSshHostKeyTrustAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    token.ThrowIfCancellationRequested();
+                    command.CommandText =
+                        "SELECT d.host, d.port, t.state, t.algorithm, t.fingerprint, " +
+                        "t.observed_algorithm, t.observed_fingerprint, t.observed_at_utc, " +
+                        "t.confirmed_at_utc, t.confirmation_source, t.previous_algorithm, " +
+                        "t.previous_fingerprint, t.previous_confirmed_at_utc, " +
+                        "t.previous_confirmation_source, t.revision " +
+                        "FROM devices d LEFT JOIN ssh_host_key_trust t ON t.device_id = d.id " +
+                        "WHERE d.id = @deviceId;";
+                    command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                    using (var reader = command.ExecuteReader())
+                    {
+                        if (!reader.Read())
+                        {
+                            throw new InvalidOperationException("SSH 主机指纹信任对应的设备不存在。");
+                        }
+
+                        var endpoint = new SshEndpointIdentity(reader.GetString(0), reader.GetInt32(1));
+                        if (reader.IsDBNull(2))
+                        {
+                            return new SshHostKeyTrustRecord(
+                                deviceId,
+                                HostKeyTrust.Unconfigured(endpoint),
+                                0);
+                        }
+
+                        return ReadSshHostKeyTrust(deviceId, endpoint, reader);
+                    }
+                }
+            },
+            cancellationToken);
+    }
+
+    public Task<SshHostKeyTrustRecord> SaveSshHostKeyTrustAsync(
+        DeviceId deviceId,
+        HostKeyTrust trust,
+        long expectedRevision,
+        CancellationToken cancellationToken = default)
+    {
+        if (trust == null)
+        {
+            throw new ArgumentNullException(nameof(trust));
+        }
+
+        if (expectedRevision < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expectedRevision), expectedRevision, "Expected revision cannot be negative.");
+        }
+
+        EnsurePersistableHostKeyTrustState(trust.State);
+        return RunDatabaseOperationAsync(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                {
+                    token.ThrowIfCancellationRequested();
+                    EnsureTrustEndpointMatchesDevice(connection, transaction, deviceId, trust.Endpoint);
+                    var nextRevision = checked(expectedRevision + 1);
+                    var affectedRows = expectedRevision == 0
+                        ? InsertSshHostKeyTrust(connection, transaction, deviceId, trust, nextRevision)
+                        : UpdateSshHostKeyTrust(
+                            connection, transaction, deviceId, trust, expectedRevision, nextRevision);
+                    if (affectedRows != 1)
+                    {
+                        throw new PersistenceConcurrencyException(
+                            "SSH 主机指纹信任已被其他操作修改，请重新读取后再保存。");
+                    }
+
+                    token.ThrowIfCancellationRequested();
+                    transaction.Commit();
+                    return new SshHostKeyTrustRecord(deviceId, trust, nextRevision);
+                }
             },
             cancellationToken);
     }
@@ -691,6 +780,308 @@ public sealed class SqliteProjectRepository : IProjectRepository
             command.Parameters.AddWithValue("@createdAtUtc", FormatUtc(createdAt));
             command.ExecuteNonQuery();
         }
+    }
+
+    private static SshHostKeyTrustRecord ReadSshHostKeyTrust(
+        DeviceId deviceId,
+        SshEndpointIdentity endpoint,
+        SQLiteDataReader reader)
+    {
+        var state = ReadEnum<HostKeyTrustState>(reader.GetInt32(2), "SSH host key trust state");
+        var algorithm = ReadNullableString(reader, 3);
+        var fingerprint = ReadNullableString(reader, 4);
+        var observedAlgorithm = ReadNullableString(reader, 5);
+        var observedFingerprint = ReadNullableString(reader, 6);
+        var observedAt = ReadNullableUtc(reader, 7);
+        var confirmedAt = ReadNullableUtc(reader, 8);
+        var confirmationSource = ReadNullableString(reader, 9);
+        var previousAlgorithm = ReadNullableString(reader, 10);
+        var previousFingerprint = ReadNullableString(reader, 11);
+        var previousConfirmedAt = ReadNullableUtc(reader, 12);
+        var previousConfirmationSource = ReadNullableString(reader, 13);
+        var revision = reader.GetInt64(14);
+        if (revision <= 0)
+        {
+            throw new InvalidDataException("Stored SSH host key trust revision is invalid.");
+        }
+
+        var trust = RebuildSshHostKeyTrust(
+            endpoint,
+            state,
+            algorithm,
+            fingerprint,
+            observedAlgorithm,
+            observedFingerprint,
+            observedAt,
+            confirmedAt,
+            confirmationSource,
+            previousAlgorithm,
+            previousFingerprint,
+            previousConfirmedAt,
+            previousConfirmationSource);
+        return new SshHostKeyTrustRecord(deviceId, trust, revision);
+    }
+
+    private static HostKeyTrust RebuildSshHostKeyTrust(
+        SshEndpointIdentity endpoint,
+        HostKeyTrustState state,
+        string? algorithm,
+        string? fingerprint,
+        string? observedAlgorithm,
+        string? observedFingerprint,
+        DateTimeOffset? observedAt,
+        DateTimeOffset? confirmedAt,
+        string? confirmationSource,
+        string? previousAlgorithm,
+        string? previousFingerprint,
+        DateTimeOffset? previousConfirmedAt,
+        string? previousConfirmationSource)
+    {
+        var coordinator = HostKeyTrustServices.CreateCoordinator();
+        var trust = HostKeyTrust.Unconfigured(endpoint);
+        if (state == HostKeyTrustState.Unconfigured)
+        {
+            return trust;
+        }
+
+        if (state == HostKeyTrustState.AwaitingConfirmation && algorithm == null)
+        {
+            return coordinator.RecordObservation(
+                coordinator.BeginProbe(trust),
+                RequireStoredValue(observedAlgorithm, "observed algorithm"),
+                RequireStoredValue(observedFingerprint, "observed fingerprint"),
+                RequireStoredDate(observedAt, "observed time"));
+        }
+
+        if (previousAlgorithm != null || previousFingerprint != null || previousConfirmedAt.HasValue || previousConfirmationSource != null)
+        {
+            var priorConfirmedAt = RequireStoredDate(previousConfirmedAt, "previous confirmed time");
+            trust = PinSshHostKey(
+                coordinator,
+                trust,
+                RequireStoredValue(previousAlgorithm, "previous algorithm"),
+                RequireStoredValue(previousFingerprint, "previous fingerprint"),
+                priorConfirmedAt,
+                priorConfirmedAt,
+                RequireStoredValue(previousConfirmationSource, "previous confirmation source"));
+            trust = coordinator.RecordMismatchObservation(
+                trust,
+                RequireStoredValue(algorithm, "algorithm"),
+                RequireStoredValue(fingerprint, "fingerprint"),
+                state == HostKeyTrustState.Pinned
+                    ? RequireStoredDate(observedAt, "observed time")
+                    : RequireStoredDate(confirmedAt, "confirmed time"));
+            trust = coordinator.BeginReconfirmation(trust);
+            trust = coordinator.Confirm(
+                trust,
+                RequireStoredDate(confirmedAt, "confirmed time"),
+                RequireStoredValue(confirmationSource, "confirmation source"));
+        }
+        else
+        {
+            var pinConfirmedAt = RequireStoredDate(confirmedAt, "confirmed time");
+            var pinObservedAt = state == HostKeyTrustState.Pinned
+                ? RequireStoredDate(observedAt, "observed time")
+                : pinConfirmedAt;
+            trust = PinSshHostKey(
+                coordinator,
+                trust,
+                RequireStoredValue(algorithm, "algorithm"),
+                RequireStoredValue(fingerprint, "fingerprint"),
+                pinObservedAt,
+                pinConfirmedAt,
+                RequireStoredValue(confirmationSource, "confirmation source"));
+        }
+
+        if (state == HostKeyTrustState.Pinned)
+        {
+            return trust;
+        }
+
+        if (state == HostKeyTrustState.Verified)
+        {
+            return coordinator.RecordMatchingObservation(
+                trust,
+                RequireStoredDate(observedAt, "observed time"));
+        }
+
+        if (state == HostKeyTrustState.MismatchBlocked)
+        {
+            return coordinator.RecordMismatchObservation(
+                trust,
+                RequireStoredValue(observedAlgorithm, "observed algorithm"),
+                RequireStoredValue(observedFingerprint, "observed fingerprint"),
+                RequireStoredDate(observedAt, "observed time"));
+        }
+
+        if (state == HostKeyTrustState.AwaitingConfirmation)
+        {
+            trust = coordinator.RecordMismatchObservation(
+                trust,
+                RequireStoredValue(observedAlgorithm, "observed algorithm"),
+                RequireStoredValue(observedFingerprint, "observed fingerprint"),
+                RequireStoredDate(observedAt, "observed time"));
+            return coordinator.BeginReconfirmation(trust);
+        }
+
+        throw new InvalidDataException("Stored SSH host key trust state cannot be reconstructed.");
+    }
+
+    private static HostKeyTrust PinSshHostKey(
+        HostKeyTrustCoordinator coordinator,
+        HostKeyTrust unconfigured,
+        string algorithm,
+        string fingerprint,
+        DateTimeOffset observedAt,
+        DateTimeOffset confirmedAt,
+        string confirmationSource)
+    {
+        var awaitingConfirmation = coordinator.RecordObservation(
+            coordinator.BeginProbe(unconfigured), algorithm, fingerprint, observedAt);
+        return coordinator.Confirm(awaitingConfirmation, confirmedAt, confirmationSource);
+    }
+
+    private static void EnsureTrustEndpointMatchesDevice(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        DeviceId deviceId,
+        SshEndpointIdentity endpoint)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT host, port FROM devices WHERE id = @deviceId;";
+            command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+            using (var reader = command.ExecuteReader())
+            {
+                if (!reader.Read())
+                {
+                    throw new InvalidOperationException("SSH 主机指纹信任对应的设备不存在。");
+                }
+
+                var storedEndpoint = new SshEndpointIdentity(reader.GetString(0), reader.GetInt32(1));
+                if (!storedEndpoint.Equals(endpoint))
+                {
+                    throw new ArgumentException("SSH 主机指纹信任与设备端点不一致。", nameof(endpoint));
+                }
+            }
+        }
+    }
+
+    private static int InsertSshHostKeyTrust(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        DeviceId deviceId,
+        HostKeyTrust trust,
+        long revision)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                "INSERT INTO ssh_host_key_trust(device_id, state, algorithm, fingerprint, " +
+                "observed_algorithm, observed_fingerprint, observed_at_utc, confirmed_at_utc, " +
+                "confirmation_source, previous_algorithm, previous_fingerprint, " +
+                "previous_confirmed_at_utc, previous_confirmation_source, revision) " +
+                "SELECT @deviceId, @state, @algorithm, @fingerprint, @observedAlgorithm, " +
+                "@observedFingerprint, @observedAtUtc, @confirmedAtUtc, @confirmationSource, " +
+                "@previousAlgorithm, @previousFingerprint, @previousConfirmedAtUtc, " +
+                "@previousConfirmationSource, @revision " +
+                "WHERE NOT EXISTS (SELECT 1 FROM ssh_host_key_trust WHERE device_id = @deviceId);";
+            AddSshHostKeyTrustParameters(command, deviceId, trust, revision);
+            return command.ExecuteNonQuery();
+        }
+    }
+
+    private static int UpdateSshHostKeyTrust(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        DeviceId deviceId,
+        HostKeyTrust trust,
+        long expectedRevision,
+        long revision)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText =
+                "UPDATE ssh_host_key_trust SET state = @state, algorithm = @algorithm, " +
+                "fingerprint = @fingerprint, observed_algorithm = @observedAlgorithm, " +
+                "observed_fingerprint = @observedFingerprint, observed_at_utc = @observedAtUtc, " +
+                "confirmed_at_utc = @confirmedAtUtc, confirmation_source = @confirmationSource, " +
+                "previous_algorithm = @previousAlgorithm, previous_fingerprint = @previousFingerprint, " +
+                "previous_confirmed_at_utc = @previousConfirmedAtUtc, " +
+                "previous_confirmation_source = @previousConfirmationSource, revision = @revision " +
+                "WHERE device_id = @deviceId AND revision = @expectedRevision;";
+            AddSshHostKeyTrustParameters(command, deviceId, trust, revision);
+            command.Parameters.AddWithValue("@expectedRevision", expectedRevision);
+            return command.ExecuteNonQuery();
+        }
+    }
+
+    private static void AddSshHostKeyTrustParameters(
+        SQLiteCommand command,
+        DeviceId deviceId,
+        HostKeyTrust trust,
+        long revision)
+    {
+        command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+        command.Parameters.AddWithValue("@state", (int)trust.State);
+        command.Parameters.AddWithValue("@algorithm", (object?)trust.Algorithm ?? DBNull.Value);
+        command.Parameters.AddWithValue("@fingerprint", (object?)trust.Fingerprint ?? DBNull.Value);
+        command.Parameters.AddWithValue("@observedAlgorithm", (object?)trust.ObservedAlgorithm ?? DBNull.Value);
+        command.Parameters.AddWithValue("@observedFingerprint", (object?)trust.ObservedFingerprint ?? DBNull.Value);
+        command.Parameters.AddWithValue("@observedAtUtc", FormatNullableUtc(trust.ObservedAt));
+        command.Parameters.AddWithValue("@confirmedAtUtc", FormatNullableUtc(trust.ConfirmedAt));
+        command.Parameters.AddWithValue("@confirmationSource", (object?)trust.ConfirmationSource ?? DBNull.Value);
+        command.Parameters.AddWithValue("@previousAlgorithm", (object?)trust.PreviousAlgorithm ?? DBNull.Value);
+        command.Parameters.AddWithValue("@previousFingerprint", (object?)trust.PreviousFingerprint ?? DBNull.Value);
+        command.Parameters.AddWithValue("@previousConfirmedAtUtc", FormatNullableUtc(trust.PreviousConfirmedAt));
+        command.Parameters.AddWithValue("@previousConfirmationSource", (object?)trust.PreviousConfirmationSource ?? DBNull.Value);
+        command.Parameters.AddWithValue("@revision", revision);
+    }
+
+    private static void EnsurePersistableHostKeyTrustState(HostKeyTrustState state)
+    {
+        if (state == HostKeyTrustState.AwaitingProbe || !Enum.IsDefined(typeof(HostKeyTrustState), state))
+        {
+            throw new ArgumentException("瞬时的 SSH 主机指纹探测状态不能持久化。", nameof(state));
+        }
+    }
+
+    private static string RequireStoredValue(string? value, string description)
+    {
+        if (value == null)
+        {
+            throw new InvalidDataException("Stored SSH host key trust " + description + " is missing.");
+        }
+
+        return value;
+    }
+
+    private static DateTimeOffset RequireStoredDate(DateTimeOffset? value, string description)
+    {
+        if (!value.HasValue)
+        {
+            throw new InvalidDataException("Stored SSH host key trust " + description + " is missing.");
+        }
+
+        return value.Value;
+    }
+
+    private static string? ReadNullableString(SQLiteDataReader reader, int ordinal)
+    {
+        return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
+    private static DateTimeOffset? ReadNullableUtc(SQLiteDataReader reader, int ordinal)
+    {
+        return reader.IsDBNull(ordinal) ? (DateTimeOffset?)null : ParseUtc(reader.GetString(ordinal));
+    }
+
+    private static object FormatNullableUtc(DateTimeOffset? value)
+    {
+        return value.HasValue ? (object)FormatUtc(value.Value) : DBNull.Value;
     }
 
     private static StoredExecution ReadStoredExecution(SQLiteDataReader reader)

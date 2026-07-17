@@ -37,3 +37,15 @@ public interface IProjectRepository
     Task<IReadOnlyList<EvidenceFileRecord>> GetEvidenceFilesAsync(ProjectId projectId, CancellationToken cancellationToken = default);
     Task<int> GetSchemaVersionAsync(CancellationToken cancellationToken = default);
 }
+
+public interface ISshHostKeyTrustRepository
+{
+    Task<SshHostKeyTrustRecord> GetSshHostKeyTrustAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+    Task<SshHostKeyTrustRecord> SaveSshHostKeyTrustAsync(
+        DeviceId deviceId,
+        HostKeyTrust trust,
+        long expectedRevision,
+        CancellationToken cancellationToken = default);
+}

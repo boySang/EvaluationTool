@@ -113,8 +113,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(2, version));
-            Assert.Equal(2, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(3, version));
+            Assert.Equal(3, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -142,7 +142,136 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(2, await repository.GetSchemaVersionAsync());
+            Assert.Equal(3, await repository.GetSchemaVersionAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Existing_device_without_trust_row_reads_as_unconfigured_revision_zero()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "Linux服务器", "192.0.2.20", 22, CredentialReference.New());
+
+            var stored = await repository.GetSshHostKeyTrustAsync(deviceId);
+
+            Assert.Equal(deviceId, stored.DeviceId);
+            Assert.Equal(0, stored.Revision);
+            Assert.Equal(HostKeyTrustState.Unconfigured, stored.Trust.State);
+            Assert.Equal(new SshEndpointIdentity("192.0.2.20", 22), stored.Trust.Endpoint);
+        }
+    }
+
+    [Fact]
+    public async Task Ssh_host_key_trust_states_round_trip_with_monotonic_revision()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "Linux服务器", "host.example", 2222, CredentialReference.New());
+            var endpoint = new SshEndpointIdentity("host.example", 2222);
+            var coordinator = HostKeyTrustServices.CreateCoordinator();
+            var observedAt = new DateTimeOffset(2026, 7, 17, 1, 2, 3, TimeSpan.Zero);
+            var confirmedAt = observedAt.AddMinutes(1);
+            var verifiedAt = confirmedAt.AddMinutes(1);
+            var mismatchAt = verifiedAt.AddMinutes(1);
+            var awaitingConfirmation = coordinator.RecordObservation(
+                coordinator.BeginProbe(HostKeyTrust.Unconfigured(endpoint)),
+                "ssh-ed25519",
+                "ssh-ed25519 255 SHA256:fixture",
+                observedAt);
+
+            var savedAwaiting = await repository.SaveSshHostKeyTrustAsync(
+                deviceId, awaitingConfirmation, expectedRevision: 0);
+            Assert.Equal(1, savedAwaiting.Revision);
+            AssertHostKeyTrust(await repository.GetSshHostKeyTrustAsync(deviceId), 1, awaitingConfirmation);
+
+            var pinned = coordinator.Confirm(awaitingConfirmation, confirmedAt, "测评人员确认");
+            var savedPinned = await repository.SaveSshHostKeyTrustAsync(
+                deviceId, pinned, savedAwaiting.Revision);
+            Assert.Equal(2, savedPinned.Revision);
+            AssertHostKeyTrust(await repository.GetSshHostKeyTrustAsync(deviceId), 2, pinned);
+
+            var verified = coordinator.RecordMatchingObservation(pinned, verifiedAt);
+            var savedVerified = await repository.SaveSshHostKeyTrustAsync(
+                deviceId, verified, savedPinned.Revision);
+            Assert.Equal(3, savedVerified.Revision);
+            AssertHostKeyTrust(await repository.GetSshHostKeyTrustAsync(deviceId), 3, verified);
+
+            var mismatch = coordinator.RecordMismatchObservation(
+                verified,
+                "ssh-rsa",
+                "ssh-rsa 3072 SHA256:different",
+                mismatchAt);
+            var savedMismatch = await repository.SaveSshHostKeyTrustAsync(
+                deviceId, mismatch, savedVerified.Revision);
+            Assert.Equal(4, savedMismatch.Revision);
+            AssertHostKeyTrust(await repository.GetSshHostKeyTrustAsync(deviceId), 4, mismatch);
+
+            var replacementAwaiting = coordinator.BeginReconfirmation(mismatch);
+            var savedReplacementAwaiting = await repository.SaveSshHostKeyTrustAsync(
+                deviceId, replacementAwaiting, savedMismatch.Revision);
+            AssertHostKeyTrust(
+                await repository.GetSshHostKeyTrustAsync(deviceId),
+                5,
+                replacementAwaiting);
+
+            var replacementPinned = coordinator.Confirm(
+                replacementAwaiting, mismatchAt.AddMinutes(1), "指纹变化人工复核");
+            var savedReplacementPinned = await repository.SaveSshHostKeyTrustAsync(
+                deviceId, replacementPinned, savedReplacementAwaiting.Revision);
+            AssertHostKeyTrust(
+                await repository.GetSshHostKeyTrustAsync(deviceId),
+                6,
+                replacementPinned);
+
+            var replacementVerified = coordinator.RecordMatchingObservation(
+                replacementPinned, mismatchAt.AddMinutes(2));
+            await repository.SaveSshHostKeyTrustAsync(
+                deviceId, replacementVerified, savedReplacementPinned.Revision);
+            AssertHostKeyTrust(
+                await repository.GetSshHostKeyTrustAsync(deviceId),
+                7,
+                replacementVerified);
+        }
+    }
+
+    [Fact]
+    public async Task Ssh_host_key_trust_rejects_stale_revision_without_overwriting_current_state()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "Linux服务器", "192.0.2.30", 22, CredentialReference.New());
+            var endpoint = new SshEndpointIdentity("192.0.2.30", 22);
+            var coordinator = HostKeyTrustServices.CreateCoordinator();
+            var observedAt = new DateTimeOffset(2026, 7, 17, 2, 0, 0, TimeSpan.Zero);
+            var awaiting = coordinator.RecordObservation(
+                coordinator.BeginProbe(HostKeyTrust.Unconfigured(endpoint)),
+                "ssh-ed25519",
+                "ssh-ed25519 255 SHA256:fixture",
+                observedAt);
+            var firstSave = await repository.SaveSshHostKeyTrustAsync(deviceId, awaiting, 0);
+            var pinned = coordinator.Confirm(awaiting, observedAt.AddMinutes(1), "人工确认");
+            await repository.SaveSshHostKeyTrustAsync(deviceId, pinned, firstSave.Revision);
+
+            await Assert.ThrowsAsync<PersistenceConcurrencyException>(() =>
+                repository.SaveSshHostKeyTrustAsync(deviceId, awaiting, firstSave.Revision));
+
+            var current = await repository.GetSshHostKeyTrustAsync(deviceId);
+            Assert.Equal(2, current.Revision);
+            Assert.Equal(HostKeyTrustState.Pinned, current.Trust.State);
+            Assert.Equal(pinned.Fingerprint, current.Trust.Fingerprint);
         }
     }
 
@@ -204,6 +333,27 @@ public sealed class SqliteProjectRepositoryTests
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 2 }));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 1, 1 }));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 1, 3 }));
+    }
+
+    private static void AssertHostKeyTrust(
+        SshHostKeyTrustRecord actual,
+        long expectedRevision,
+        HostKeyTrust expected)
+    {
+        Assert.Equal(expectedRevision, actual.Revision);
+        Assert.Equal(expected.State, actual.Trust.State);
+        Assert.Equal(expected.Endpoint, actual.Trust.Endpoint);
+        Assert.Equal(expected.Algorithm, actual.Trust.Algorithm);
+        Assert.Equal(expected.Fingerprint, actual.Trust.Fingerprint);
+        Assert.Equal(expected.ObservedAlgorithm, actual.Trust.ObservedAlgorithm);
+        Assert.Equal(expected.ObservedFingerprint, actual.Trust.ObservedFingerprint);
+        Assert.Equal(expected.ObservedAt, actual.Trust.ObservedAt);
+        Assert.Equal(expected.ConfirmedAt, actual.Trust.ConfirmedAt);
+        Assert.Equal(expected.ConfirmationSource, actual.Trust.ConfirmationSource);
+        Assert.Equal(expected.PreviousAlgorithm, actual.Trust.PreviousAlgorithm);
+        Assert.Equal(expected.PreviousFingerprint, actual.Trust.PreviousFingerprint);
+        Assert.Equal(expected.PreviousConfirmedAt, actual.Trust.PreviousConfirmedAt);
+        Assert.Equal(expected.PreviousConfirmationSource, actual.Trust.PreviousConfirmationSource);
     }
 
     [Fact]

@@ -346,6 +346,38 @@ public sealed class DeviceRecord
     }
 }
 
+public sealed class SshHostKeyTrustRecord
+{
+    public SshHostKeyTrustRecord(DeviceId deviceId, HostKeyTrust trust, long revision)
+    {
+        if (!deviceId.IsValid)
+        {
+            throw new ArgumentException("Device ID must be initialized.", nameof(deviceId));
+        }
+
+        if (revision < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(revision), revision, "Revision cannot be negative.");
+        }
+
+        DeviceId = deviceId;
+        Trust = trust ?? throw new ArgumentNullException(nameof(trust));
+        Revision = revision;
+    }
+
+    public DeviceId DeviceId { get; }
+    public HostKeyTrust Trust { get; }
+    public long Revision { get; }
+}
+
+public sealed class PersistenceConcurrencyException : InvalidOperationException
+{
+    public PersistenceConcurrencyException(string message)
+        : base(message)
+    {
+    }
+}
+
 public enum EvidenceFileKind
 {
     RawOutput,
