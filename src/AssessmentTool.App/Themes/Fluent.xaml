@@ -8,6 +8,10 @@
     <Setter Property="Padding" Value="18" />
   </Style>
 
+  <Style x:Key="FluentPrimaryButtonStyle"
+         TargetType="Button"
+         BasedOn="{StaticResource {x:Type Button}}" />
+
   <Style x:Key="FluentSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
     <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
     <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />

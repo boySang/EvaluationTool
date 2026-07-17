@@ -93,6 +93,20 @@ public sealed class MainWindowBindingTests
         Assert.DoesNotContain("开始只读采集（尚未接通）", source);
     }
 
+    [Fact]
+    public void Evidence_center_primary_action_style_is_declared()
+    {
+        var mainWindow = File.ReadAllText(FindMainWindowXaml());
+        var themePath = Path.Combine(
+            Path.GetDirectoryName(FindMainWindowXaml())!,
+            "Themes",
+            "Fluent.xaml");
+        var theme = File.ReadAllText(themePath);
+
+        Assert.Contains("FluentPrimaryButtonStyle", mainWindow);
+        Assert.Contains("x:Key=\"FluentPrimaryButtonStyle\"", theme);
+    }
+
     private static string FindMainWindowXaml()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
