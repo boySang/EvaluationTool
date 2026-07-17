@@ -294,7 +294,7 @@ jobs:
             $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $relativePath"
           }
-          Set-Content -LiteralPath $manifestPath -Value $lines -Encoding ASCII
+          Set-Content -LiteralPath $manifestPath -Value $lines -Encoding utf8NoBOM
 
           foreach ($line in Get-Content -LiteralPath $manifestPath) {
             if ($line -notmatch '^(?<hash>[0-9a-f]{64})  (?<path>.+)$') {
