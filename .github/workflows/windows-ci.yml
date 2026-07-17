@@ -269,6 +269,29 @@ jobs:
           Test-PackagedApplicationStartup 'First packaged startup'
           Test-PackagedApplicationStartup 'Second packaged startup with existing local data'
 
+      - name: Publish packaged startup diagnostics
+        if: ${{ failure() }}
+        run: |
+          $diagnosticDirectory = Join-Path $PWD 'artifacts\startup-diagnostics'
+          New-Item -ItemType Directory -Path $diagnosticDirectory -Force | Out-Null
+          $startupLog = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup.log'
+          if (Test-Path -LiteralPath $startupLog -PathType Leaf) {
+            Copy-Item -LiteralPath $startupLog `
+              -Destination (Join-Path $diagnosticDirectory 'EvaluationTool-startup.log') `
+              -Force
+            $detail = Get-Content -LiteralPath $startupLog -Raw
+            $escaped = $detail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Packaged application startup failed::$escaped"
+          }
+          else {
+            $message = 'The packaged application did not create EvaluationTool-startup.log. Inspect the Windows Application event details in the job log.'
+            Set-Content `
+              -LiteralPath (Join-Path $diagnosticDirectory 'startup-log-missing.txt') `
+              -Value $message `
+              -Encoding UTF8
+            Write-Output "::error title=Packaged application startup failed::$message"
+          }
+
       - name: Generate and verify Release integrity manifest
         run: |
           $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
@@ -318,6 +341,15 @@ jobs:
         with:
           name: EvaluationTool-test-results-windows
           path: artifacts\test-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload packaged startup diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: EvaluationTool-startup-diagnostics-windows
+          path: artifacts\startup-diagnostics
           if-no-files-found: warn
           retention-days: 14
 
