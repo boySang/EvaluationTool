@@ -137,9 +137,9 @@ public sealed class MainWindowBindingTests
     public void Command_library_only_imports_non_executable_drafts()
     {
         var document = XDocument.Load(FindMainWindowXaml());
-        var commandLibrary = Assert.Single(document.Descendants()
-            .Where(element => element.Name.LocalName == "TabItem")
-            .Where(element => string.Equals((string?)element.Attribute("Header"), "命令库", StringComparison.Ordinal)));
+        var commandLibrary = Assert.Single(document.Descendants(), element =>
+            element.Name.LocalName == "TabItem"
+            && string.Equals((string?)element.Attribute("Header"), "命令库", StringComparison.Ordinal));
         var source = commandLibrary.ToString();
 
         Assert.Contains("CommandLibrary.ImportCommand", source);
