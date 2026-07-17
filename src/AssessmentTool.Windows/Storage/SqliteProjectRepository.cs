@@ -2277,7 +2277,8 @@ public sealed class SqliteProjectRepository :
             case CollectionTaskState.Ready:
                 return next == CollectionTaskState.Running;
             case CollectionTaskState.Running:
-                return next == CollectionTaskState.Stopping
+                return next == CollectionTaskState.Running
+                    || next == CollectionTaskState.Stopping
                     || next == CollectionTaskState.Completed
                     || next == CollectionTaskState.Failed
                     || next == CollectionTaskState.Stopped

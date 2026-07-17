@@ -22,6 +22,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     private readonly ICollectionEvidenceService evidenceService;
     private readonly IDeviceIdentificationRepository? identificationRepository;
     private readonly IPendingDeviceIdentificationRepository? pendingIdentificationRepository;
+    private readonly ICollectionTaskRepository? collectionTaskRepository;
 
     public CollectionWorkflowService(
         ICredentialVault credentialVault,
@@ -68,6 +69,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         this.evidenceService = evidenceService ?? throw new ArgumentNullException(nameof(evidenceService));
         this.identificationRepository = identificationRepository;
         pendingIdentificationRepository = identificationRepository as IPendingDeviceIdentificationRepository;
+        collectionTaskRepository = identificationRepository as ICollectionTaskRepository;
         this.identificationRules = identificationRules ?? new[] { BuiltInIdentificationRules.LinuxOsReleaseId };
     }
 
@@ -114,12 +116,20 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         }
 
         var workflowStage = "加载通用 Linux 命令包";
+        WorkflowExecutionObserver? executionObserver = null;
         try
         {
             var fullPack = commandCatalog.LoadGenericLinux();
             var collectionPack = commandCatalog.CreateGenericLinuxCollectionPack(fullPack);
             workflowStage = "加载数据库发现命令包";
             var databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
+            executionObserver = new WorkflowExecutionObserver(
+                this,
+                request,
+                fullPack,
+                databaseDiscoveryPack,
+                collectionTaskRepository,
+                evidenceService);
             workflowStage = "构建 SSH 连接资料";
             var profile = CreateProfile(device, trusted);
             workflowStage = "创建受控 SSH 会话";
@@ -133,48 +143,71 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     identificationRules,
                     new DetectionEngine(),
                     new CommandMatcher(),
-                    new CommandSafetyPolicy());
+                    new CommandSafetyPolicy(),
+                    executionObserver);
                 result = await runner.RunAsync(
                     new CollectionRequest(collectionPack, request.ConfirmedCandidate),
                     progress,
                     cancellationToken);
 
-                workflowStage = "保存 Linux 识别与采集证据";
-                await SaveOutputsAsync(
-                    request,
-                    fullPack,
-                    result.IdentificationOutputs.Concat(result.CommandOutputs));
-                workflowStage = "保存设备身份识别审计记录";
-                var pendingBatchId = await SaveIdentificationStateAsync(
-                    device,
-                    request.PendingIdentificationBatchId,
-                    result.Detection,
-                    cancellationToken);
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
-                    return MapResult(result, pendingBatchId);
+                    var identification = executionObserver.HasTask
+                        ? IdentificationPersistenceResult.Empty
+                        : await SaveIdentificationStateAsync(
+                            device,
+                            request.PendingIdentificationBatchId,
+                            result.Detection,
+                            cancellationToken).ConfigureAwait(false);
+                    await executionObserver.FinalizeAsync(
+                        result.Outcome == CollectionOutcome.Stopped
+                            ? CollectionTaskState.Stopped
+                            : CollectionTaskState.Failed,
+                        result.Outcome.ToString(),
+                        CancellationToken.None).ConfigureAwait(false);
+                    return MapResult(result, identification.PendingBatchId);
                 }
 
                 workflowStage = "执行数据库主机只读发现";
                 var discoveryResult = await new DatabaseDiscoveryRunner(
                     session,
                     new CommandSafetyPolicy(),
-                    new HostDatabaseDiscovery()).RunAsync(
+                    new HostDatabaseDiscovery(),
+                    executionObserver).RunAsync(
                         databaseDiscoveryPack,
                         progress,
                         cancellationToken);
-                workflowStage = "保存数据库发现证据";
-                await SaveOutputsAsync(request, databaseDiscoveryPack, discoveryResult.Outputs);
                 workflowStage = "整理数据库发现结果";
+                await executionObserver.FinalizeAsync(
+                    discoveryResult.Outcome == DatabaseDiscoveryOutcome.Completed
+                        ? CollectionTaskState.Completed
+                        : discoveryResult.Outcome == DatabaseDiscoveryOutcome.Stopped
+                            ? CollectionTaskState.Stopped
+                            : CollectionTaskState.Failed,
+                    discoveryResult.Outcome.ToString(),
+                    CancellationToken.None).ConfigureAwait(false);
                 return MapDatabaseDiscovery(result, discoveryResult);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (executionObserver != null)
+            {
+                await executionObserver.FinalizeAsync(
+                    CollectionTaskState.Stopped,
+                    "Cancelled",
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+
             return CollectionWorkflowResult.Stopped();
         }
         catch (Exception exception)
         {
+            if (executionObserver != null)
+            {
+                await executionObserver.TryFinalizeFailureAsync().ConfigureAwait(false);
+            }
+
             return CollectionWorkflowResult.Failed(new CollectionError(
                 "只读采集任务失败",
                 "连接、命令包或证据保存未完成",
@@ -183,7 +216,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         }
     }
 
-    private async Task<Guid?> SaveIdentificationStateAsync(
+    private async Task<IdentificationPersistenceResult> SaveIdentificationStateAsync(
         DeviceRecord device,
         Guid? previousPendingBatchId,
         DetectionResult? detection,
@@ -191,7 +224,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     {
         if (detection == null)
         {
-            return null;
+            return IdentificationPersistenceResult.Empty;
         }
 
         if (detection.RequiresUserConfirmation)
@@ -207,12 +240,12 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 previousPendingBatchId,
                 DateTimeOffset.UtcNow,
                 cancellationToken).ConfigureAwait(false);
-            return batch.BatchId;
+            return new IdentificationPersistenceResult(batch.BatchId, null);
         }
 
         if (detection.Candidates.Count != 1)
         {
-            return null;
+            return IdentificationPersistenceResult.Empty;
         }
 
         if (previousPendingBatchId.HasValue)
@@ -227,51 +260,289 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 throw new InvalidOperationException("待确认识别候选处理服务不可用，已阻止继续。");
             }
 
-            await pendingIdentificationRepository.CompletePendingDeviceIdentificationAsync(
+            var completed = await pendingIdentificationRepository.CompletePendingDeviceIdentificationAsync(
                 device.Id,
                 previousPendingBatchId.Value,
                 detection.Candidates[0],
                 "测评人员在设备识别候选界面人工确认",
                 DateTimeOffset.UtcNow,
                 cancellationToken).ConfigureAwait(false);
-            return null;
+            return new IdentificationPersistenceResult(null, completed);
         }
 
         if (identificationRepository != null)
         {
-            await identificationRepository.AppendDeviceIdentificationAsync(
+            var recorded = await identificationRepository.AppendDeviceIdentificationAsync(
                 device.Id,
                 detection.Candidates[0],
                 detection.WasUserConfirmed,
                 detection.WasUserConfirmed ? "测评人员在设备识别候选界面人工确认" : null,
                 DateTimeOffset.UtcNow,
                 cancellationToken).ConfigureAwait(false);
+            return new IdentificationPersistenceResult(null, recorded);
         }
 
-        return null;
+        return IdentificationPersistenceResult.Empty;
     }
 
-    private async Task SaveOutputsAsync(
-        CollectionWorkflowRequest request,
-        CommandPack fullPack,
-        IEnumerable<CommandOutput> outputs)
+    private sealed class IdentificationPersistenceResult
     {
-        var definitions = fullPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
-        foreach (var output in outputs)
+        public static readonly IdentificationPersistenceResult Empty =
+            new IdentificationPersistenceResult(null, null);
+
+        public IdentificationPersistenceResult(
+            Guid? pendingBatchId,
+            DeviceIdentificationRecord? record)
         {
-            CommandDefinition? command;
-            if (!definitions.TryGetValue(output.CommandId, out command))
+            PendingBatchId = pendingBatchId;
+            Record = record;
+        }
+
+        public Guid? PendingBatchId { get; }
+        public DeviceIdentificationRecord? Record { get; }
+    }
+
+    private sealed class WorkflowExecutionObserver : ICollectionExecutionObserver
+    {
+        private readonly CollectionWorkflowService owner;
+        private readonly CollectionWorkflowRequest request;
+        private readonly CommandPack genericLinuxPack;
+        private readonly CommandPack databaseDiscoveryPack;
+        private readonly ICollectionTaskRepository? taskRepository;
+        private readonly ICollectionEvidenceService evidenceService;
+        private readonly Dictionary<string, CommandDefinition> genericCommands;
+        private readonly Dictionary<string, CommandDefinition> databaseCommands;
+        private readonly List<string> completedBeforeTask = new List<string>();
+        private readonly Dictionary<string, int> taskOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+        private CollectionTaskId taskId;
+        private long eventRevision;
+        private bool hasTask;
+        private bool finalized;
+
+        public WorkflowExecutionObserver(
+            CollectionWorkflowService owner,
+            CollectionWorkflowRequest request,
+            CommandPack genericLinuxPack,
+            CommandPack databaseDiscoveryPack,
+            ICollectionTaskRepository? taskRepository,
+            ICollectionEvidenceService evidenceService)
+        {
+            this.owner = owner;
+            this.request = request;
+            this.genericLinuxPack = genericLinuxPack;
+            this.databaseDiscoveryPack = databaseDiscoveryPack;
+            this.taskRepository = taskRepository;
+            this.evidenceService = evidenceService;
+            genericCommands = genericLinuxPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+            databaseCommands = databaseDiscoveryPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+        }
+
+        public bool HasTask => hasTask;
+
+        public async Task OnPlanReadyAsync(
+            DetectionResult detection,
+            IReadOnlyList<CommandDefinition> commands,
+            CancellationToken cancellationToken)
+        {
+            if (taskRepository == null)
             {
-                throw new InvalidOperationException("采集输出缺少对应的命令定义。");
+                throw new InvalidOperationException("采集任务总账服务不可用，已阻止执行远程采集命令。");
+            }
+
+            if (HasTask)
+            {
+                throw new InvalidOperationException("采集任务计划已创建，不能重复创建。");
+            }
+
+            var identification = await owner.SaveIdentificationStateAsync(
+                request.DeviceSelection.Device,
+                request.PendingIdentificationBatchId,
+                detection,
+                cancellationToken).ConfigureAwait(false);
+            if (identification.Record == null)
+            {
+                throw new InvalidOperationException("设备身份尚未形成最终审计记录，已阻止创建采集任务。");
+            }
+
+            var selectedGenericIds = new HashSet<string>(
+                genericLinuxPack.Commands
+                    .Where(command => string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
+                    .Select(command => command.Id)
+                    .Concat(commands.Select(command => command.Id)),
+                StringComparer.Ordinal);
+            var selectedCommands = genericLinuxPack.Commands
+                .Where(command => selectedGenericIds.Contains(command.Id))
+                .Select(command => new PackCommand(genericLinuxPack, command))
+                .Concat(databaseDiscoveryPack.Commands.Select(command =>
+                    new PackCommand(databaseDiscoveryPack, command)))
+                .ToArray();
+            var validatedAt = DateTimeOffset.UtcNow;
+            var safetyPolicy = new CommandSafetyPolicy();
+            var snapshots = new List<CollectionTaskCommandSnapshot>(selectedCommands.Length);
+            for (var ordinal = 0; ordinal < selectedCommands.Length; ordinal++)
+            {
+                var item = selectedCommands[ordinal];
+                var safety = safetyPolicy.Validate(item.Command);
+                if (!safety.Allowed)
+                {
+                    throw new InvalidOperationException("采集任务包含未通过只读安全复核的命令，已阻止创建。");
+                }
+
+                taskOrdinals.Add(item.Command.Id, ordinal);
+                snapshots.Add(new CollectionTaskCommandSnapshot(
+                    ordinal,
+                    item.Pack.Id,
+                    item.Pack.Version,
+                    item.Pack.Sha256,
+                    item.Command.Id,
+                    item.Command.CommandText,
+                    item.Command.CheckItem,
+                    item.Command.ResultDescription,
+                    item.Command.RiskLevel,
+                    item.Command.IsOptional,
+                    validatedAt));
+            }
+
+            var device = request.DeviceSelection.Device;
+            var trust = request.DeviceSelection.HostKeyTrust;
+            var task = new CollectionTaskRecord(
+                CollectionTaskId.New(),
+                request.Project.Id,
+                device.Id,
+                identification.Record.Revision,
+                device.Protocol,
+                device.Host,
+                device.Port,
+                device.UserName,
+                device.AuthenticationMethod,
+                trust.Algorithm ?? throw new InvalidOperationException("采集任务缺少已固定的主机密钥算法。"),
+                trust.Fingerprint ?? throw new InvalidOperationException("采集任务缺少已固定的主机指纹。"),
+                snapshots,
+                validatedAt);
+            await taskRepository.CreateCollectionTaskAsync(task, cancellationToken).ConfigureAwait(false);
+            taskId = task.Id;
+            hasTask = true;
+            var running = await taskRepository.AppendCollectionTaskEventAsync(
+                taskId,
+                1,
+                CollectionTaskState.Running,
+                null,
+                "ExecutionStarted",
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+            eventRevision = running.Revision;
+
+            foreach (var commandId in completedBeforeTask)
+            {
+                await AppendCommandEventAsync(commandId, cancellationToken).ConfigureAwait(false);
+            }
+
+            completedBeforeTask.Clear();
+        }
+
+        public async Task OnCommandCompletedAsync(
+            CommandDefinition command,
+            CommandOutput output,
+            CancellationToken cancellationToken)
+        {
+            CommandPack pack;
+            if (genericCommands.ContainsKey(command.Id))
+            {
+                pack = genericLinuxPack;
+            }
+            else if (databaseCommands.ContainsKey(command.Id))
+            {
+                pack = databaseDiscoveryPack;
+            }
+            else
+            {
+                throw new InvalidOperationException("采集输出缺少受信任命令包归属。");
             }
 
             await evidenceService.SaveAsync(
                 request.Project,
                 request.DeviceSelection.Device,
-                fullPack.Version,
+                pack.Version,
                 command,
                 output,
-                CancellationToken.None);
+                cancellationToken).ConfigureAwait(false);
+
+            if (HasTask)
+            {
+                await AppendCommandEventAsync(command.Id, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                completedBeforeTask.Add(command.Id);
+            }
+        }
+
+        public async Task FinalizeAsync(
+            CollectionTaskState state,
+            string eventCode,
+            CancellationToken cancellationToken)
+        {
+            if (!HasTask || finalized)
+            {
+                return;
+            }
+
+            var recorded = await taskRepository!.AppendCollectionTaskEventAsync(
+                taskId,
+                eventRevision,
+                state,
+                null,
+                eventCode,
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+            eventRevision = recorded.Revision;
+            finalized = true;
+        }
+
+        public async Task TryFinalizeFailureAsync()
+        {
+            try
+            {
+                await FinalizeAsync(
+                    CollectionTaskState.Failed,
+                    "UnexpectedFailure",
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
+
+        private async Task AppendCommandEventAsync(
+            string commandId,
+            CancellationToken cancellationToken)
+        {
+            if (!taskOrdinals.TryGetValue(commandId, out var ordinal))
+            {
+                throw new InvalidOperationException("完成的命令不属于已锁定任务计划。");
+            }
+
+            var recorded = await taskRepository!.AppendCollectionTaskEventAsync(
+                taskId,
+                eventRevision,
+                CollectionTaskState.Running,
+                ordinal,
+                "CommandEvidenceCommitted",
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+            eventRevision = recorded.Revision;
+        }
+
+        private sealed class PackCommand
+        {
+            public PackCommand(CommandPack pack, CommandDefinition command)
+            {
+                Pack = pack;
+                Command = command;
+            }
+
+            public CommandPack Pack { get; }
+            public CommandDefinition Command { get; }
         }
     }
 

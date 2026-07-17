@@ -20,6 +20,7 @@ public sealed class CollectionRunner
     private readonly DetectionEngine detectionEngine;
     private readonly CommandMatcher commandMatcher;
     private readonly CommandSafetyPolicy safetyPolicy;
+    private readonly ICollectionExecutionObserver? observer;
 
     public CollectionRunner(
         IRemoteSession session,
@@ -27,7 +28,8 @@ public sealed class CollectionRunner
         IEnumerable<IdentificationRule> identificationRules,
         DetectionEngine detectionEngine,
         CommandMatcher commandMatcher,
-        CommandSafetyPolicy safetyPolicy)
+        CommandSafetyPolicy safetyPolicy,
+        ICollectionExecutionObserver? observer = null)
     {
         this.session = session ?? throw new ArgumentNullException(nameof(session));
         this.identificationCommands = CopyIdentificationCommands(
@@ -40,6 +42,7 @@ public sealed class CollectionRunner
         this.detectionEngine = detectionEngine ?? throw new ArgumentNullException(nameof(detectionEngine));
         this.commandMatcher = commandMatcher ?? throw new ArgumentNullException(nameof(commandMatcher));
         this.safetyPolicy = safetyPolicy ?? throw new ArgumentNullException(nameof(safetyPolicy));
+        this.observer = observer;
     }
 
     public async Task<CollectionResult> RunAsync(
@@ -93,6 +96,12 @@ public sealed class CollectionRunner
                 }
 
                 identificationOutputs.Add(output);
+                if (observer != null)
+                {
+                    await observer.OnCommandCompletedAsync(command, output, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
                 var terminal = FinishAfterNonSuccess(
                     command,
                     output,
@@ -152,6 +161,26 @@ public sealed class CollectionRunner
                     "没有匹配到可自动执行的已验证只读命令。");
             }
 
+            foreach (var command in commands)
+            {
+                var rejected = RejectUnsafe(
+                    command,
+                    detection,
+                    identificationOutputs,
+                    commandOutputs,
+                    progress);
+                if (rejected != null)
+                {
+                    return rejected;
+                }
+            }
+
+            if (observer != null)
+            {
+                await observer.OnPlanReadyAsync(detection, commands, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             for (var index = 0; index < commands.Count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -186,6 +215,12 @@ public sealed class CollectionRunner
                 }
 
                 commandOutputs.Add(output);
+                if (observer != null)
+                {
+                    await observer.OnCommandCompletedAsync(command, output, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
                 var terminal = FinishAfterNonSuccess(
                     command,
                     output,

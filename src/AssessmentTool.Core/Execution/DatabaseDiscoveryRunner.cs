@@ -63,15 +63,18 @@ public sealed class DatabaseDiscoveryRunner
     private readonly IRemoteSession session;
     private readonly CommandSafetyPolicy safetyPolicy;
     private readonly HostDatabaseDiscovery discovery;
+    private readonly ICollectionExecutionObserver? observer;
 
     public DatabaseDiscoveryRunner(
         IRemoteSession session,
         CommandSafetyPolicy safetyPolicy,
-        HostDatabaseDiscovery discovery)
+        HostDatabaseDiscovery discovery,
+        ICollectionExecutionObserver? observer = null)
     {
         this.session = session ?? throw new ArgumentNullException(nameof(session));
         this.safetyPolicy = safetyPolicy ?? throw new ArgumentNullException(nameof(safetyPolicy));
         this.discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
+        this.observer = observer;
     }
 
     public async Task<DatabaseDiscoveryResult> RunAsync(
@@ -124,6 +127,12 @@ public sealed class DatabaseDiscoveryRunner
                 }
 
                 outputs.Add(output);
+                if (observer != null)
+                {
+                    await observer.OnCommandCompletedAsync(command, output, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+
                 if (output.Outcome == RemoteExecutionOutcome.Succeeded)
                 {
                     continue;

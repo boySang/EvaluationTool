@@ -463,6 +463,13 @@ public sealed class SqliteProjectRepositoryTests
 
             var running = await repository.AppendCollectionTaskEventAsync(
                 task.Id, created.Revision, CollectionTaskState.Running, null, "ExecutionStarted", DateTimeOffset.UtcNow);
+            var commandCommitted = await repository.AppendCollectionTaskEventAsync(
+                task.Id,
+                running.Revision,
+                CollectionTaskState.Running,
+                0,
+                "CommandEvidenceCommitted",
+                DateTimeOffset.UtcNow);
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 repository.AppendCollectionTaskEventAsync(
                     task.Id, created.Revision, CollectionTaskState.Completed, null, "StaleCompletion", DateTimeOffset.UtcNow));
@@ -472,8 +479,10 @@ public sealed class SqliteProjectRepositoryTests
             var events = await repository.GetCollectionTaskEventsAsync(task.Id);
             Assert.Equal(
                 new[] { CollectionTaskState.Ready, CollectionTaskState.Running, CollectionTaskState.Interrupted },
-                events.Select(item => item.State));
-            Assert.Equal(running.Revision + 1, events.Last().Revision);
+                events.Where(item => item.State != CollectionTaskState.Running || item.CommandOrdinal == null)
+                    .Select(item => item.State));
+            Assert.Equal(0, events.Single(item => item.EventCode == "CommandEvidenceCommitted").CommandOrdinal);
+            Assert.Equal(commandCommitted.Revision + 1, events.Last().Revision);
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 repository.AppendCollectionTaskEventAsync(
                     task.Id,

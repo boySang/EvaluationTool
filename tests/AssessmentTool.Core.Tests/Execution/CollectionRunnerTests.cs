@@ -95,6 +95,36 @@ public sealed class CollectionRunnerTests
     }
 
     [Fact]
+    public async Task Observer_locks_plan_before_collection_and_receives_each_output_immediately()
+    {
+        var observer = new RecordingExecutionObserver();
+        var session = new FakeSession("VendorA Network OS 7.2 Model X100");
+        var runner = new CollectionRunner(
+            session,
+            new[] { IdentificationCommand() },
+            new[] { IdentificationRuleFor(0.95) },
+            new DetectionEngine(),
+            new CommandMatcher(),
+            new CommandSafetyPolicy(),
+            observer);
+
+        var result = await runner.RunAsync(
+            Request(CollectionCommand("collect-version", "show version")),
+            new ProgressRecorder(),
+            CancellationToken.None);
+
+        Assert.Equal(CollectionOutcome.Completed, result.Outcome);
+        Assert.Equal(
+            new[]
+            {
+                "output:identify-version",
+                "plan:collect-version",
+                "output:collect-version"
+            },
+            observer.Events);
+    }
+
+    [Fact]
     public async Task Confirmation_candidate_must_match_the_current_detection_result()
     {
         var first = await Runner(
@@ -416,6 +446,31 @@ public sealed class CollectionRunnerTests
         public void Report(CollectionProgress value)
         {
             states.Add(value.State);
+        }
+    }
+
+    private sealed class RecordingExecutionObserver : ICollectionExecutionObserver
+    {
+        private readonly List<string> events = new List<string>();
+
+        public IReadOnlyList<string> Events => events;
+
+        public Task OnPlanReadyAsync(
+            DetectionResult detection,
+            IReadOnlyList<CommandDefinition> commands,
+            CancellationToken cancellationToken)
+        {
+            events.Add("plan:" + string.Join(",", commands.Select(command => command.Id)));
+            return Task.CompletedTask;
+        }
+
+        public Task OnCommandCompletedAsync(
+            CommandDefinition command,
+            CommandOutput output,
+            CancellationToken cancellationToken)
+        {
+            events.Add("output:" + command.Id);
+            return Task.CompletedTask;
         }
     }
 

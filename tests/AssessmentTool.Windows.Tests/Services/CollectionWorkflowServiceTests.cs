@@ -157,6 +157,13 @@ public sealed class CollectionWorkflowServiceTests
             Assert.Equal(device.Id, identification.DeviceId);
             Assert.Equal("ubuntu", identification.Vendor);
             Assert.False(identification.WasUserConfirmed);
+            var task = Assert.Single(identifications.Tasks);
+            Assert.Equal(device.Id, task.DeviceId);
+            Assert.Equal(8, task.Commands.Count);
+            var taskEvents = identifications.TaskEvents[task.Id];
+            Assert.Equal(CollectionTaskState.Ready, taskEvents.First().State);
+            Assert.Equal(CollectionTaskState.Completed, taskEvents.Last().State);
+            Assert.Equal(8, taskEvents.Count(item => item.EventCode == "CommandEvidenceCommitted"));
             Assert.Equal(
                 new[]
                 {
@@ -244,6 +251,8 @@ public sealed class CollectionWorkflowServiceTests
                 PendingIdentificationResolution.RevalidatedAndCompleted,
                 identifications.Resolutions[0].Resolution);
             Assert.Equal(8, secondSession.ExecutedIds.Count);
+            var task = Assert.Single(identifications.Tasks);
+            Assert.Equal(CollectionTaskState.Completed, identifications.TaskEvents[task.Id].Last().State);
         }
         finally
         {
@@ -610,13 +619,17 @@ public sealed class CollectionWorkflowServiceTests
 
     private sealed class RecordingIdentificationRepository :
         IDeviceIdentificationRepository,
-        IPendingDeviceIdentificationRepository
+        IPendingDeviceIdentificationRepository,
+        ICollectionTaskRepository
     {
         internal List<DeviceIdentificationRecord> Records { get; } = new List<DeviceIdentificationRecord>();
         internal List<PendingDeviceIdentificationBatch> PendingBatches { get; } =
             new List<PendingDeviceIdentificationBatch>();
         internal List<(Guid BatchId, PendingIdentificationResolution Resolution)> Resolutions { get; } =
             new List<(Guid BatchId, PendingIdentificationResolution Resolution)>();
+        internal List<CollectionTaskRecord> Tasks { get; } = new List<CollectionTaskRecord>();
+        internal Dictionary<CollectionTaskId, List<CollectionTaskEventRecord>> TaskEvents { get; } =
+            new Dictionary<CollectionTaskId, List<CollectionTaskEventRecord>>();
 
         public Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
             DeviceId deviceId,
@@ -707,6 +720,68 @@ public sealed class CollectionWorkflowServiceTests
                 confirmationSource,
                 recordedAt,
                 cancellationToken);
+        }
+
+        public Task<CollectionTaskRecord> CreateCollectionTaskAsync(
+            CollectionTaskRecord task,
+            CancellationToken cancellationToken = default)
+        {
+            Tasks.Add(task);
+            TaskEvents.Add(task.Id, new List<CollectionTaskEventRecord>
+            {
+                new CollectionTaskEventRecord(
+                    task.Id,
+                    1,
+                    CollectionTaskState.Ready,
+                    null,
+                    "TaskCreated",
+                    task.CreatedAt)
+            });
+            return Task.FromResult(task);
+        }
+
+        public Task<CollectionTaskEventRecord> AppendCollectionTaskEventAsync(
+            CollectionTaskId taskId,
+            long expectedRevision,
+            CollectionTaskState state,
+            int? commandOrdinal,
+            string eventCode,
+            DateTimeOffset occurredAt,
+            CancellationToken cancellationToken = default)
+        {
+            var events = TaskEvents[taskId];
+            Assert.Equal(expectedRevision, events.Last().Revision);
+            var record = new CollectionTaskEventRecord(
+                taskId,
+                expectedRevision + 1,
+                state,
+                commandOrdinal,
+                eventCode,
+                occurredAt);
+            events.Add(record);
+            return Task.FromResult(record);
+        }
+
+        public Task<IReadOnlyList<CollectionTaskRecord>> GetCollectionTasksAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CollectionTaskRecord>>(
+                Tasks.Where(task => task.ProjectId.Equals(projectId)).ToArray());
+        }
+
+        public Task<IReadOnlyList<CollectionTaskEventRecord>> GetCollectionTaskEventsAsync(
+            CollectionTaskId taskId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CollectionTaskEventRecord>>(TaskEvents[taskId].ToArray());
+        }
+
+        public Task<int> MarkInterruptedCollectionTasksAsync(
+            DateTimeOffset interruptedAt,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0);
         }
     }
 }
