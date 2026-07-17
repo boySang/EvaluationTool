@@ -86,8 +86,14 @@ public sealed class CommandLibraryViewModel : INotifyPropertyChanged
 
     public async Task PickAndImportAsync()
     {
-        var path = filePicker.SelectJsonFile();
-        if (string.IsNullOrWhiteSpace(path))
+        var selectedPath = filePicker.SelectJsonFile();
+        if (selectedPath == null)
+        {
+            return;
+        }
+
+        var path = selectedPath.Trim();
+        if (path.Length == 0)
         {
             return;
         }
