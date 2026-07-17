@@ -14,4 +14,8 @@
     <ProjectReference Include="../AssessmentTool.Core/AssessmentTool.Core.csproj" />
     <ProjectReference Include="../AssessmentTool.Windows/AssessmentTool.Windows.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../command-packs/builtin/generic-linux.json" Link="command-packs/builtin/generic-linux.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../command-packs/builtin/generic-linux.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json" />
+  </ItemGroup>
 </Project>
