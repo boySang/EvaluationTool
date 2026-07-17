@@ -184,13 +184,19 @@ internal sealed class WindowsProcessRunner : IProcessRunner
             throw new ArgumentNullException(nameof(request));
         }
 
-        var safetyDecision = safetyPolicy.Validate(request.Command);
-        if (!safetyDecision.Allowed)
+        CommandDefinition? verifiedCommand;
+        if (request.TryGetVerifiedCommand(out verifiedCommand))
         {
-            return ProcessRunResult.Rejected(safetyDecision.Code);
+            var safetyDecision = safetyPolicy.Validate(verifiedCommand!);
+            if (!safetyDecision.Allowed)
+            {
+                return ProcessRunResult.Rejected(safetyDecision.Code);
+            }
         }
-
-        var validatedCommandText = request.Command.CommandText.Trim();
+        else if (!request.HasControlledPlinkPlan())
+        {
+            return ProcessRunResult.Rejected("connection-check-plan-required");
+        }
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -200,7 +206,7 @@ internal sealed class WindowsProcessRunner : IProcessRunner
                 Array.Empty<byte>());
         }
 
-        if (request.Command.Timeout <= TimeSpan.Zero)
+        if (request.GetTimeout() <= TimeSpan.Zero)
         {
             return ProcessRunResult.Failed(
                 ProcessFailureStage.ProcessWait,
@@ -351,7 +357,7 @@ internal sealed class WindowsProcessRunner : IProcessRunner
             var inputCancellation = new CancellationTokenSource();
             var stdinTask = WriteCommandAndCloseAsync(
                 standardInput,
-                request.InputEncoding.GetBytes(validatedCommandText + "\r\n"),
+                request.GetStandardInputBytes(),
                 inputCancellation.Token);
             var waitTask = processApi.WaitForExitAsync(process);
             var timeoutCancellation = new CancellationTokenSource();
@@ -359,7 +365,7 @@ internal sealed class WindowsProcessRunner : IProcessRunner
             try
             {
                 var cancellationSignal = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                var timeoutSignal = Task.Delay(request.Command.Timeout, timeoutCancellation.Token);
+                var timeoutSignal = Task.Delay(request.GetTimeout(), timeoutCancellation.Token);
                 var completed = await Task.WhenAny(waitTask, stdinTask, cancellationSignal, timeoutSignal);
 
                 if (completed == stdinTask)

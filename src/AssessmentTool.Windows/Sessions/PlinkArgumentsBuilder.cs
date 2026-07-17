@@ -28,7 +28,7 @@ internal sealed class PlinkArgumentsBuildRequest
 
 internal sealed class PlinkArgumentsBuilder
 {
-    internal sealed class LaunchPlan : ProcessArgumentPlan
+    internal sealed class LaunchPlan : ProcessArgumentPlan, IControlledPlinkArgumentPlan
     {
         private LaunchPlan(IReadOnlyList<string> argumentTokens)
             : base(argumentTokens)

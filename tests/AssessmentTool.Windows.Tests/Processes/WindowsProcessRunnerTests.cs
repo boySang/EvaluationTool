@@ -363,6 +363,47 @@ public sealed class WindowsProcessRunnerTests
     }
 
     [Fact]
+    public async Task Controlled_plink_connection_check_closes_stdin_without_sending_any_bytes()
+    {
+        var input = new TrackingWriteStream();
+        var api = new FakeWindowsProcessApi(input: input);
+        var runner = new WindowsProcessRunner(api);
+        using (var candidate = CreateCandidate(api, PlinkExecutablePath, "plink"))
+        {
+            var request = ProcessRunRequest.CreateWithoutStandardInput(
+                CreatePlinkPlan(),
+                TimeSpan.FromSeconds(5),
+                Encoding.UTF8);
+
+            var result = await runner.RunAsync(candidate, request, CancellationToken.None);
+
+            Assert.Equal(ProcessRunOutcome.Succeeded, result.Outcome);
+            Assert.Empty(input.WrittenBytes);
+            Assert.True(input.WasClosed);
+        }
+    }
+
+    [Fact]
+    public async Task Generic_plan_cannot_bypass_command_safety_with_no_input_mode()
+    {
+        var api = new FakeWindowsProcessApi();
+        var runner = new WindowsProcessRunner(api);
+        using (var candidate = CreateCandidate(api))
+        {
+            var request = ProcessRunRequest.CreateWithoutStandardInput(
+                ProcessArgumentPlan.FromTokens(new[] { "--probe" }),
+                TimeSpan.FromSeconds(5),
+                Encoding.UTF8);
+
+            var result = await runner.RunAsync(candidate, request, CancellationToken.None);
+
+            Assert.Equal(ProcessRunOutcome.Failed, result.Outcome);
+            Assert.Equal("connection-check-plan-required", result.FailureCode);
+            Assert.Empty(api.Calls);
+        }
+    }
+
+    [Fact]
     public async Task Runner_sends_the_same_trimmed_command_text_that_the_safety_policy_validates()
     {
         var input = new TrackingWriteStream();

@@ -55,9 +55,16 @@ internal abstract class ProcessArgumentPlan
     }
 }
 
+internal interface IControlledPlinkArgumentPlan
+{
+}
+
 internal sealed class ProcessRunRequest
 {
     private readonly ProcessArgumentPlan argumentPlan;
+    private readonly CommandDefinition? command;
+    private readonly TimeSpan timeout;
+    private readonly bool closeStandardInputWithoutData;
     private readonly Encoding inputEncoding;
     private readonly Encoding outputEncoding;
 
@@ -68,7 +75,8 @@ internal sealed class ProcessRunRequest
         Encoding outputEncoding)
     {
         this.argumentPlan = argumentPlan ?? throw new ArgumentNullException(nameof(argumentPlan));
-        Command = command ?? throw new ArgumentNullException(nameof(command));
+        this.command = command ?? throw new ArgumentNullException(nameof(command));
+        timeout = command.Timeout;
         this.inputEncoding = SnapshotEncoding(
             inputEncoding ?? throw new ArgumentNullException(nameof(inputEncoding)));
         this.outputEncoding = SnapshotEncoding(
@@ -76,13 +84,60 @@ internal sealed class ProcessRunRequest
     }
 
     internal IReadOnlyList<string> ArgumentTokens => argumentPlan.ArgumentTokens;
-    internal CommandDefinition Command { get; }
+    internal CommandDefinition Command => command
+        ?? throw new InvalidOperationException("无命令连接检查不包含远程命令。");
     internal Encoding InputEncoding => SnapshotEncoding(inputEncoding);
     internal Encoding OutputEncoding => SnapshotEncoding(outputEncoding);
 
     internal bool HasControlledPlinkPlan()
     {
-        return argumentPlan is PlinkArgumentsBuilder.LaunchPlan;
+        return argumentPlan is IControlledPlinkArgumentPlan;
+    }
+
+    internal static ProcessRunRequest CreateWithoutStandardInput(
+        ProcessArgumentPlan argumentPlan,
+        TimeSpan timeout,
+        Encoding outputEncoding)
+    {
+        if (timeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+        }
+
+        return new ProcessRunRequest(argumentPlan, timeout, outputEncoding);
+    }
+
+    internal bool TryGetVerifiedCommand(out CommandDefinition? verifiedCommand)
+    {
+        verifiedCommand = command;
+        return verifiedCommand != null;
+    }
+
+    internal TimeSpan GetTimeout()
+    {
+        return timeout;
+    }
+
+    internal byte[] GetStandardInputBytes()
+    {
+        if (closeStandardInputWithoutData)
+        {
+            return Array.Empty<byte>();
+        }
+
+        return inputEncoding.GetBytes(Command.CommandText.Trim() + "\r\n");
+    }
+
+    private ProcessRunRequest(
+        ProcessArgumentPlan argumentPlan,
+        TimeSpan timeout,
+        Encoding outputEncoding)
+    {
+        this.argumentPlan = argumentPlan ?? throw new ArgumentNullException(nameof(argumentPlan));
+        this.timeout = timeout;
+        closeStandardInputWithoutData = true;
+        inputEncoding = SnapshotEncoding(outputEncoding ?? throw new ArgumentNullException(nameof(outputEncoding)));
+        this.outputEncoding = SnapshotEncoding(outputEncoding);
     }
 
     private static Encoding SnapshotEncoding(Encoding encoding)
