@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -179,10 +180,22 @@ public sealed class PlinkNoCommandLoginTesterTests
         }
     }
 
-    private sealed class FakeComponentHandle : IComponentExecutionHandle
+    private sealed class FakeComponentHandle : IComponentFileHandle
     {
+        public Stream Stream { get; } = new MemoryStream(new byte[] { 1 }, writable: false);
+
+        public ComponentHandleSnapshot CaptureSnapshot()
+        {
+            throw new NotSupportedException();
+        }
+
+        public void ValidateLease()
+        {
+        }
+
         public void Dispose()
         {
+            Stream.Dispose();
         }
     }
 }
