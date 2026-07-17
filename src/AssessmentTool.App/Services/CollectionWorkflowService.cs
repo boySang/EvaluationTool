@@ -82,11 +82,14 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "HostKeyTrustNotEligible"));
         }
 
+        var workflowStage = "加载通用 Linux 命令包";
         try
         {
             var fullPack = commandCatalog.LoadGenericLinux();
             var collectionPack = commandCatalog.CreateGenericLinuxCollectionPack(fullPack);
+            workflowStage = "加载数据库发现命令包";
             var databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
+            workflowStage = "创建受控 SSH 会话";
             var profile = CreateProfile(device, trusted);
             var session = createSession(profile);
             CollectionResult result;
@@ -104,6 +107,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     progress,
                     cancellationToken);
 
+                workflowStage = "保存 Linux 识别与采集证据";
                 await SaveOutputsAsync(
                     request,
                     fullPack,
@@ -113,6 +117,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     return MapResult(result);
                 }
 
+                workflowStage = "执行数据库主机只读发现";
                 var discoveryResult = await new DatabaseDiscoveryRunner(
                     session,
                     new CommandSafetyPolicy(),
@@ -120,7 +125,9 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                         databaseDiscoveryPack,
                         progress,
                         cancellationToken);
+                workflowStage = "保存数据库发现证据";
                 await SaveOutputsAsync(request, databaseDiscoveryPack, discoveryResult.Outputs);
+                workflowStage = "整理数据库发现结果";
                 return MapDatabaseDiscovery(result, discoveryResult);
             }
         }
@@ -134,7 +141,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "只读采集任务失败",
                 "连接、命令包或证据保存未完成",
                 "检查设备连接、组件中心和证据目录后重试",
-                exception.GetType().Name));
+                workflowStage + ":" + exception.GetType().Name));
         }
     }
 
