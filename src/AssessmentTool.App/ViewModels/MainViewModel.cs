@@ -44,6 +44,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             NavigationItemViewModel.Deferred("设置")
         });
         Collection.SetRequiredComponentAvailability(ComponentCenter.IsSshAvailable);
+        Collection.PropertyChanged += OnCollectionPropertyChanged;
         ComponentCenter.PropertyChanged += OnComponentCenterPropertyChanged;
         if (Workspace != null)
         {
@@ -61,6 +62,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ToggleThemeCommand => toggleThemeCommand;
     public string CurrentProjectName => Workspace?.SelectedProject?.ProjectName ?? "尚未选择项目";
     public string CurrentDeviceName => Workspace?.SelectedDevice?.DisplayName ?? "尚未选择设备";
+    public int ProjectDeviceCount => Workspace?.Devices.Count ?? 0;
+    public int SuccessfulConnectionTestCount => 0;
+    public int PendingConnectionTestCount => ProjectDeviceCount;
+    public int CollectionFailureCount => Collection.State == CollectionViewModelState.Failed ? 1 : 0;
+    public string ReadOnlyProtectionStatus => "只读模式已启用";
 
     private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
@@ -72,6 +78,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
         {
             OnPropertyChanged(nameof(CurrentDeviceName));
+        }
+
+        if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.Devices))
+        {
+            OnPropertyChanged(nameof(ProjectDeviceCount));
+            OnPropertyChanged(nameof(PendingConnectionTestCount));
+        }
+    }
+
+    private void OnCollectionPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName == nameof(CollectionViewModel.State))
+        {
+            OnPropertyChanged(nameof(CollectionFailureCount));
         }
     }
 

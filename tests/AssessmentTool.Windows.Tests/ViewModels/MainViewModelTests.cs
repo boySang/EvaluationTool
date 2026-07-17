@@ -37,14 +37,40 @@ public sealed class MainViewModelTests
 
         Assert.Equal("等保项目", viewModel.CurrentProjectName);
         Assert.Equal("核心交换机", viewModel.CurrentDeviceName);
+        Assert.Equal(1, viewModel.ProjectDeviceCount);
+        Assert.Equal(1, viewModel.PendingConnectionTestCount);
+        Assert.Equal(0, viewModel.CollectionFailureCount);
+        Assert.Equal("只读模式已启用", viewModel.ReadOnlyProtectionStatus);
         Assert.Contains(nameof(MainViewModel.CurrentProjectName), changes);
         Assert.Contains(nameof(MainViewModel.CurrentDeviceName), changes);
+        Assert.Contains(nameof(MainViewModel.ProjectDeviceCount), changes);
+        Assert.Contains(nameof(MainViewModel.PendingConnectionTestCount), changes);
         Assert.Same(componentCenter, viewModel.ComponentCenter);
         Assert.False(viewModel.ComponentCenter.IsSshAvailable);
         var essentialNavigation = viewModel.NavigationItems.Where(item =>
             item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
         Assert.Equal(3, essentialNavigation.Length);
         Assert.All(essentialNavigation, item => Assert.True(item.IsAvailable));
+    }
+
+    [Fact]
+    public async Task Dashboard_failure_count_tracks_collection_state()
+    {
+        var collection = new CollectionViewModel(new ThrowingCollectionWorkflowService());
+        var componentCenter = new ComponentCenterViewModel(
+            new ComponentCenterViewModelTests.FakeComponentStatusService(
+                ComponentCenterViewModelTests.AvailableStatus()));
+        await componentCenter.RefreshAsync();
+        var viewModel = new MainViewModel(collection, componentCenter, () => { });
+        var project = new ProjectRecord(ProjectId.New(), "客户", "项目", @"C:\Evidence", DateTimeOffset.UtcNow);
+        var device = new DeviceRecord(DeviceId.New(), project.Id, "设备", "192.0.2.2", 22,
+            CredentialReference.New(), DateTimeOffset.UtcNow);
+        collection.SelectProject(project);
+        collection.SelectDevice(new CollectionDeviceSelection(device, true, CreateVerifiedHostKeyTrust(device)));
+
+        await collection.StartAsync();
+
+        Assert.Equal(1, viewModel.CollectionFailureCount);
     }
 
     [Fact]
@@ -133,6 +159,17 @@ public sealed class MainViewModelTests
             CancellationToken cancellationToken)
         {
             return Task.FromResult(CollectionWorkflowResult.Stopped());
+        }
+    }
+
+    private sealed class ThrowingCollectionWorkflowService : ICollectionWorkflowService
+    {
+        public Task<CollectionWorkflowResult> RunAsync(
+            CollectionWorkflowRequest request,
+            IProgress<AssessmentTool.Core.Execution.CollectionProgress> progress,
+            CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("fixture");
         }
     }
 }

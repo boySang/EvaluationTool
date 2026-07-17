@@ -3,91 +3,232 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
         Title="等级保护测评辅助工具"
-        Width="1180"
-        Height="760"
-        MinWidth="900"
-        MinHeight="560"
+        Width="1440"
+        Height="900"
+        MinWidth="1100"
+        MinHeight="720"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
   <Grid Background="{DynamicResource Brush.Window}">
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto" MinHeight="64" />
-      <RowDefinition Height="*" />
-    </Grid.RowDefinitions>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="216" />
+      <ColumnDefinition Width="*" />
+    </Grid.ColumnDefinitions>
 
-    <Border Grid.Row="0"
-            Background="{DynamicResource Brush.Surface}"
+    <Border Grid.Column="0"
+            Background="{DynamicResource Brush.Navigation}"
             BorderBrush="{DynamicResource Brush.Border}"
-            BorderThickness="0,0,0,1"
-            Padding="20,12">
+            BorderThickness="0,0,1,0">
       <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-          <Border Width="36" Height="36" CornerRadius="8" Background="{DynamicResource Brush.Accent}" Margin="0,0,12,0">
-            <TextBlock Text="安" Foreground="White" FontWeight="Bold" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <Grid.RowDefinitions>
+          <RowDefinition Height="72" />
+          <RowDefinition Height="*" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="16,16,10,12" VerticalAlignment="Center">
+          <Border Width="38" Height="38" CornerRadius="8" Background="{DynamicResource Brush.Accent}" Margin="0,0,10,0">
+            <TextBlock Text="安" Foreground="White" FontWeight="Bold" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
-          <StackPanel>
-            <TextBlock Text="等级保护测评辅助工具" FontSize="17" FontWeight="SemiBold" />
-            <TextBlock Text="仅执行已验证的只读命令" Style="{StaticResource SecondaryTextStyle}" FontSize="12" />
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="等级保护测评" FontWeight="SemiBold" FontSize="15" />
+            <TextBlock Text="辅助工具" Foreground="{DynamicResource Brush.TextSecondary}" FontSize="12" />
           </StackPanel>
         </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock Text="项目：" Foreground="{DynamicResource Brush.TextSecondary}" />
-          <TextBlock Text="{Binding CurrentProjectName}" FontWeight="SemiBold" Margin="0,0,20,0" MaxWidth="220" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentProjectName}" />
-          <TextBlock Text="设备：" Foreground="{DynamicResource Brush.TextSecondary}" />
-          <TextBlock Text="{Binding CurrentDeviceName}" FontWeight="SemiBold" MaxWidth="220" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentDeviceName}" />
+
+        <ListBox x:Name="ShellNavigation"
+                 Grid.Row="1"
+                 SelectedIndex="0"
+                 Style="{StaticResource ShellNavigationStyle}"
+                 ItemContainerStyle="{StaticResource ShellNavigationItemStyle}"
+                 automation:AutomationProperties.Name="主导航">
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="⌂" FontSize="18" Width="30" /><TextBlock Text="首页" VerticalAlignment="Center" /></StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="▣" FontSize="16" Width="30" /><TextBlock Text="项目" VerticalAlignment="Center" /></StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="▯" FontSize="18" Width="30" /><TextBlock Text="设备" VerticalAlignment="Center" /></StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="☷" FontSize="18" Width="30" /><TextBlock Text="采集任务" VerticalAlignment="Center" /></StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="▧" FontSize="17" Width="30" /><TextBlock Text="证据中心" VerticalAlignment="Center" /></StackPanel>
+          </ListBoxItem>
+          <ListBoxItem IsEnabled="False">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="&gt;_" FontSize="13" /><TextBlock Grid.Column="1" Text="命令库" /><TextBlock Grid.Column="2" Text="后续" FontSize="10" Foreground="{DynamicResource Brush.DisabledText}" /></Grid>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal"><TextBlock Text="▦" FontSize="17" Width="30" /><TextBlock Text="组件中心" VerticalAlignment="Center" /></StackPanel>
+          </ListBoxItem>
+          <ListBoxItem IsEnabled="False">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="⚙" FontSize="16" /><TextBlock Grid.Column="1" Text="设置" /><TextBlock Grid.Column="2" Text="后续" FontSize="10" Foreground="{DynamicResource Brush.DisabledText}" /></Grid>
+          </ListBoxItem>
+        </ListBox>
+
+        <StackPanel Grid.Row="2" Margin="16,10,16,18">
+          <Border Style="{StaticResource ReadOnlyPillStyle}" HorizontalAlignment="Left">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="●" Foreground="{DynamicResource Brush.Success}" FontSize="10" Margin="0,0,7,0" VerticalAlignment="Center" />
+              <TextBlock Text="只读保护已开启" FontSize="12" Foreground="{DynamicResource Brush.Success}" />
+            </StackPanel>
+          </Border>
+          <TextBlock Text="本地离线运行 · 不自动上传" Style="{StaticResource SecondaryTextStyle}" FontSize="11" Margin="0,8,0,0" />
         </StackPanel>
-        <Button Grid.Column="2"
-                Content="切换主题"
-                Command="{Binding ToggleThemeCommand}"
-                automation:AutomationProperties.Name="切换浅色或深色主题" />
       </Grid>
     </Border>
 
-    <TabControl Grid.Row="1"
-                TabStripPlacement="Left"
-                Background="Transparent"
-                BorderThickness="0"
-                Padding="0"
-                automation:AutomationProperties.Name="主导航">
-      <TabItem Header="首页">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="28">
-            <TextBlock Text="开始一次安全的测评采集" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock Text="先创建项目并添加设备。软件只会执行正式命令包中的只读查询，识别不确定时会停下来让您确认。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,22" />
-            <WrapPanel>
-              <Border Style="{StaticResource CardStyle}" Width="300">
-                <StackPanel>
-                  <TextBlock Text="1  创建项目" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="填写客户、项目名称和证据保存目录。" Style="{StaticResource SecondaryTextStyle}" />
-                </StackPanel>
-              </Border>
-              <Border Style="{StaticResource CardStyle}" Width="300">
-                <StackPanel>
-                  <TextBlock Text="2  添加设备" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="配置地址、只读账户并确认 SSH 主机指纹。" Style="{StaticResource SecondaryTextStyle}" />
-                </StackPanel>
-              </Border>
-              <Border Style="{StaticResource CardStyle}" Width="300">
-                <StackPanel>
-                  <TextBlock Text="3  开始采集" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="查看命令用途和进度；接通现场服务后保存原始输出与截图。" Style="{StaticResource SecondaryTextStyle}" />
-                </StackPanel>
-              </Border>
-            </WrapPanel>
-            <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
-              <StackPanel>
-                <TextBlock Text="当前需要完成初始化" FontWeight="SemiBold" Foreground="{DynamicResource Brush.WarningText}" />
-                <TextBlock Text="项目和设备已支持本机加密保存；真实设备连接与命令采集尚未接通，不会连接客户设备。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+    <Grid Grid.Column="1">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="58" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <Border Grid.Row="0" Background="{DynamicResource Brush.Surface}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="22,0">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <TextBlock Text="▣" Foreground="{DynamicResource Brush.TextSecondary}" Margin="0,0,8,0" />
+            <TextBlock Text="项目：" Foreground="{DynamicResource Brush.TextSecondary}" />
+            <TextBlock Text="{Binding CurrentProjectName}" FontWeight="SemiBold" MaxWidth="360" TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentProjectName}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+            <Border x:Name="ReadOnlyStatusBadge" Style="{StaticResource ReadOnlyPillStyle}" Margin="0,0,12,0">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="✓" Foreground="{DynamicResource Brush.Success}" Margin="0,0,6,0" />
+                <TextBlock Text="{Binding ReadOnlyProtectionStatus}" Foreground="{DynamicResource Brush.Success}" FontSize="12" />
               </StackPanel>
             </Border>
+            <Button Content="◐"
+                    Style="{StaticResource FluentIconButtonStyle}"
+                    Command="{Binding ToggleThemeCommand}"
+                    automation:AutomationProperties.Name="切换浅色或深色主题" />
           </StackPanel>
-        </ScrollViewer>
+        </Grid>
+      </Border>
+
+      <TabControl Grid.Row="1"
+                  Style="{StaticResource ContentOnlyTabControlStyle}"
+                  SelectedIndex="{Binding SelectedIndex, ElementName=ShellNavigation, Mode=OneWay}"
+                  automation:AutomationProperties.Name="页面内容">
+      <TabItem Header="首页">
+        <Grid Margin="24">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="146" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="104" />
+            <RowDefinition Height="16" />
+            <RowDefinition Height="*" />
+          </Grid.RowDefinitions>
+
+          <Border Grid.Row="0" Style="{StaticResource FluentCardStyle}" Background="{DynamicResource Brush.SurfaceSubtle}">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="330" /></Grid.ColumnDefinitions>
+              <StackPanel VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="项目测评工作台" Style="{StaticResource PageTitleStyle}" Margin="0,0,12,6" />
+                  <Border Style="{StaticResource ReadOnlyPillStyle}" VerticalAlignment="Top">
+                    <TextBlock Text="只读模式" Foreground="{DynamicResource Brush.Success}" FontSize="11" />
+                  </Border>
+                </StackPanel>
+                <TextBlock Text="管理当前项目设备、只读采集任务和测评证据。所有自动命令在执行前都要通过安全策略校验。" Style="{StaticResource SecondaryTextStyle}" />
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                  <Button Content="＋  添加设备" Click="NavigateToDevices_Click" automation:AutomationProperties.Name="转到设备页面添加设备" />
+                  <Button Content="创建采集任务" Style="{StaticResource FluentSecondaryButtonStyle}" Click="NavigateToCollection_Click" automation:AutomationProperties.Name="转到采集任务页面" />
+                </StackPanel>
+              </StackPanel>
+              <Border Grid.Column="1" Background="{DynamicResource Brush.AccentSoft}" CornerRadius="8" Padding="18">
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Text="本机安全工作区" FontWeight="SemiBold" FontSize="16" />
+                  <TextBlock Text="✓ 凭据由 Windows DPAPI 加密" Style="{StaticResource SecondaryTextStyle}" Margin="0,8,0,0" />
+                  <TextBlock Text="✓ 客户资料默认不上传" Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0" />
+                  <TextBlock Text="✓ 首次 SSH 连接必须确认指纹" Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0" />
+                </StackPanel>
+              </Border>
+            </Grid>
+          </Border>
+
+          <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" /><ColumnDefinition Width="12" />
+              <ColumnDefinition Width="*" /><ColumnDefinition Width="12" />
+              <ColumnDefinition Width="*" /><ColumnDefinition Width="12" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource DashboardStatCardStyle}">
+              <StackPanel><TextBlock Text="项目设备" Style="{StaticResource SecondaryTextStyle}" /><TextBlock x:Name="DashboardDeviceCount" Text="{Binding ProjectDeviceCount, Mode=OneWay}" Style="{StaticResource DashboardMetricStyle}" /><TextBlock Text="当前项目已保存的设备" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource DashboardStatCardStyle}">
+              <StackPanel><TextBlock Text="连接测试通过" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Text="{Binding SuccessfulConnectionTestCount, Mode=OneWay}" Style="{StaticResource DashboardMetricStyle}" /><TextBlock Text="完成指纹确认和登录测试" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+            </Border>
+            <Border Grid.Column="4" Style="{StaticResource DashboardStatCardStyle}">
+              <StackPanel><TextBlock Text="待连接测试" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Text="{Binding PendingConnectionTestCount, Mode=OneWay}" Style="{StaticResource DashboardMetricStyle}" /><TextBlock Text="尚未完成安全连接闭环" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+            </Border>
+            <Border Grid.Column="6" Style="{StaticResource DashboardStatCardStyle}">
+              <StackPanel><TextBlock Text="采集失败" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Text="{Binding CollectionFailureCount, Mode=OneWay}" Style="{StaticResource DashboardMetricStyle}" Foreground="{DynamicResource Brush.Error}" /><TextBlock Text="当前会话需要处理的失败" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+            </Border>
+          </Grid>
+
+          <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource FluentCardStyle}" Padding="0">
+              <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="54" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid Grid.Row="0" Margin="16,0">
+                  <TextBlock Text="最近设备" Style="{StaticResource SectionTitleStyle}" Margin="0" VerticalAlignment="Center" />
+                  <Button Content="进入设备列表" Style="{StaticResource FluentSecondaryButtonStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="NavigateToDevices_Click" />
+                </Grid>
+                <ListBox Grid.Row="1" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.5*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" /><TextBlock Text="SSH 设备" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+                        <TextBlock Grid.Column="1" Text="{Binding Host}" VerticalAlignment="Center" FontFamily="Consolas" />
+                        <Border Grid.Column="2" Background="{DynamicResource Brush.WarningBackground}" CornerRadius="10" Padding="8,3" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="待连接测试" Foreground="{DynamicResource Brush.WarningText}" FontSize="11" /></Border>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+                  <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                      <Style.Triggers><DataTrigger Binding="{Binding ProjectDeviceCount}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                    </Style>
+                  </StackPanel.Style>
+                  <TextBlock Text="尚未添加设备" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                  <TextBlock Text="先选择项目，再添加需要测评的设备。" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,8" />
+                  <Button Content="添加第一台设备" Click="NavigateToDevices_Click" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <StackPanel Grid.Column="2">
+              <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,12">
+                <StackPanel>
+                  <TextBlock Text="待处理事项" Style="{StaticResource SectionTitleStyle}" />
+                  <Grid Margin="0,4"><TextBlock Text="设备待连接测试" /><Border Background="{DynamicResource Brush.WarningBackground}" CornerRadius="10" Padding="8,2" HorizontalAlignment="Right"><TextBlock Text="{Binding PendingConnectionTestCount, Mode=OneWay}" Foreground="{DynamicResource Brush.WarningText}" /></Border></Grid>
+                  <Grid Margin="0,8,0,4"><TextBlock Text="采集失败" /><Border Background="{DynamicResource Brush.ErrorBackground}" CornerRadius="10" Padding="8,2" HorizontalAlignment="Right"><TextBlock Text="{Binding CollectionFailureCount, Mode=OneWay}" Foreground="{DynamicResource Brush.Error}" /></Border></Grid>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource FluentCardStyle}">
+                <StackPanel>
+                  <TextBlock Text="运行环境" Style="{StaticResource SectionTitleStyle}" />
+                  <TextBlock Text="SSH 连接组件" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding ComponentCenter.StatusText, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}" Margin="0,5,0,10" />
+                  <Button Content="查看组件中心" Style="{StaticResource FluentSecondaryButtonStyle}" Click="NavigateToComponents_Click" HorizontalAlignment="Left" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </Grid>
+        </Grid>
       </TabItem>
 
       <TabItem Header="项目">
@@ -402,5 +543,6 @@
         <TabItem.Header><StackPanel><TextBlock Text="设置" /><TextBlock Text="后续版本" FontSize="11" Foreground="{DynamicResource Brush.DisabledText}" /></StackPanel></TabItem.Header>
       </TabItem>
     </TabControl>
+  </Grid>
   </Grid>
 </Window>

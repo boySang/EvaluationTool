@@ -1,0 +1,145 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style x:Key="FluentCardStyle" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="18" />
+  </Style>
+
+  <Style x:Key="FluentSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="{DynamicResource Brush.Surface}" />
+    <Setter Property="Foreground" Value="{DynamicResource Brush.TextPrimary}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Root"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="6"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.SurfaceMuted}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{DynamicResource Brush.DisabledText}" />
+              <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.SurfaceMuted}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FluentIconButtonStyle" TargetType="Button" BasedOn="{StaticResource FluentSecondaryButtonStyle}">
+    <Setter Property="MinWidth" Value="38" />
+    <Setter Property="Width" Value="38" />
+    <Setter Property="Height" Value="38" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+  </Style>
+
+  <Style x:Key="ShellNavigationStyle" TargetType="ListBox">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+
+  <Style x:Key="ShellNavigationItemStyle" TargetType="ListBoxItem">
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="Margin" Value="0,2" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListBoxItem">
+          <Border x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="6" Padding="12,9">
+            <ContentPresenter VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.SurfaceMuted}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Selection}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{DynamicResource Brush.DisabledText}" />
+              <Setter Property="Opacity" Value="0.72" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="ContentOnlyTabControlStyle" TargetType="TabControl">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TabControl">
+          <Border Background="{TemplateBinding Background}">
+            <ContentPresenter ContentSource="SelectedContent" />
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="ReadOnlyPillStyle" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource Brush.SuccessBackground}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Brush.Success}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="10,4" />
+  </Style>
+
+  <Style x:Key="DashboardStatCardStyle" TargetType="Border" BasedOn="{StaticResource FluentCardStyle}">
+    <Setter Property="MinHeight" Value="102" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+
+  <Style x:Key="DashboardMetricStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="28" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="0,5,0,2" />
+  </Style>
+
+  <Style x:Key="DashboardListItemStyle" TargetType="ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListBoxItem">
+          <Border x:Name="Root" Background="Transparent" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,0,0,1" Padding="12,10">
+            <ContentPresenter />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.SurfaceSubtle}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="Root" Property="Background" Value="{DynamicResource Brush.Selection}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+</ResourceDictionary>

@@ -18,6 +18,21 @@ public partial class MainWindow : Window
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;
 
+    private void NavigateToDevices_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        ShellNavigation.SelectedIndex = 2;
+    }
+
+    private void NavigateToCollection_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        ShellNavigation.SelectedIndex = 3;
+    }
+
+    private void NavigateToComponents_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        ShellNavigation.SelectedIndex = 6;
+    }
+
     private async void CreateProject_Click(object sender, RoutedEventArgs eventArgs)
     {
         if (ViewModel.Workspace != null)

@@ -27,6 +27,32 @@ public sealed class MainWindowBindingTests
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Main_shell_exposes_compact_navigation_and_read_only_dashboard()
+    {
+        var document = XDocument.Load(FindMainWindowXaml());
+        var window = document.Root ?? throw new InvalidOperationException("Main window root is missing.");
+        var names = document.DescendantsAndSelf()
+            .SelectMany(element => element.Attributes()
+                .Where(attribute => attribute.Name.LocalName == "Name")
+                .Select(attribute => attribute.Value))
+            .ToArray();
+        var text = string.Join(" ", document.DescendantsAndSelf()
+            .SelectMany(element => element.Attributes())
+            .Where(attribute => attribute.Name.LocalName == "Text" || attribute.Name.LocalName == "Content")
+            .Select(attribute => attribute.Value));
+
+        Assert.Equal("1440", (string?)window.Attribute("Width"));
+        Assert.Equal("900", (string?)window.Attribute("Height"));
+        Assert.Contains("ShellNavigation", names);
+        Assert.Contains("ReadOnlyStatusBadge", names);
+        Assert.Contains("DashboardDeviceCount", names);
+        Assert.Contains("命令库", text);
+        Assert.Contains("组件中心", text);
+        Assert.DoesNotContain("扫描内网", text);
+        Assert.DoesNotContain("漏洞扫描", text);
+    }
+
     private static string FindMainWindowXaml()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
