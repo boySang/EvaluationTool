@@ -228,7 +228,7 @@ public sealed class CollectionViewModelTests
         Assert.Equal(CollectionViewModelState.AwaitingDatabaseConfirmation, viewModel.State);
         Assert.Null(viewModel.SelectedDatabaseCandidate);
         Assert.NotNull(viewModel.Error);
-        Assert.Equal("数据库确认记录保存失败", viewModel.Error!.WhatHappened);
+        Assert.Equal("数据库确认记录保存失败", viewModel.Error!.Summary);
         Assert.Equal("InvalidOperationException", viewModel.Error.TechnicalDetails);
     }
 
