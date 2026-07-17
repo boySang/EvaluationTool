@@ -1078,6 +1078,7 @@
                 <TextBlock Text="按当前项目查看人工确认审计、命令执行记录、原始输出索引、截图数量和 SHA-256 状态。" Style="{StaticResource SecondaryTextStyle}" />
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="导出项目证据清单" Command="{Binding EvidenceCenter.ExportManifestCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="只读复核后导出不含凭据和正文的项目证据 JSON 清单" />
                 <Button Content="打开证据目录" Command="{Binding EvidenceCenter.OpenFolderCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" />
                 <Button Content="恢复待入库证据" Command="{Binding EvidenceCenter.RecoverCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="校验执行清单和证据哈希后恢复本地索引" />
                 <Button Content="复核文件 SHA-256" Command="{Binding EvidenceCenter.VerifyCommand}" Style="{StaticResource FluentPrimaryButtonStyle}" Margin="0,0,8,0" />
@@ -1090,6 +1091,7 @@
                 <TextBlock Text="普通刷新只核对 SQLite 索引，不读取证据文件；单击“复核文件 SHA-256”才会逐个只读计算原始输出和截图哈希。" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.VerificationSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.RecoverySummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding EvidenceCenter.ExportSummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 
@@ -1246,6 +1248,19 @@
                         <TextBlock Text="证据完整性" Style="{StaticResource SecondaryTextStyle}" />
                         <TextBlock Text="{Binding ShaStatusText}" FontWeight="SemiBold" Margin="0,3,0,10" />
                         <TextBlock Text="{Binding ScreenshotCountText, StringFormat=截图：{0}}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                          <Button Content="定位原始输出"
+                                  Command="{Binding DataContext.EvidenceCenter.OpenRawOutputCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                  CommandParameter="{Binding}"
+                                  Style="{StaticResource FluentSecondaryButtonStyle}"
+                                  Margin="0,0,8,0"
+                                  automation:AutomationProperties.Name="在资源管理器中安全定位当前命令原始输出" />
+                          <Button Content="定位首张截图"
+                                  Command="{Binding DataContext.EvidenceCenter.OpenFirstScreenshotCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}"
+                                  CommandParameter="{Binding}"
+                                  Style="{StaticResource FluentSecondaryButtonStyle}"
+                                  automation:AutomationProperties.Name="在资源管理器中安全定位当前命令首张证据截图" />
+                        </StackPanel>
                       </StackPanel>
                     </Grid>
                   </Border>

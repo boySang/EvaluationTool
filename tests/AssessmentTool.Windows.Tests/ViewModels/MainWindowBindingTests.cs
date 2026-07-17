@@ -143,6 +143,9 @@ public sealed class MainWindowBindingTests
         Assert.Contains("EvidenceCenter.RefreshCommand", source);
         Assert.Contains("EvidenceCenter.VerifyCommand", source);
         Assert.Contains("EvidenceCenter.OpenFolderCommand", source);
+        Assert.Contains("EvidenceCenter.OpenRawOutputCommand", source);
+        Assert.Contains("EvidenceCenter.OpenFirstScreenshotCommand", source);
+        Assert.Contains("EvidenceCenter.ExportManifestCommand", source);
         Assert.Contains("EvidenceCenter.DatabaseConfirmations", source);
         Assert.Contains("EvidenceCenter.HasDatabaseConfirmations", source);
         Assert.Contains("数据库人工确认审计", source);
@@ -150,6 +153,9 @@ public sealed class MainWindowBindingTests
         Assert.Contains("ShaStatusText", source);
         Assert.Contains("RawOutputPathText", source);
         Assert.Contains("复核文件 SHA-256", source);
+        Assert.Contains("导出项目证据清单", source);
+        Assert.Contains("定位原始输出", source);
+        Assert.Contains("定位首张截图", source);
         Assert.Contains("开始只读采集", source);
         Assert.DoesNotContain("开始只读采集（尚未接通）", source);
     }

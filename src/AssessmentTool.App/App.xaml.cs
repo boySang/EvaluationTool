@@ -80,7 +80,10 @@ public partial class App : Application
                 new EvidenceCenterViewModel(
                     new EvidenceCenterService(repository, repository),
                     new ProjectEvidenceFolderLauncher(repository),
-                    new EvidenceRecoveryService(repository)),
+                    new EvidenceRecoveryService(repository),
+                    new ProjectEvidenceFileLocator(repository),
+                    new ProjectEvidenceManifestExporter(repository),
+                    new JsonEvidenceManifestExportFilePicker()),
                 commandLibrary,
                 new CollectionTaskHistoryViewModel(repository));
             var window = new MainWindow(mainViewModel);

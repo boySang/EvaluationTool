@@ -76,6 +76,33 @@ public sealed class EvidenceCenterItem
         string? rawOutputPath,
         int screenshotCount,
         EvidenceShaStatus shaStatus)
+        : this(
+            deviceId,
+            deviceName,
+            commandId,
+            commandText,
+            startedAt,
+            completedAt,
+            executionStatus,
+            rawOutputPath,
+            Array.Empty<string>(),
+            screenshotCount,
+            shaStatus)
+    {
+    }
+
+    public EvidenceCenterItem(
+        string deviceId,
+        string deviceName,
+        string commandId,
+        string commandText,
+        DateTimeOffset startedAt,
+        DateTimeOffset? completedAt,
+        ExecutionStatus executionStatus,
+        string? rawOutputPath,
+        IEnumerable<string> evidenceImagePaths,
+        int screenshotCount,
+        EvidenceShaStatus shaStatus)
     {
         DeviceId = deviceId ?? throw new ArgumentNullException(nameof(deviceId));
         DeviceName = string.IsNullOrWhiteSpace(deviceName)
@@ -98,10 +125,24 @@ public sealed class EvidenceCenterItem
             throw new ArgumentOutOfRangeException(nameof(shaStatus));
         }
 
+        if (evidenceImagePaths == null)
+        {
+            throw new ArgumentNullException(nameof(evidenceImagePaths));
+        }
+
+        var normalizedImagePaths = evidenceImagePaths
+            .Select(path => WindowsEvidenceRelativePathPolicy.Normalize(path, nameof(evidenceImagePaths)))
+            .ToArray();
+        if (normalizedImagePaths.Length != 0 && normalizedImagePaths.Length != screenshotCount)
+        {
+            throw new ArgumentException("截图路径数量必须与证据截图数量一致。", nameof(evidenceImagePaths));
+        }
+
         StartedAt = startedAt;
         CompletedAt = completedAt;
         ExecutionStatus = executionStatus;
         RawOutputPath = rawOutputPath;
+        EvidenceImagePaths = new ReadOnlyCollection<string>(normalizedImagePaths);
         ScreenshotCount = screenshotCount;
         ShaStatus = shaStatus;
     }
@@ -114,6 +155,7 @@ public sealed class EvidenceCenterItem
     public DateTimeOffset? CompletedAt { get; }
     public ExecutionStatus ExecutionStatus { get; }
     public string? RawOutputPath { get; }
+    public IReadOnlyList<string> EvidenceImagePaths { get; }
     public int ScreenshotCount { get; }
     public EvidenceShaStatus ShaStatus { get; }
 
@@ -142,6 +184,9 @@ public sealed class EvidenceCenterItem
     }
 
     public string RawOutputPathText => RawOutputPath ?? "未生成";
+    public bool HasRawOutput => RawOutputPath != null;
+    public bool HasScreenshots => EvidenceImagePaths.Count != 0;
+    public string? FirstScreenshotPath => EvidenceImagePaths.FirstOrDefault();
     public string ScreenshotCountText => ScreenshotCount + " 张";
 
     public string ShaStatusText
@@ -806,6 +851,7 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
             execution.CompletedAt,
             execution.Status,
             execution.RawOutputPath,
+            execution.EvidenceImagePaths,
             execution.EvidenceImagePaths.Count,
             EvaluateShaStatus(execution, evidenceIndex, evidenceRoot, cancellationToken));
     }

@@ -59,6 +59,7 @@ public sealed class EvidenceCenterServiceTests
         Assert.Equal("成功", item.ExecutionStatusText);
         Assert.Equal(later.RawOutputPath, item.RawOutputPath);
         Assert.Equal(later.RawOutputPath, item.RawOutputPathText);
+        Assert.Equal(later.EvidenceImagePaths, item.EvidenceImagePaths);
         Assert.Equal(1, item.ScreenshotCount);
         Assert.Equal("1 张", item.ScreenshotCountText);
         Assert.Equal("索引完整（未复核文件）", item.ShaStatusText);

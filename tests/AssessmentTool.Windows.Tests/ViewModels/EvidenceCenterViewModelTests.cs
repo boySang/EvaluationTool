@@ -258,6 +258,99 @@ public sealed class EvidenceCenterViewModelTests
     }
 
     [Fact]
+    public async Task Evidence_file_commands_only_route_indexed_item_paths_and_sanitize_failure()
+    {
+        var project = CreateProject("项目甲");
+        var item = new EvidenceCenterItem(
+            DeviceId.New().ToString(),
+            "Linux服务器甲",
+            "command-1",
+            "hostname",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow,
+            ExecutionStatus.Succeeded,
+            @"设备\原始输出.txt",
+            new[] { @"设备\证据_001.png" },
+            1,
+            EvidenceShaStatus.Complete);
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(project.Id, new[] { item })));
+        var locator = new FakeEvidenceFileLocator();
+        var viewModel = new EvidenceCenterViewModel(service, fileLocator: locator);
+        await viewModel.SelectProjectAsync(project);
+
+        Assert.True(viewModel.OpenRawOutputCommand.CanExecute(item));
+        Assert.True(viewModel.OpenFirstScreenshotCommand.CanExecute(item));
+        await viewModel.ShowEvidenceFileAsync(item.RawOutputPath);
+        await viewModel.ShowEvidenceFileAsync(item.FirstScreenshotPath);
+
+        Assert.Equal(
+            new[] { @"设备\原始输出.txt", @"设备\证据_001.png" },
+            locator.RelativePaths);
+        Assert.All(locator.ProjectIds, id => Assert.Equal(project.Id, id));
+
+        locator.Error = new InvalidOperationException(@"secret C:\customer");
+        await viewModel.ShowEvidenceFileAsync(item.RawOutputPath);
+        Assert.Equal(EvidenceCenterViewModelState.Failed, viewModel.State);
+        Assert.Equal("证据文件定位失败", viewModel.WhatHappened);
+        Assert.DoesNotContain("secret", string.Join(" ", viewModel.WhatHappened,
+            viewModel.PossibleCause, viewModel.HowToFix, viewModel.TechnicalDetails),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Export_manifest_uses_explicit_destination_and_reports_sanitized_result()
+    {
+        var project = CreateProject("项目甲");
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(project.Id, new[] { CreateItem("command") })));
+        var exporter = new FakeManifestExporter();
+        var picker = new FakeManifestFilePicker { Path = @"C:\Exports\项目甲.json" };
+        var viewModel = new EvidenceCenterViewModel(
+            service,
+            manifestExporter: exporter,
+            exportFilePicker: picker);
+        await viewModel.SelectProjectAsync(project);
+
+        Assert.True(viewModel.CanExportManifest);
+        Assert.True(viewModel.ExportManifestCommand.CanExecute(null));
+        await viewModel.ExportManifestAsync();
+
+        Assert.Equal(project.Id, Assert.Single(exporter.Projects).Id);
+        Assert.Equal(picker.Path, Assert.Single(exporter.Paths));
+        Assert.Contains("已导出 1 条执行", viewModel.ExportSummary, StringComparison.Ordinal);
+        Assert.Contains(picker.Path, viewModel.ExportSummary, StringComparison.Ordinal);
+        Assert.Equal(EvidenceCenterViewModelState.Ready, viewModel.State);
+
+        exporter.Error = new InvalidOperationException(@"secret C:\customer");
+        await viewModel.ExportManifestAsync();
+        Assert.Equal(EvidenceCenterViewModelState.Failed, viewModel.State);
+        Assert.Equal("项目证据清单导出失败", viewModel.WhatHappened);
+        Assert.DoesNotContain("secret", string.Join(" ", viewModel.WhatHappened,
+            viewModel.PossibleCause, viewModel.HowToFix, viewModel.TechnicalDetails),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Export_manifest_cancel_does_not_start_export_or_change_ready_state()
+    {
+        var project = CreateProject("项目甲");
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(project.Id, Array.Empty<EvidenceCenterItem>())));
+        var exporter = new FakeManifestExporter();
+        var viewModel = new EvidenceCenterViewModel(
+            service,
+            manifestExporter: exporter,
+            exportFilePicker: new FakeManifestFilePicker());
+        await viewModel.SelectProjectAsync(project);
+
+        await viewModel.ExportManifestAsync();
+
+        Assert.Empty(exporter.Projects);
+        Assert.Equal(EvidenceCenterViewModelState.Empty, viewModel.State);
+    }
+
+    [Fact]
     public async Task Recover_pending_evidence_reports_counts_and_refreshes_index()
     {
         var project = CreateProject("项目甲");
@@ -351,6 +444,49 @@ public sealed class EvidenceCenterViewModelTests
         {
             RequestedProjects.Add(project.Id);
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class FakeEvidenceFileLocator : IProjectEvidenceFileLocator
+    {
+        internal List<ProjectId> ProjectIds { get; } = new List<ProjectId>();
+        internal List<string> RelativePaths { get; } = new List<string>();
+        internal Exception? Error { get; set; }
+
+        public Task ShowInFolderAsync(
+            ProjectId projectId,
+            string relativePath,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectIds.Add(projectId);
+            RelativePaths.Add(relativePath);
+            return Error == null ? Task.CompletedTask : Task.FromException(Error);
+        }
+    }
+
+    private sealed class FakeManifestFilePicker : IEvidenceManifestExportFilePicker
+    {
+        internal string? Path { get; set; }
+
+        public string? SelectDestination(ProjectRecord project) => Path;
+    }
+
+    private sealed class FakeManifestExporter : IProjectEvidenceManifestExporter
+    {
+        internal List<ProjectRecord> Projects { get; } = new List<ProjectRecord>();
+        internal List<string> Paths { get; } = new List<string>();
+        internal Exception? Error { get; set; }
+
+        public Task<EvidenceManifestExportResult> ExportAsync(
+            ProjectRecord project,
+            string destinationPath,
+            CancellationToken cancellationToken = default)
+        {
+            Projects.Add(project);
+            Paths.Add(destinationPath);
+            return Error == null
+                ? Task.FromResult(new EvidenceManifestExportResult(destinationPath, 1, 2, 0))
+                : Task.FromException<EvidenceManifestExportResult>(Error);
         }
     }
 

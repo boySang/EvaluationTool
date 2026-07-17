@@ -26,11 +26,18 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private readonly object loadSync = new object();
     private readonly IEvidenceCenterService service;
     private readonly IProjectEvidenceFolderLauncher folderLauncher;
+    private readonly IProjectEvidenceFileLocator fileLocator;
+    private readonly IProjectEvidenceManifestExporter manifestExporter;
+    private readonly IEvidenceManifestExportFilePicker exportFilePicker;
+    private readonly bool exportAvailable;
     private readonly IEvidenceRecoveryService? recoveryService;
     private readonly DelegateCommand refreshCommand;
     private readonly DelegateCommand verifyCommand;
     private readonly DelegateCommand openFolderCommand;
     private readonly DelegateCommand recoverCommand;
+    private readonly ParameterizedDelegateCommand<EvidenceCenterItem> openRawOutputCommand;
+    private readonly ParameterizedDelegateCommand<EvidenceCenterItem> openFirstScreenshotCommand;
+    private readonly DelegateCommand exportManifestCommand;
     private IReadOnlyList<EvidenceCenterItem> items = Array.Empty<EvidenceCenterItem>();
     private IReadOnlyList<DatabaseConfirmationAuditItem> databaseConfirmations =
         Array.Empty<DatabaseConfirmationAuditItem>();
@@ -48,19 +55,36 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private string technicalDetails = string.Empty;
     private string verificationSummary = "尚未读取证据文件进行 SHA-256 复核。";
     private string recoverySummary = "仅在证据文件已保存但本地索引写入失败时需要恢复。";
+    private string exportSummary = "导出会先只读复核证据文件，再生成不含凭据和原始输出正文的 JSON 清单。";
 
     public EvidenceCenterViewModel(
         IEvidenceCenterService service,
         IProjectEvidenceFolderLauncher? folderLauncher = null,
-        IEvidenceRecoveryService? recoveryService = null)
+        IEvidenceRecoveryService? recoveryService = null,
+        IProjectEvidenceFileLocator? fileLocator = null,
+        IProjectEvidenceManifestExporter? manifestExporter = null,
+        IEvidenceManifestExportFilePicker? exportFilePicker = null)
     {
         this.service = service ?? throw new ArgumentNullException(nameof(service));
         this.folderLauncher = folderLauncher ?? new UnavailableProjectEvidenceFolderLauncher();
         this.recoveryService = recoveryService;
+        this.fileLocator = fileLocator ?? new UnavailableProjectEvidenceFileLocator();
+        this.manifestExporter = manifestExporter ?? new UnavailableEvidenceManifestExporter();
+        this.exportFilePicker = exportFilePicker ?? new UnavailableEvidenceManifestExportFilePicker();
+        exportAvailable = manifestExporter != null && exportFilePicker != null;
         refreshCommand = new DelegateCommand(() => _ = RefreshAsync(), () => CanRefresh);
         verifyCommand = new DelegateCommand(() => _ = VerifyAsync(), () => CanVerify);
         openFolderCommand = new DelegateCommand(() => _ = OpenEvidenceFolderAsync(), () => CanOpenFolder);
         recoverCommand = new DelegateCommand(() => _ = RecoverPendingEvidenceAsync(), () => CanRecover);
+        openRawOutputCommand = new ParameterizedDelegateCommand<EvidenceCenterItem>(
+            item => _ = ShowEvidenceFileAsync(item.RawOutputPath),
+            item => CanLocateFiles && item.HasRawOutput);
+        openFirstScreenshotCommand = new ParameterizedDelegateCommand<EvidenceCenterItem>(
+            item => _ = ShowEvidenceFileAsync(item.FirstScreenshotPath),
+            item => CanLocateFiles && item.HasScreenshots);
+        exportManifestCommand = new DelegateCommand(
+            () => _ = ExportManifestAsync(),
+            () => CanExportManifest);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -74,10 +98,18 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     public ICommand VerifyCommand => verifyCommand;
     public ICommand OpenFolderCommand => openFolderCommand;
     public ICommand RecoverCommand => recoverCommand;
+    public ICommand OpenRawOutputCommand => openRawOutputCommand;
+    public ICommand OpenFirstScreenshotCommand => openFirstScreenshotCommand;
+    public ICommand ExportManifestCommand => exportManifestCommand;
     public bool CanRefresh => selectedProject != null && State != EvidenceCenterViewModelState.Loading;
     public bool CanVerify => selectedProject != null && HasItems && State != EvidenceCenterViewModelState.Loading;
     public bool CanOpenFolder => selectedProject != null && State != EvidenceCenterViewModelState.Loading;
     public bool CanRecover => recoveryService != null
+        && selectedProject != null
+        && State != EvidenceCenterViewModelState.Loading;
+    public bool CanLocateFiles => selectedProject != null
+        && State != EvidenceCenterViewModelState.Loading;
+    public bool CanExportManifest => exportAvailable
         && selectedProject != null
         && State != EvidenceCenterViewModelState.Loading;
     public bool HasItems => Items.Count != 0;
@@ -89,6 +121,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     public string TechnicalDetails => technicalDetails;
     public string VerificationSummary => verificationSummary;
     public string RecoverySummary => recoverySummary;
+    public string ExportSummary => exportSummary;
 
     public Task SelectProjectAsync(ProjectRecord? project)
     {
@@ -98,6 +131,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         ClearError();
         SetVerificationSummary("尚未读取证据文件进行 SHA-256 复核。");
         SetRecoverySummary("仅在证据文件已保存但本地索引写入失败时需要恢复。");
+        SetExportSummary("导出会先只读复核证据文件，再生成不含凭据和原始输出正文的 JSON 清单。");
         SetItems(Array.Empty<EvidenceCenterItem>());
         SetDatabaseConfirmations(Array.Empty<DatabaseConfirmationAuditItem>());
         SetHostSoftwareDiscoveries(Array.Empty<HostSoftwareDiscoveryAuditItem>());
@@ -153,6 +187,76 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
                 ? "当前项目还没有生成证据目录"
                 : "目录不存在、不可访问，或路径安全检查未通过";
             howToFix = "请先完成一次只读采集；如目录已经存在，请检查目录权限后重试。";
+            technicalDetails = exception.GetType().Name;
+            OnPropertyChanged(nameof(WhatHappened));
+            OnPropertyChanged(nameof(PossibleCause));
+            OnPropertyChanged(nameof(HowToFix));
+            OnPropertyChanged(nameof(TechnicalDetails));
+            SetState(EvidenceCenterViewModelState.Failed);
+        }
+    }
+
+    public async Task ShowEvidenceFileAsync(string? relativePath)
+    {
+        var project = selectedProject;
+        if (project == null || string.IsNullOrWhiteSpace(relativePath))
+        {
+            return;
+        }
+
+        try
+        {
+            ClearError();
+            await fileLocator.ShowInFolderAsync(project.Id, relativePath);
+        }
+        catch (Exception exception)
+        {
+            whatHappened = "证据文件定位失败";
+            possibleCause = exception is System.IO.FileNotFoundException
+                ? "证据文件已被移动、删除，或项目目录不可访问"
+                : "该文件不在当前项目证据索引中，或路径安全检查未通过";
+            howToFix = "请先单击“复核文件 SHA-256”；如文件缺失，请保留当前记录并重新采集对应测评项。";
+            technicalDetails = exception.GetType().Name;
+            OnPropertyChanged(nameof(WhatHappened));
+            OnPropertyChanged(nameof(PossibleCause));
+            OnPropertyChanged(nameof(HowToFix));
+            OnPropertyChanged(nameof(TechnicalDetails));
+            SetState(EvidenceCenterViewModelState.Failed);
+        }
+    }
+
+    public async Task ExportManifestAsync()
+    {
+        var project = selectedProject;
+        if (project == null || !exportAvailable)
+        {
+            return;
+        }
+
+        try
+        {
+            ClearError();
+            var destinationPath = exportFilePicker.SelectDestination(project);
+            if (string.IsNullOrWhiteSpace(destinationPath))
+            {
+                return;
+            }
+
+            SetState(EvidenceCenterViewModelState.Loading);
+            var result = await manifestExporter.ExportAsync(
+                project,
+                destinationPath,
+                CancellationToken.None);
+            SetExportSummary(result.Summary + " 保存位置：" + result.Path);
+            SetState(EvidenceCenterViewModelState.Ready);
+        }
+        catch (Exception exception)
+        {
+            whatHappened = "项目证据清单导出失败";
+            possibleCause = exception is System.IO.IOException
+                ? "目标文件已存在、磁盘空间不足，或导出目录不可写"
+                : "项目索引、证据文件或审计历史未能通过完整性检查";
+            howToFix = "请选择新的 JSON 文件名并重试；如仍失败，请先执行“复核文件 SHA-256”并处理异常证据。";
             technicalDetails = exception.GetType().Name;
             OnPropertyChanged(nameof(WhatHappened));
             OnPropertyChanged(nameof(PossibleCause));
@@ -352,10 +456,15 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanVerify));
         OnPropertyChanged(nameof(CanOpenFolder));
         OnPropertyChanged(nameof(CanRecover));
+        OnPropertyChanged(nameof(CanLocateFiles));
+        OnPropertyChanged(nameof(CanExportManifest));
         refreshCommand.RaiseCanExecuteChanged();
         verifyCommand.RaiseCanExecuteChanged();
         openFolderCommand.RaiseCanExecuteChanged();
         recoverCommand.RaiseCanExecuteChanged();
+        openRawOutputCommand.RaiseCanExecuteChanged();
+        openFirstScreenshotCommand.RaiseCanExecuteChanged();
+        exportManifestCommand.RaiseCanExecuteChanged();
     }
 
     private void SetVerificationSummary(string value)
@@ -368,6 +477,12 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     {
         recoverySummary = value;
         OnPropertyChanged(nameof(RecoverySummary));
+    }
+
+    private void SetExportSummary(string value)
+    {
+        exportSummary = value;
+        OnPropertyChanged(nameof(ExportSummary));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
