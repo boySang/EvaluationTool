@@ -1079,6 +1079,7 @@
               </StackPanel>
               <StackPanel Grid.Column="1">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+                  <Button Content="导出离线报告" Command="{Binding EvidenceCenter.ExportReportCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="只读复核后导出不含连接信息和输出正文的 HTML 离线报告" />
                   <Button Content="导出 JSON 清单" Command="{Binding EvidenceCenter.ExportManifestCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="只读复核后导出不含凭据和正文的项目证据 JSON 清单" />
                   <Button Content="导出已验证证据包" Command="{Binding EvidenceCenter.ExportPackageCommand}" Style="{StaticResource FluentPrimaryButtonStyle}" automation:AutomationProperties.Name="再次校验哈希后将当前项目证据和清单导出为 ZIP" />
                 </StackPanel>
@@ -1098,6 +1099,7 @@
                 <TextBlock Text="{Binding EvidenceCenter.RecoverySummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.ExportSummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.PackageExportSummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding EvidenceCenter.ReportExportSummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 

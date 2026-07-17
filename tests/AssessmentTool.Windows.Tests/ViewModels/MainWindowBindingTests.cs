@@ -77,6 +77,7 @@ public sealed class MainWindowBindingTests
         Assert.Contains("设备身份", text);
         Assert.Contains("任务历史", text);
         Assert.Contains("恢复待入库证据", text);
+        Assert.Contains("导出离线报告", text);
         Assert.Contains("保留识别依据、可信度和人工确认来源", text);
         Assert.DoesNotContain("扫描内网", text);
         Assert.DoesNotContain("漏洞扫描", text);

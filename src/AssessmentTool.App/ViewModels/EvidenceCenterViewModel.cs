@@ -33,6 +33,9 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private readonly IProjectEvidencePackageExporter packageExporter;
     private readonly IEvidencePackageExportFilePicker packageExportFilePicker;
     private readonly bool packageExportAvailable;
+    private readonly IProjectEvidenceHtmlReportExporter reportExporter;
+    private readonly IEvidenceHtmlReportExportFilePicker reportExportFilePicker;
+    private readonly bool reportExportAvailable;
     private readonly IEvidenceRecoveryService? recoveryService;
     private readonly DelegateCommand refreshCommand;
     private readonly DelegateCommand verifyCommand;
@@ -42,6 +45,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private readonly ParameterizedDelegateCommand<EvidenceCenterItem> openFirstScreenshotCommand;
     private readonly DelegateCommand exportManifestCommand;
     private readonly DelegateCommand exportPackageCommand;
+    private readonly DelegateCommand exportReportCommand;
     private IReadOnlyList<EvidenceCenterItem> items = Array.Empty<EvidenceCenterItem>();
     private IReadOnlyList<DatabaseConfirmationAuditItem> databaseConfirmations =
         Array.Empty<DatabaseConfirmationAuditItem>();
@@ -61,6 +65,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private string recoverySummary = "仅在证据文件已保存但本地索引写入失败时需要恢复。";
     private string exportSummary = "导出会先只读复核证据文件，再生成不含凭据和原始输出正文的 JSON 清单。";
     private string packageExportSummary = "证据包仅收录 SHA-256 复核通过的文件；发现缺失或不一致时会阻止打包。";
+    private string reportExportSummary = "离线报告不含主机地址、账号、凭据和原始输出正文，可直接用浏览器打开或打印。";
 
     public EvidenceCenterViewModel(
         IEvidenceCenterService service,
@@ -70,7 +75,9 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         IProjectEvidenceManifestExporter? manifestExporter = null,
         IEvidenceManifestExportFilePicker? exportFilePicker = null,
         IProjectEvidencePackageExporter? packageExporter = null,
-        IEvidencePackageExportFilePicker? packageExportFilePicker = null)
+        IEvidencePackageExportFilePicker? packageExportFilePicker = null,
+        IProjectEvidenceHtmlReportExporter? reportExporter = null,
+        IEvidenceHtmlReportExportFilePicker? reportExportFilePicker = null)
     {
         this.service = service ?? throw new ArgumentNullException(nameof(service));
         this.folderLauncher = folderLauncher ?? new UnavailableProjectEvidenceFolderLauncher();
@@ -83,6 +90,10 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         this.packageExportFilePicker = packageExportFilePicker
             ?? new UnavailableEvidencePackageExportFilePicker();
         packageExportAvailable = packageExporter != null && packageExportFilePicker != null;
+        this.reportExporter = reportExporter ?? new UnavailableEvidenceHtmlReportExporter();
+        this.reportExportFilePicker = reportExportFilePicker
+            ?? new UnavailableEvidenceHtmlReportExportFilePicker();
+        reportExportAvailable = reportExporter != null && reportExportFilePicker != null;
         refreshCommand = new DelegateCommand(() => _ = RefreshAsync(), () => CanRefresh);
         verifyCommand = new DelegateCommand(() => _ = VerifyAsync(), () => CanVerify);
         openFolderCommand = new DelegateCommand(() => _ = OpenEvidenceFolderAsync(), () => CanOpenFolder);
@@ -99,6 +110,9 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         exportPackageCommand = new DelegateCommand(
             () => _ = ExportPackageAsync(),
             () => CanExportPackage);
+        exportReportCommand = new DelegateCommand(
+            () => _ = ExportReportAsync(),
+            () => CanExportReport);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -116,6 +130,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     public ICommand OpenFirstScreenshotCommand => openFirstScreenshotCommand;
     public ICommand ExportManifestCommand => exportManifestCommand;
     public ICommand ExportPackageCommand => exportPackageCommand;
+    public ICommand ExportReportCommand => exportReportCommand;
     public bool CanRefresh => selectedProject != null && State != EvidenceCenterViewModelState.Loading;
     public bool CanVerify => selectedProject != null && HasItems && State != EvidenceCenterViewModelState.Loading;
     public bool CanOpenFolder => selectedProject != null && State != EvidenceCenterViewModelState.Loading;
@@ -131,6 +146,9 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         && selectedProject != null
         && HasItems
         && State != EvidenceCenterViewModelState.Loading;
+    public bool CanExportReport => reportExportAvailable
+        && selectedProject != null
+        && State != EvidenceCenterViewModelState.Loading;
     public bool HasItems => Items.Count != 0;
     public bool HasDatabaseConfirmations => DatabaseConfirmations.Count != 0;
     public bool HasHostSoftwareDiscoveries => HostSoftwareDiscoveries.Count != 0;
@@ -142,6 +160,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     public string RecoverySummary => recoverySummary;
     public string ExportSummary => exportSummary;
     public string PackageExportSummary => packageExportSummary;
+    public string ReportExportSummary => reportExportSummary;
 
     public Task SelectProjectAsync(ProjectRecord? project)
     {
@@ -153,6 +172,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         SetRecoverySummary("仅在证据文件已保存但本地索引写入失败时需要恢复。");
         SetExportSummary("导出会先只读复核证据文件，再生成不含凭据和原始输出正文的 JSON 清单。");
         SetPackageExportSummary("证据包仅收录 SHA-256 复核通过的文件；发现缺失或不一致时会阻止打包。");
+        SetReportExportSummary("离线报告不含主机地址、账号、凭据和原始输出正文，可直接用浏览器打开或打印。");
         SetItems(Array.Empty<EvidenceCenterItem>());
         SetDatabaseConfirmations(Array.Empty<DatabaseConfirmationAuditItem>());
         SetHostSoftwareDiscoveries(Array.Empty<HostSoftwareDiscoveryAuditItem>());
@@ -329,6 +349,44 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         }
     }
 
+    public async Task ExportReportAsync()
+    {
+        var project = selectedProject;
+        if (project == null || !CanExportReport)
+        {
+            return;
+        }
+
+        try
+        {
+            ClearError();
+            var destinationPath = reportExportFilePicker.SelectDestination(project);
+            if (string.IsNullOrWhiteSpace(destinationPath))
+            {
+                return;
+            }
+
+            SetState(EvidenceCenterViewModelState.Loading);
+            var result = await reportExporter.ExportAsync(project, destinationPath!, CancellationToken.None);
+            SetReportExportSummary(result.Summary + " 保存位置：" + result.Path);
+            SetState(EvidenceCenterViewModelState.Ready);
+        }
+        catch (Exception exception)
+        {
+            whatHappened = "项目证据离线报告导出失败";
+            possibleCause = exception is System.IO.InvalidDataException
+                ? "项目审计数据、证据索引或敏感信息检查未通过"
+                : "目标文件已存在、磁盘空间不足，或导出目录不可写";
+            howToFix = "请先执行“复核文件 SHA-256”并处理异常；然后选择新的 HTML 文件名重试。";
+            technicalDetails = exception.GetType().Name;
+            OnPropertyChanged(nameof(WhatHappened));
+            OnPropertyChanged(nameof(PossibleCause));
+            OnPropertyChanged(nameof(HowToFix));
+            OnPropertyChanged(nameof(TechnicalDetails));
+            SetState(EvidenceCenterViewModelState.Failed);
+        }
+    }
+
     public async Task RecoverPendingEvidenceAsync()
     {
         var project = selectedProject;
@@ -490,8 +548,10 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasItems));
         OnPropertyChanged(nameof(CanVerify));
         OnPropertyChanged(nameof(CanExportPackage));
+        OnPropertyChanged(nameof(CanExportReport));
         verifyCommand.RaiseCanExecuteChanged();
         exportPackageCommand.RaiseCanExecuteChanged();
+        exportReportCommand.RaiseCanExecuteChanged();
     }
 
     private void SetDatabaseConfirmations(IEnumerable<DatabaseConfirmationAuditItem> value)
@@ -524,6 +584,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CanLocateFiles));
         OnPropertyChanged(nameof(CanExportManifest));
         OnPropertyChanged(nameof(CanExportPackage));
+        OnPropertyChanged(nameof(CanExportReport));
         refreshCommand.RaiseCanExecuteChanged();
         verifyCommand.RaiseCanExecuteChanged();
         openFolderCommand.RaiseCanExecuteChanged();
@@ -532,6 +593,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         openFirstScreenshotCommand.RaiseCanExecuteChanged();
         exportManifestCommand.RaiseCanExecuteChanged();
         exportPackageCommand.RaiseCanExecuteChanged();
+        exportReportCommand.RaiseCanExecuteChanged();
     }
 
     private void SetVerificationSummary(string value)
@@ -556,6 +618,12 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     {
         packageExportSummary = value;
         OnPropertyChanged(nameof(PackageExportSummary));
+    }
+
+    private void SetReportExportSummary(string value)
+    {
+        reportExportSummary = value;
+        OnPropertyChanged(nameof(ReportExportSummary));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
