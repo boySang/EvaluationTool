@@ -31,6 +31,7 @@ public sealed class BuiltinCommandPackCatalogTests
             Assert.Equal(
                 new[] { "generic-linux-hostname", "generic-linux-login-defs" },
                 collection.Select(command => command.Id));
+            Assert.All(identification, command => Assert.Equal("IDENTIFY", command.CheckItem));
             Assert.Equal(
                 pack.Commands.Select(command => command.Id).OrderBy(id => id),
                 identification.Concat(collection).Select(command => command.Id).OrderBy(id => id));

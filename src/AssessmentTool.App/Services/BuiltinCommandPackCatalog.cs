@@ -15,7 +15,7 @@ public sealed class BuiltinCommandPackCatalog
     private const string GenericLinuxPackId = "generic-linux";
     private const string GenericLinuxRelativePath = "command-packs/builtin/generic-linux.json";
     private const string GenericLinuxResourceName = "AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json";
-    private const string GenericLinuxSha256 = "3a4521b6e88ac329f3a7e6c2b76dbfe5a71e1f7f7f0d4096069d00c96237cb00";
+    private const string GenericLinuxSha256 = "8e5855b4526dc0a9a74375aed8710e3ccaf04dcc0140a62fc3846599fc43f1b0";
     private const string DatabaseDiscoveryPackId = "database-host-discovery-linux";
     private const string DatabaseDiscoveryRelativePath = "command-packs/builtin/database-host-discovery-linux.json";
     private const string DatabaseDiscoveryResourceName = "AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json";
@@ -203,6 +203,13 @@ public sealed class BuiltinCommandPackCatalog
         if (!expectedIds.SetEquals(actualIds))
         {
             throw new CommandPackException("通用 Linux 内置命令包的命令分类与受信任目录不一致。");
+        }
+
+        var definitions = pack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+        if (IdentificationIds.Any(commandId =>
+                !string.Equals(definitions[commandId].CheckItem, "IDENTIFY", StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("通用 Linux 固定识别命令缺少 IDENTIFY 安全标记。");
         }
     }
 
