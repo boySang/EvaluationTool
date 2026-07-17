@@ -57,6 +57,20 @@ public sealed class MainWindowBindingTests
         Assert.DoesNotContain("漏洞扫描", text);
     }
 
+    [Fact]
+    public void Every_tab_item_has_at_most_one_content_child()
+    {
+        var document = XDocument.Load(FindMainWindowXaml());
+        var violations = document
+            .Descendants()
+            .Where(element => element.Name.LocalName == "TabItem")
+            .Where(element => element.Elements()
+                .Count(child => child.Name.LocalName != "TabItem.Header") > 1)
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
     private static string FindMainWindowXaml()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)

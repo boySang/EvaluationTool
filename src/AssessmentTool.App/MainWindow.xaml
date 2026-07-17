@@ -293,6 +293,7 @@
       </TabItem>
 
       <TabItem Header="设备">
+        <Grid>
         <Grid x:Name="DeviceListPanel" Margin="24">
           <Grid.Style>
             <Style TargetType="Grid">
@@ -438,6 +439,7 @@
               </StackPanel>
             </Grid>
           </Border>
+        </Grid>
         </Grid>
       </TabItem>
 
