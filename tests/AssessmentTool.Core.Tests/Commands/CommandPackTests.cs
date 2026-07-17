@@ -695,6 +695,9 @@ public sealed class CommandPackTests
         Assert.Equal(
             "https://man7.org/linux/man-pages/man1/hostname.1.html",
             genericLinux.Commands.Single(command => command.Id == "generic-linux-hostname").OfficialSource);
+        Assert.Equal(
+            "https://github.com/shadow-maint/shadow/blob/master/man/login.defs.5.xml",
+            genericLinux.Commands.Single(command => command.Id == "generic-linux-login-defs").OfficialSource);
         Assert.All(fixture.Commands, command => Assert.Equal("AssessmentTool.TestFixture", command.Vendor));
         Assert.All(fixture.Commands, command =>
             Assert.Equal("urn:assessment-tool:test-fixture", command.OfficialSource));

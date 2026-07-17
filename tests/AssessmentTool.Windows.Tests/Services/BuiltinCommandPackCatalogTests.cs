@@ -29,13 +29,15 @@ public sealed class BuiltinCommandPackCatalogTests
                 new[] { "generic-linux-uname-a", "generic-linux-os-release" },
                 identification.Select(command => command.Id));
             Assert.Equal(
-                new[] { "generic-linux-hostname" },
+                new[] { "generic-linux-hostname", "generic-linux-login-defs" },
                 collection.Select(command => command.Id));
             Assert.Equal(
                 pack.Commands.Select(command => command.Id).OrderBy(id => id),
                 identification.Concat(collection).Select(command => command.Id).OrderBy(id => id));
             Assert.All(pack.Commands, command => Assert.True(command.IsEligibleForAutomaticExecution));
-            Assert.Equal(new[] { "generic-linux-hostname" }, collectionPack.Commands.Select(command => command.Id));
+            Assert.Equal(
+                new[] { "generic-linux-hostname", "generic-linux-login-defs" },
+                collectionPack.Commands.Select(command => command.Id));
         }
         finally
         {
@@ -52,7 +54,7 @@ public sealed class BuiltinCommandPackCatalogTests
             var pack = new BuiltinCommandPackCatalog(releaseDirectory).LoadGenericLinux();
 
             Assert.Equal("generic-linux", pack.Id);
-            Assert.Equal(3, pack.Commands.Count);
+            Assert.Equal(4, pack.Commands.Count);
         }
         finally
         {

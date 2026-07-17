@@ -15,7 +15,7 @@ public sealed class BuiltinCommandPackCatalog
     private const string GenericLinuxPackId = "generic-linux";
     private const string GenericLinuxRelativePath = "command-packs/builtin/generic-linux.json";
     private const string GenericLinuxResourceName = "AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json";
-    private const string GenericLinuxSha256 = "89e1fc9b46c9b8afc8d3fe41632c7da6a9d84a41e585038c233c23b56b8189b1";
+    private const string GenericLinuxSha256 = "3a4521b6e88ac329f3a7e6c2b76dbfe5a71e1f7f7f0d4096069d00c96237cb00";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -27,7 +27,8 @@ public sealed class BuiltinCommandPackCatalog
     private static readonly IReadOnlyList<string> CollectionIds =
         new ReadOnlyCollection<string>(new[]
         {
-            "generic-linux-hostname"
+            "generic-linux-hostname",
+            "generic-linux-login-defs"
         });
 
     private readonly string releaseDirectory;

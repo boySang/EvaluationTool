@@ -129,6 +129,7 @@ public sealed class CommandSafetyPolicyTests
     [InlineData("uname -a")]
     [InlineData("hostname")]
     [InlineData("cat /etc/os-release")]
+    [InlineData("cat /etc/login.defs")]
     [InlineData("ps -ef")]
     [InlineData("systemctl list-units")]
     [InlineData("docker ps")]

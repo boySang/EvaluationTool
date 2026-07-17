@@ -119,7 +119,9 @@ public sealed class CollectionWorkflowServiceTests
             var collectionPack = catalog.CreateGenericLinuxCollectionPack(fullPack);
             var collectionCommands = catalog.SelectGenericLinuxCollectionCommands(fullPack);
 
-            Assert.Equal(new[] { "generic-linux-hostname" }, collectionPack.Commands.Select(command => command.Id));
+        Assert.Equal(
+            new[] { "generic-linux-hostname", "generic-linux-login-defs" },
+            collectionPack.Commands.Select(command => command.Id));
             Assert.Equal(collectionCommands.Select(command => command.Id), collectionPack.Commands.Select(command => command.Id));
             Assert.DoesNotContain(collectionPack.Commands, command =>
                 catalog.GenericLinuxIdentificationCommandIds.Contains(command.Id));
