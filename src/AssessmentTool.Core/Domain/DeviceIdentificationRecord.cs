@@ -93,12 +93,13 @@ public sealed class DeviceIdentificationRecord
             throw new ArgumentException("Value cannot be blank.", parameterName);
         }
 
-        if (value.Length > maximumLength)
+        var normalized = value!;
+        if (normalized.Length > maximumLength)
         {
             throw new ArgumentException("Value exceeds the maximum supported length.", parameterName);
         }
 
-        foreach (var character in value)
+        foreach (var character in normalized)
         {
             if (char.IsControl(character))
             {
@@ -106,7 +107,7 @@ public sealed class DeviceIdentificationRecord
             }
         }
 
-        return value;
+        return normalized;
     }
 
     private static string? Optional(string? value, string parameterName, int maximumLength)
