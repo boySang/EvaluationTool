@@ -35,11 +35,15 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
 {
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
+    private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
     private readonly IPendingDeviceIdentificationRepository? pendingIdentificationRepository;
+    private readonly IPendingHostSoftwareDiscoveryRepository? pendingHostSoftwareRepository;
     private readonly DelegateCommand startCommand;
     private readonly DelegateCommand stopCommand;
     private readonly ParameterizedDelegateCommand<DetectionCandidate> confirmDetectionCommand;
     private readonly ParameterizedDelegateCommand<DatabaseInstanceCandidate> confirmDatabaseCommand;
+    private readonly ParameterizedDelegateCommand<HostSoftwareDiscoveryCandidateRecord> confirmHostSoftwareCommand;
+    private readonly ParameterizedDelegateCommand<HostSoftwareDiscoveryCandidateRecord> rejectHostSoftwareCommand;
     private ProjectRecord? selectedProject;
     private CollectionDeviceSelection? selectedDevice;
     private bool? requiredComponentAvailabilityOverride;
@@ -47,6 +51,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private CollectionViewModelState state;
     private IReadOnlyList<DetectionCandidate> detectionCandidates = Array.Empty<DetectionCandidate>();
     private IReadOnlyList<DatabaseInstanceCandidate> databaseCandidates = Array.Empty<DatabaseInstanceCandidate>();
+    private IReadOnlyList<HostSoftwareDiscoveryCandidateRecord> hostSoftwareCandidates =
+        Array.Empty<HostSoftwareDiscoveryCandidateRecord>();
     private IReadOnlyList<CompletedCollectionCommand> completedCommands = Array.Empty<CompletedCollectionCommand>();
     private DatabaseInstanceCandidate? selectedDatabaseCandidate;
     private CollectionState? progressState;
@@ -58,6 +64,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private int pendingIdentificationLoadGeneration;
     private Guid? pendingIdentificationBatchId;
     private DeviceId pendingIdentificationDeviceId;
+    private Guid? pendingHostSoftwareBatchId;
+    private DeviceId pendingHostSoftwareDeviceId;
     private bool isRecoveredIdentification;
     private bool isRestoringIdentification;
     private CollectionError? error;
@@ -65,12 +73,16 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public CollectionViewModel(
         ICollectionWorkflowService workflowService,
         IDatabaseConfirmationService databaseConfirmationService,
-        IPendingDeviceIdentificationRepository? pendingIdentificationRepository = null)
+        IPendingDeviceIdentificationRepository? pendingIdentificationRepository = null,
+        IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService = null,
+        IPendingHostSoftwareDiscoveryRepository? pendingHostSoftwareRepository = null)
     {
         this.workflowService = workflowService ?? throw new ArgumentNullException(nameof(workflowService));
         this.databaseConfirmationService = databaseConfirmationService
             ?? throw new ArgumentNullException(nameof(databaseConfirmationService));
         this.pendingIdentificationRepository = pendingIdentificationRepository;
+        this.hostSoftwareConfirmationService = hostSoftwareConfirmationService;
+        this.pendingHostSoftwareRepository = pendingHostSoftwareRepository;
         state = CollectionViewModelState.Idle;
         startCommand = new DelegateCommand(() => _ = StartAsync(), CanStart);
         stopCommand = new DelegateCommand(Stop, () => State == CollectionViewModelState.Running);
@@ -81,6 +93,12 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             candidate => _ = ConfirmDatabaseAsync(candidate),
             candidate => State == CollectionViewModelState.AwaitingDatabaseConfirmation
                 && DatabaseCandidates.Contains(candidate));
+        confirmHostSoftwareCommand = new ParameterizedDelegateCommand<HostSoftwareDiscoveryCandidateRecord>(
+            candidate => _ = ConfirmHostSoftwareAsync(candidate),
+            CanDecideHostSoftware);
+        rejectHostSoftwareCommand = new ParameterizedDelegateCommand<HostSoftwareDiscoveryCandidateRecord>(
+            candidate => _ = RejectHostSoftwareAsync(candidate),
+            CanDecideHostSoftware);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -89,9 +107,12 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public ICommand StopCommand => stopCommand;
     public ICommand ConfirmDetectionCommand => confirmDetectionCommand;
     public ICommand ConfirmDatabaseCommand => confirmDatabaseCommand;
+    public ICommand ConfirmHostSoftwareCommand => confirmHostSoftwareCommand;
+    public ICommand RejectHostSoftwareCommand => rejectHostSoftwareCommand;
     public CollectionViewModelState State => state;
     public IReadOnlyList<DetectionCandidate> DetectionCandidates => detectionCandidates;
     public IReadOnlyList<DatabaseInstanceCandidate> DatabaseCandidates => databaseCandidates;
+    public IReadOnlyList<HostSoftwareDiscoveryCandidateRecord> HostSoftwareCandidates => hostSoftwareCandidates;
     public IReadOnlyList<CompletedCollectionCommand> CompletedCommands => completedCommands;
     public DatabaseInstanceCandidate? SelectedDatabaseCandidate => selectedDatabaseCandidate;
     public CollectionState? ProgressState => progressState;
@@ -102,7 +123,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public CollectionError? Error => error;
     public bool IsDetectionConfirmationVisible => State == CollectionViewModelState.AwaitingConfirmation;
     public bool IsRecoveredIdentification => isRecoveredIdentification;
-    public bool IsDatabaseConfirmationVisible => State == CollectionViewModelState.AwaitingDatabaseConfirmation;
+    public bool IsDatabaseConfirmationVisible =>
+        (State == CollectionViewModelState.AwaitingDatabaseConfirmation
+            || State == CollectionViewModelState.ConfirmingDatabase)
+        && HostSoftwareCandidates.Count == 0;
+    public bool IsHostSoftwareConfirmationVisible =>
+        (State == CollectionViewModelState.AwaitingDatabaseConfirmation
+            || State == CollectionViewModelState.ConfirmingDatabase)
+        && HostSoftwareCandidates.Count != 0;
     public bool IsComponentCenterNavigationSuggested =>
         selectedDevice != null && !IsRequiredComponentAvailable;
 
@@ -140,6 +168,11 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         {
             SetState(CollectionViewModelState.AwaitingConfirmation);
         }
+        else if (pendingHostSoftwareBatchId.HasValue
+            && pendingHostSoftwareDeviceId.Equals(selectedDevice.Device.Id))
+        {
+            SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+        }
         else
         {
             RefreshReadiness();
@@ -171,10 +204,15 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         }
 
         var generation = unchecked(++pendingIdentificationLoadGeneration);
-        if (pendingIdentificationRepository == null
-            || selectedProject == null
+        if (selectedProject == null
             || !device.ProjectId.Equals(selectedProject.Id))
         {
+            return;
+        }
+
+        if (pendingIdentificationRepository == null)
+        {
+            await RestorePendingHostSoftwareAsync(device, generation).ConfigureAwait(true);
             return;
         }
 
@@ -201,10 +239,13 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             if (restored == null)
             {
                 ClearPendingIdentification();
-                RefreshReadiness();
+                await RestorePendingHostSoftwareAsync(
+                    device,
+                    pendingIdentificationLoadGeneration).ConfigureAwait(true);
                 return;
             }
 
+            ClearPendingHostSoftware();
             pendingIdentificationBatchId = restored.BatchId;
             pendingIdentificationDeviceId = restored.DeviceId;
             isRecoveredIdentification = true;
@@ -226,6 +267,66 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             SetError(new CollectionError(
                 "待确认识别候选读取失败",
                 "本地项目数据库无法读取上次保存的候选批次",
+                "检查本地数据目录权限和磁盘状态后重新选择设备",
+                exception.GetType().Name));
+            RefreshReadiness();
+        }
+    }
+
+    private async Task RestorePendingHostSoftwareAsync(DeviceRecord device, int generation)
+    {
+        if (pendingHostSoftwareRepository == null)
+        {
+            isRestoringIdentification = false;
+            ClearPendingHostSoftware();
+            RefreshReadiness();
+            return;
+        }
+
+        isRestoringIdentification = true;
+        progressMessage = "正在检查当前设备是否存在上次待确认的数据库或中间件结果。";
+        OnPropertyChanged(nameof(ProgressMessage));
+        SetState(CollectionViewModelState.RestoringIdentification);
+        try
+        {
+            var restored = await pendingHostSoftwareRepository
+                .GetLatestPendingHostSoftwareDiscoveryBatchAsync(device.Id)
+                .ConfigureAwait(true);
+            if (generation != pendingIdentificationLoadGeneration
+                || selectedProject == null
+                || !device.ProjectId.Equals(selectedProject.Id)
+                || (selectedDevice != null && !selectedDevice.Device.Id.Equals(device.Id)))
+            {
+                return;
+            }
+
+            isRestoringIdentification = false;
+            if (restored == null)
+            {
+                ClearPendingHostSoftware();
+                RefreshReadiness();
+                return;
+            }
+
+            pendingHostSoftwareBatchId = restored.Batch.BatchId;
+            pendingHostSoftwareDeviceId = restored.Batch.DeviceId;
+            SetHostSoftwareCandidates(restored.PendingCandidates);
+            progressMessage = "已恢复上次待确认的数据库或中间件候选；旧证据保持不变，可继续逐项确认或排除。";
+            OnPropertyChanged(nameof(ProgressMessage));
+            SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+        }
+        catch (Exception exception)
+        {
+            if (generation != pendingIdentificationLoadGeneration)
+            {
+                return;
+            }
+
+            isRestoringIdentification = false;
+            ClearPendingHostSoftware();
+            SetError(new CollectionError(
+                "待确认主机软件候选读取失败",
+                "本地项目数据库无法读取上次保存的数据库或中间件候选",
                 "检查本地数据目录权限和磁盘状态后重新选择设备",
                 exception.GetType().Name));
             RefreshReadiness();
@@ -328,6 +429,84 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         }
     }
 
+    public Task ConfirmHostSoftwareAsync(HostSoftwareDiscoveryCandidateRecord candidate)
+    {
+        return DecideHostSoftwareAsync(candidate, true);
+    }
+
+    public Task RejectHostSoftwareAsync(HostSoftwareDiscoveryCandidateRecord candidate)
+    {
+        return DecideHostSoftwareAsync(candidate, false);
+    }
+
+    private async Task DecideHostSoftwareAsync(
+        HostSoftwareDiscoveryCandidateRecord candidate,
+        bool confirm)
+    {
+        if (candidate == null)
+        {
+            throw new ArgumentNullException(nameof(candidate));
+        }
+
+        if (!CanDecideHostSoftware(candidate)
+            || !pendingHostSoftwareBatchId.HasValue
+            || candidate.BatchId != pendingHostSoftwareBatchId.Value
+            || hostSoftwareConfirmationService == null)
+        {
+            throw new InvalidOperationException("只能处理当前设备待确认的数据库或中间件候选。");
+        }
+
+        SetError(null);
+        SetState(CollectionViewModelState.ConfirmingDatabase);
+        try
+        {
+            if (confirm)
+            {
+                await hostSoftwareConfirmationService
+                    .ConfirmAsync(candidate, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+            else
+            {
+                await hostSoftwareConfirmationService
+                    .RejectAsync(
+                        candidate,
+                        "测评人员在候选界面标记为不是本次测评目标实例。",
+                        CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+
+            var remaining = HostSoftwareCandidates
+                .Where(item => item.CandidateId != candidate.CandidateId)
+                .ToArray();
+            SetHostSoftwareCandidates(remaining);
+            if (remaining.Length == 0)
+            {
+                pendingHostSoftwareBatchId = null;
+                pendingHostSoftwareDeviceId = default(DeviceId);
+                progressMessage = "所有发现的数据库和中间件候选均已完成人工处理。";
+                OnPropertyChanged(nameof(ProgressMessage));
+                SetState(CollectionViewModelState.DatabaseConfirmed);
+            }
+            else
+            {
+                progressMessage = (confirm ? "已确认" : "已排除")
+                    + "一个候选，仍有 " + remaining.Length + " 个需要处理。";
+                OnPropertyChanged(nameof(ProgressMessage));
+                SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+            }
+        }
+        catch (Exception exception)
+        {
+            SetError(new CollectionError(
+                "主机软件候选处理失败",
+                "本地项目数据库无法保存本次人工决议",
+                "检查本地数据目录权限和磁盘空间后重试",
+                exception.GetType().Name));
+            SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+        }
+    }
+
     private bool CanStart()
     {
         return State != CollectionViewModelState.Running
@@ -360,6 +539,18 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             && selectedDevice.IsHostKeyTrusted;
     }
 
+    private bool CanDecideHostSoftware(HostSoftwareDiscoveryCandidateRecord? candidate)
+    {
+        return candidate != null
+            && State == CollectionViewModelState.AwaitingDatabaseConfirmation
+            && HostSoftwareCandidates.Any(item => item.CandidateId == candidate.CandidateId)
+            && pendingHostSoftwareBatchId.HasValue
+            && candidate.BatchId == pendingHostSoftwareBatchId.Value
+            && selectedDevice != null
+            && selectedDevice.Device.Id.Equals(pendingHostSoftwareDeviceId)
+            && hostSoftwareConfirmationService != null;
+    }
+
     private bool IsRequiredComponentAvailable =>
         requiredComponentAvailabilityOverride
         ?? selectedDevice?.IsRequiredComponentAvailable
@@ -381,6 +572,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             SetError(null);
             SetDetectionCandidates(Array.Empty<DetectionCandidate>());
             SetDatabaseCandidates(Array.Empty<DatabaseInstanceCandidate>());
+            ClearPendingHostSoftware();
             if (confirmationBatchId.HasValue && isRecoveredIdentification)
             {
                 isRecoveredIdentification = false;
@@ -412,6 +604,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                     SetCompletedCommands(Array.Empty<CompletedCollectionCommand>());
                     SetDetectionCandidates(Array.Empty<DetectionCandidate>());
                     SetDatabaseCandidates(Array.Empty<DatabaseInstanceCandidate>());
+                    ClearPendingHostSoftware();
                     if (confirmationBatchId.HasValue)
                     {
                         await RestorePendingIdentificationAsync(selectedDevice.Device);
@@ -510,6 +703,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 SetDatabaseCandidates(result.DatabaseCandidates);
                 SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
                 break;
+            case CollectionWorkflowOutcome.RequiresHostSoftwareConfirmation:
+                ClearPendingIdentification();
+                pendingHostSoftwareBatchId = result.PendingHostSoftwareBatchId
+                    ?? throw new InvalidOperationException("待确认主机软件结果缺少持久化批次标识。");
+                pendingHostSoftwareDeviceId = selectedDevice?.Device.Id ?? default(DeviceId);
+                SetHostSoftwareCandidates(result.HostSoftwareCandidates);
+                SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+                break;
             case CollectionWorkflowOutcome.Stopped:
                 SetDetectionCandidates(Array.Empty<DetectionCandidate>());
                 SetState(CollectionViewModelState.Stopped);
@@ -532,6 +733,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 ? CollectionViewModelState.RestoringIdentification
                 : pendingIdentificationBatchId.HasValue
                 ? CollectionViewModelState.AwaitingConfirmation
+                : pendingHostSoftwareBatchId.HasValue
+                ? CollectionViewModelState.AwaitingDatabaseConfirmation
                 : HasReadySelection
                     ? CollectionViewModelState.Ready
                     : CollectionViewModelState.Idle);
@@ -559,6 +762,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(IsDetectionConfirmationVisible));
         OnPropertyChanged(nameof(IsDatabaseConfirmationVisible));
+        OnPropertyChanged(nameof(IsHostSoftwareConfirmationVisible));
         RaiseCommandStates();
     }
 
@@ -593,6 +797,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         selectedDatabaseCandidate = null;
         SetCompletedCommands(Array.Empty<CompletedCollectionCommand>());
         SetDatabaseCandidates(Array.Empty<DatabaseInstanceCandidate>());
+        ClearPendingHostSoftware();
         SetError(null);
         OnPropertyChanged(nameof(ProgressState));
         OnPropertyChanged(nameof(ProgressMessage));
@@ -612,6 +817,23 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         databaseCandidates = new ReadOnlyCollection<DatabaseInstanceCandidate>(candidates.ToArray());
         OnPropertyChanged(nameof(DatabaseCandidates));
+    }
+
+    private void SetHostSoftwareCandidates(
+        IEnumerable<HostSoftwareDiscoveryCandidateRecord> candidates)
+    {
+        hostSoftwareCandidates = new ReadOnlyCollection<HostSoftwareDiscoveryCandidateRecord>(
+            candidates.ToArray());
+        OnPropertyChanged(nameof(HostSoftwareCandidates));
+        OnPropertyChanged(nameof(IsDatabaseConfirmationVisible));
+        OnPropertyChanged(nameof(IsHostSoftwareConfirmationVisible));
+    }
+
+    private void ClearPendingHostSoftware()
+    {
+        pendingHostSoftwareBatchId = null;
+        pendingHostSoftwareDeviceId = default(DeviceId);
+        SetHostSoftwareCandidates(Array.Empty<HostSoftwareDiscoveryCandidateRecord>());
     }
 
     private void ApplyProgress(CollectionProgress progress)
@@ -645,6 +867,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         stopCommand.RaiseCanExecuteChanged();
         confirmDetectionCommand.RaiseCanExecuteChanged();
         confirmDatabaseCommand.RaiseCanExecuteChanged();
+        confirmHostSoftwareCommand.RaiseCanExecuteChanged();
+        rejectHostSoftwareCommand.RaiseCanExecuteChanged();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

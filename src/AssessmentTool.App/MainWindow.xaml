@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
         xmlns:core="clr-namespace:AssessmentTool.Core.Domain;assembly=AssessmentTool.Core"
+        xmlns:storage="clr-namespace:AssessmentTool.Windows.Storage;assembly=AssessmentTool.Windows"
         xmlns:viewModels="clr-namespace:AssessmentTool.App.ViewModels"
         Title="等级保护测评辅助工具"
         Width="1440"
@@ -663,10 +664,7 @@
                 <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
                   <Setter Property="Visibility" Value="Collapsed" />
                   <Style.Triggers>
-                    <DataTrigger Binding="{Binding Collection.State}" Value="AwaitingDatabaseConfirmation">
-                      <Setter Property="Visibility" Value="Visible" />
-                    </DataTrigger>
-                    <DataTrigger Binding="{Binding Collection.State}" Value="ConfirmingDatabase">
+                    <DataTrigger Binding="{Binding Collection.IsDatabaseConfirmationVisible, Mode=OneWay}" Value="True">
                       <Setter Property="Visibility" Value="Visible" />
                     </DataTrigger>
                   </Style.Triggers>
@@ -774,6 +772,139 @@
               </StackPanel>
             </Border>
 
+            <Border automation:AutomationProperties.Name="数据库与中间件候选人工确认">
+              <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Collection.IsHostSoftwareConfirmationVisible, Mode=OneWay}" Value="True">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Border.Style>
+              <StackPanel>
+                <Grid Margin="0,0,0,6">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="发现数据库或中间件，需要人工确认" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="结果来自已保存的只读主机命令。请逐项确认；不是本次测评目标的实例可直接排除。"
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Collection.ProgressMessage, Mode=OneWay}"
+                               Foreground="{DynamicResource Brush.Accent}"
+                               Margin="0,5,0,0"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Border Grid.Column="1"
+                          Background="{DynamicResource Brush.WarningBackground}"
+                          BorderBrush="{DynamicResource Brush.Warning}"
+                          BorderThickness="1"
+                          CornerRadius="12"
+                          Padding="10,4"
+                          VerticalAlignment="Top">
+                    <TextBlock Text="逐项人工确认" Foreground="{DynamicResource Brush.WarningText}" FontSize="12" />
+                  </Border>
+                </Grid>
+
+                <Border Background="{DynamicResource Brush.InfoBackground}"
+                        BorderBrush="{DynamicResource Brush.Accent}"
+                        BorderThickness="3,0,0,0"
+                        CornerRadius="7"
+                        Padding="14,11"
+                        Margin="0,10,0,14">
+                  <TextBlock Text="安全边界：仅保存人工确认或排除决议，不执行 SQL、不连接实例，也不修改客户设备。"
+                             TextWrapping="Wrap" />
+                </Border>
+
+                <ItemsControl ItemsSource="{Binding Collection.HostSoftwareCandidates, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                              BorderBrush="{DynamicResource Brush.Border}"
+                              BorderThickness="1"
+                              CornerRadius="8"
+                              Padding="16"
+                              Margin="0,0,0,10">
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                          <StackPanel Margin="0,0,20,0">
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Text="▰" Foreground="{DynamicResource Brush.Accent}" FontSize="16" Margin="0,0,9,0" />
+                              <TextBlock Text="{Binding Product, Mode=OneWay}" FontWeight="SemiBold" FontSize="17" />
+                              <Border Background="{DynamicResource Brush.AccentSoft}" CornerRadius="10" Padding="8,2" Margin="10,0,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                  <TextBlock FontSize="11" Foreground="{DynamicResource Brush.Accent}">
+                                    <TextBlock.Style>
+                                      <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="中间件" />
+                                        <Style.Triggers>
+                                          <DataTrigger Binding="{Binding Category}" Value="{x:Static storage:HostSoftwareCategory.Database}">
+                                            <Setter Property="Text" Value="数据库" />
+                                          </DataTrigger>
+                                        </Style.Triggers>
+                                      </Style>
+                                    </TextBlock.Style>
+                                  </TextBlock>
+                                  <TextBlock Text=" · " FontSize="11" Foreground="{DynamicResource Brush.Accent}" />
+                                  <TextBlock Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}" FontSize="11" Foreground="{DynamicResource Brush.Accent}" />
+                                </StackPanel>
+                              </Border>
+                            </StackPanel>
+
+                            <Grid Margin="25,11,0,0">
+                              <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                              <TextBlock Text="实例名称" Style="{StaticResource SecondaryTextStyle}" />
+                              <TextBlock Grid.Column="1" Text="{Binding InstanceName, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Grid.Column="2" Text="安装方式" Style="{StaticResource SecondaryTextStyle}" />
+                              <TextBlock Grid.Column="3" FontWeight="SemiBold">
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="本地服务或进程" />
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding InstallationType}" Value="{x:Static storage:HostSoftwareInstallationType.Container}">
+                                        <Setter Property="Text" Value="容器" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                              </TextBlock>
+                              <TextBlock Grid.Row="1" Text="版本" Style="{StaticResource SecondaryTextStyle}" Margin="0,7,0,0" />
+                              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Version, Mode=OneWay, TargetNullValue=未识别}" Margin="0,7,0,0" />
+                              <TextBlock Grid.Row="1" Grid.Column="2" Text="端口依据" Style="{StaticResource SecondaryTextStyle}" Margin="0,7,0,0" />
+                              <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding PortEvidence, Mode=OneWay, TargetNullValue=未发现}" Margin="0,7,0,0" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+
+                            <Border Background="{DynamicResource Brush.Surface}"
+                                    BorderBrush="{DynamicResource Brush.Border}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10,8"
+                                    Margin="25,12,0,0">
+                              <TextBlock Text="{Binding Sources[0].Excerpt, Mode=OneWay, StringFormat=发现依据：{0}}" TextWrapping="Wrap" />
+                            </Border>
+                          </StackPanel>
+                          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <Button Content="确认此实例"
+                                    Style="{StaticResource FluentPrimaryButtonStyle}"
+                                    Command="{Binding DataContext.Collection.ConfirmHostSoftwareCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"
+                                    MinWidth="118"
+                                    Margin="0,0,0,8" />
+                            <Button Content="不是本次目标"
+                                    Command="{Binding DataContext.Collection.RejectHostSoftwareCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}"
+                                    MinWidth="118" />
+                          </StackPanel>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
             <Border automation:AutomationProperties.Name="数据库发现结果已确认">
               <Border.Style>
                 <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
@@ -791,8 +922,8 @@
                     <TextBlock Text="✓" Foreground="{DynamicResource Brush.Success}" FontWeight="Bold" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
                   </Border>
                   <StackPanel>
-                    <TextBlock Text="数据库发现结果已确认" Style="{StaticResource SectionTitleStyle}" Foreground="{DynamicResource Brush.Success}" />
-                    <TextBlock Text="已保存人工确认结果，可继续查看本次主机采集证据。" Style="{StaticResource SecondaryTextStyle}" />
+                    <TextBlock Text="主机软件发现结果已处理" Style="{StaticResource SectionTitleStyle}" Foreground="{DynamicResource Brush.Success}" />
+                    <TextBlock Text="已保存数据库或中间件候选的人工决议，可继续查看本次主机采集证据。" Style="{StaticResource SecondaryTextStyle}" />
                   </StackPanel>
                 </StackPanel>
                 <Border Background="{DynamicResource Brush.SurfaceSubtle}"
@@ -801,6 +932,16 @@
                         CornerRadius="8"
                         Padding="14"
                         Margin="0,14,0,12">
+                  <Border.Style>
+                    <Style TargetType="Border">
+                      <Setter Property="Visibility" Value="Visible" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding Collection.SelectedDatabaseCandidate}" Value="{x:Null}">
+                          <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
                   <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <StackPanel>

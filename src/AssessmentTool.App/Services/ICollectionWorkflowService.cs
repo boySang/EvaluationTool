@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Execution;
+using AssessmentTool.Windows.Storage;
 
 namespace AssessmentTool.App.Services;
 
@@ -261,11 +262,6 @@ public sealed class CollectionWorkflowResult
         var copiedHostSoftware = Copy(
             pendingHostSoftwareBatch.Candidates,
             nameof(pendingHostSoftwareBatch));
-        if (copiedDatabases.Count == 0 && copiedMiddleware.Count == 0)
-        {
-            throw new ArgumentException("主机软件确认结果必须包含至少一个候选项。");
-        }
-
         if (copiedDatabases.Any(candidate => !candidate.RequiresUserConfirmation))
         {
             throw new ArgumentException("数据库候选项必须先标记为需要人工确认。", nameof(databaseCandidates));

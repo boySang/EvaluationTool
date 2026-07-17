@@ -305,6 +305,76 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Host_software_candidates_are_confirmed_or_rejected_one_at_a_time()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project);
+        var batch = CreateHostSoftwareBatch(project, device);
+        var workflow = new FakeCollectionWorkflowService(
+            CollectionWorkflowResult.RequiresHostSoftwareConfirmation(
+                Array.Empty<DatabaseInstanceCandidate>(),
+                Array.Empty<MiddlewareInstanceCandidate>(),
+                batch));
+        var confirmations = new FakeHostSoftwareConfirmationService();
+        var viewModel = new CollectionViewModel(
+            workflow,
+            new FakeDatabaseConfirmationService(),
+            null,
+            confirmations);
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        await viewModel.StartAsync();
+
+        Assert.True(viewModel.IsHostSoftwareConfirmationVisible);
+        Assert.False(viewModel.IsDatabaseConfirmationVisible);
+        Assert.Equal(2, viewModel.HostSoftwareCandidates.Count);
+        await viewModel.ConfirmHostSoftwareAsync(batch.Candidates[0]);
+        Assert.Single(viewModel.HostSoftwareCandidates);
+        Assert.Contains("已确认", viewModel.ProgressMessage);
+
+        await viewModel.RejectHostSoftwareAsync(batch.Candidates[1]);
+
+        Assert.Equal(CollectionViewModelState.DatabaseConfirmed, viewModel.State);
+        Assert.Empty(viewModel.HostSoftwareCandidates);
+        Assert.Single(confirmations.Confirmed);
+        Assert.Single(confirmations.Rejected);
+        Assert.Contains("不是本次测评目标", confirmations.Rejected[0].Reason);
+    }
+
+    [Fact]
+    public async Task Pending_host_software_candidates_are_restored_after_identity_lookup()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project);
+        var batch = CreateHostSoftwareBatch(project, device);
+        var pending = new PendingHostSoftwareDiscoveryBatchRecord(batch, batch.Candidates);
+        var viewModel = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService(),
+            new FakePendingIdentificationRepository(null),
+            new FakeHostSoftwareConfirmationService(),
+            new FakePendingHostSoftwareRepository(pending));
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        await viewModel.RestorePendingIdentificationAsync(device);
+
+        Assert.Equal(CollectionViewModelState.AwaitingDatabaseConfirmation, viewModel.State);
+        Assert.True(viewModel.IsHostSoftwareConfirmationVisible);
+        Assert.Equal(batch.Candidates.Select(item => item.CandidateId),
+            viewModel.HostSoftwareCandidates.Select(item => item.CandidateId));
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+        Assert.Contains("已恢复", viewModel.ProgressMessage);
+    }
+
+    [Fact]
     public async Task Project_and_device_selection_are_frozen_while_collection_is_running()
     {
         var service = new BlockingCollectionWorkflowService();
@@ -494,6 +564,65 @@ public sealed class CollectionViewModelTests
         return viewModel;
     }
 
+    private static HostSoftwareDiscoveryBatchRecord CreateHostSoftwareBatch(
+        ProjectRecord project,
+        DeviceRecord device)
+    {
+        var batchId = Guid.NewGuid();
+        var taskId = CollectionTaskId.New();
+        var candidates = new[]
+        {
+            CreateStoredHostSoftwareCandidate(
+                batchId, taskId, 0, HostSoftwareCategory.Database, "PostgreSQL", "16", "postgresql.service"),
+            CreateStoredHostSoftwareCandidate(
+                batchId, taskId, 1, HostSoftwareCategory.Middleware, "Apache Tomcat", "9", "tomcat9.service")
+        };
+        return new HostSoftwareDiscoveryBatchRecord(
+            batchId,
+            project.Id,
+            device.Id,
+            taskId,
+            1,
+            null,
+            "test-read-only-discovery",
+            candidates,
+            DateTimeOffset.UtcNow);
+    }
+
+    private static HostSoftwareDiscoveryCandidateRecord CreateStoredHostSoftwareCandidate(
+        Guid batchId,
+        CollectionTaskId taskId,
+        int ordinal,
+        HostSoftwareCategory category,
+        string product,
+        string version,
+        string instanceName)
+    {
+        var candidateId = Guid.NewGuid();
+        var source = new HostSoftwareDiscoveryEvidenceRecord(
+            Guid.NewGuid(),
+            candidateId,
+            0,
+            taskId,
+            ordinal,
+            HostSoftwareEvidenceKind.Service,
+            "database-host-discovery-linux-services",
+            instanceName + " loaded active running",
+            new string('a', 64));
+        return new HostSoftwareDiscoveryCandidateRecord(
+            candidateId,
+            batchId,
+            ordinal,
+            category,
+            product,
+            version,
+            HostSoftwareInstallationType.LocalService,
+            instanceName,
+            null,
+            0.9,
+            new[] { source });
+    }
+
     private sealed class FakeDatabaseConfirmationService : IDatabaseConfirmationService
     {
         private readonly Exception? exception;
@@ -531,6 +660,69 @@ public sealed class CollectionViewModelTests
                 "测试人工确认");
             Confirmations.Add(record);
             return Task.FromResult(record);
+        }
+    }
+
+    private sealed class FakeHostSoftwareConfirmationService :
+        IHostSoftwareCandidateConfirmationService
+    {
+        internal List<HostSoftwareCandidateDecisionRecord> Confirmed { get; } =
+            new List<HostSoftwareCandidateDecisionRecord>();
+        internal List<HostSoftwareCandidateDecisionRecord> Rejected { get; } =
+            new List<HostSoftwareCandidateDecisionRecord>();
+
+        public Task<HostSoftwareCandidateDecisionRecord> ConfirmAsync(
+            HostSoftwareDiscoveryCandidateRecord candidate,
+            CancellationToken cancellationToken = default)
+        {
+            var record = CreateDecision(candidate, HostSoftwareCandidateDecision.Confirmed, null);
+            Confirmed.Add(record);
+            return Task.FromResult(record);
+        }
+
+        public Task<HostSoftwareCandidateDecisionRecord> RejectAsync(
+            HostSoftwareDiscoveryCandidateRecord candidate,
+            string reason,
+            CancellationToken cancellationToken = default)
+        {
+            var record = CreateDecision(candidate, HostSoftwareCandidateDecision.Rejected, reason);
+            Rejected.Add(record);
+            return Task.FromResult(record);
+        }
+
+        private static HostSoftwareCandidateDecisionRecord CreateDecision(
+            HostSoftwareDiscoveryCandidateRecord candidate,
+            HostSoftwareCandidateDecision decision,
+            string? reason)
+        {
+            return new HostSoftwareCandidateDecisionRecord(
+                Guid.NewGuid(),
+                candidate.CandidateId,
+                decision,
+                "TEST\\assessor",
+                "view-model-test",
+                reason,
+                DateTimeOffset.UtcNow);
+        }
+    }
+
+    private sealed class FakePendingHostSoftwareRepository :
+        IPendingHostSoftwareDiscoveryRepository
+    {
+        private readonly PendingHostSoftwareDiscoveryBatchRecord? pending;
+
+        internal FakePendingHostSoftwareRepository(
+            PendingHostSoftwareDiscoveryBatchRecord? pending)
+        {
+            this.pending = pending;
+        }
+
+        public Task<PendingHostSoftwareDiscoveryBatchRecord?> GetLatestPendingHostSoftwareDiscoveryBatchAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                pending != null && pending.Batch.DeviceId.Equals(deviceId) ? pending : null);
         }
     }
 

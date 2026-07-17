@@ -70,6 +70,8 @@ public partial class App : Application
                         repository,
                         commandPackReleaseService),
                     new DatabaseConfirmationService(repository),
+                    repository,
+                    new HostSoftwareCandidateConfirmationService(repository),
                     repository),
                 componentCenter,
                 new DeviceConnectionViewModel(
