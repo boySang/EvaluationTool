@@ -22,7 +22,7 @@
       "timeoutSeconds": 45,
       "pagingBehavior": "DisablePaging",
       "resultDescription": "确认设备运行 H3C Comware，并读取软件版本、设备型号和运行时间；no-more 仅关闭本次查询输出分页。",
-      "verificationDate": "2026-07-18",
+      "verificationDate": "2026-07-17",
       "officialSource": "https://www.h3c.com/cn/d_202503/2368787_30005_0.htm"
     },
     {
@@ -43,7 +43,7 @@
       "timeoutSeconds": 45,
       "pagingBehavior": "DisablePaging",
       "resultDescription": "读取口令老化、最小长度、复杂度、历史记录和登录尝试限制等全局策略；不读取用户口令。",
-      "verificationDate": "2026-07-18",
+      "verificationDate": "2026-07-17",
       "officialSource": "https://www.h3c.com/en/d_201905/1179883_294551_0.htm"
     }
   ]

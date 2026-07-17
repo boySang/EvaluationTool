@@ -27,7 +27,7 @@ public sealed class BuiltinCommandPackCatalog
     private const string H3cComwarePackId = "h3c-comware";
     private const string H3cComwareRelativePath = "command-packs/builtin/h3c-comware.json";
     private const string H3cComwareResourceName = "AssessmentTool.App.CommandPacks.Builtin.H3cComware.json";
-    private const string H3cComwareSha256 = "516e3f33d6a5d46175ba07acf75db4425e072cf6ce3713d40733e75641c12a82";
+    private const string H3cComwareSha256 = "c4422bf699583a2abc1bf476c78060580c2ac09ebfbc1bd0d4377a381e449e97";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
