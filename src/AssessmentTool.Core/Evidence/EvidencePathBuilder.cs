@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using AssessmentTool.Core.Domain;
 
 namespace AssessmentTool.Core.Evidence;
 
