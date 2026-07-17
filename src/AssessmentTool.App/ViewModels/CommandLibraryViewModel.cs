@@ -237,8 +237,7 @@ public sealed class CommandLibraryViewModel : INotifyPropertyChanged
         var snapshot = await releaseService.LoadAsync(projectId);
         var currentProjectId = selectedProject?.Id;
         if (generation != releaseLoadGeneration
-            || projectId.HasValue != currentProjectId.HasValue
-            || (projectId.HasValue && !projectId.Value.Equals(currentProjectId.Value)))
+            || !EqualityComparer<ProjectId?>.Default.Equals(projectId, currentProjectId))
         {
             return;
         }
