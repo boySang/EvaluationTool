@@ -73,7 +73,8 @@ public partial class App : Application
                 ToggleTheme,
                 new EvidenceCenterViewModel(
                     new EvidenceCenterService(repository, repository),
-                    new ProjectEvidenceFolderLauncher(repository)),
+                    new ProjectEvidenceFolderLauncher(repository),
+                    new EvidenceRecoveryService(repository)),
                 commandLibrary,
                 new CollectionTaskHistoryViewModel(repository));
             var window = new MainWindow(mainViewModel);

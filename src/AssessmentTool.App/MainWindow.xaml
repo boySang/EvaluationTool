@@ -934,6 +934,7 @@
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button Content="打开证据目录" Command="{Binding EvidenceCenter.OpenFolderCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" />
+                <Button Content="恢复待入库证据" Command="{Binding EvidenceCenter.RecoverCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="校验执行清单和证据哈希后恢复本地索引" />
                 <Button Content="复核文件 SHA-256" Command="{Binding EvidenceCenter.VerifyCommand}" Style="{StaticResource FluentPrimaryButtonStyle}" Margin="0,0,8,0" />
                 <Button Content="刷新索引" Command="{Binding EvidenceCenter.RefreshCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" />
               </StackPanel>
@@ -943,6 +944,7 @@
                 <TextBlock Text="{Binding EvidenceCenter.State, StringFormat=当前状态：{0}}" Style="{StaticResource SectionTitleStyle}" />
                 <TextBlock Text="普通刷新只核对 SQLite 索引，不读取证据文件；单击“复核文件 SHA-256”才会逐个只读计算原始输出和截图哈希。" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.VerificationSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding EvidenceCenter.RecoverySummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 

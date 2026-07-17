@@ -219,6 +219,30 @@ public sealed class EvidenceCenterViewModelTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task Recover_pending_evidence_reports_counts_and_refreshes_index()
+    {
+        var project = CreateProject("项目甲");
+        var before = new EvidenceCenterSnapshot(project.Id, Array.Empty<EvidenceCenterItem>());
+        var recoveredItem = CreateItem("recovered-command");
+        var after = new EvidenceCenterSnapshot(project.Id, new[] { recoveredItem });
+        var service = new FakeEvidenceCenterService(Task.FromResult(before), Task.FromResult(after));
+        var recovery = new FakeEvidenceRecoveryService(
+            new EvidenceRecoveryResult(2, 1, 1, 0));
+        var viewModel = new EvidenceCenterViewModel(service, recoveryService: recovery);
+        await viewModel.SelectProjectAsync(project);
+
+        await viewModel.RecoverPendingEvidenceAsync();
+
+        Assert.Equal(project.Id, Assert.Single(recovery.RequestedProjects));
+        Assert.Same(recoveredItem, Assert.Single(viewModel.Items));
+        Assert.Contains("成功恢复 1 个", viewModel.RecoverySummary, StringComparison.Ordinal);
+        Assert.Contains("已在索引中 1 个", viewModel.RecoverySummary, StringComparison.Ordinal);
+        Assert.Equal(EvidenceCenterViewModelState.Ready, viewModel.State);
+        Assert.True(viewModel.RecoverCommand.CanExecute(null));
+        Assert.Equal(2, service.RequestedProjectIds.Count);
+    }
+
     private static ProjectRecord CreateProject(string name)
     {
         return new ProjectRecord(ProjectId.New(), "测试客户", name, @"C:\Evidence", DateTimeOffset.UtcNow);
@@ -269,6 +293,26 @@ public sealed class EvidenceCenterViewModelTests
         {
             VerifiedProjects.Add(projectId);
             return LoadAsync(projectId, cancellationToken);
+        }
+    }
+
+    private sealed class FakeEvidenceRecoveryService : IEvidenceRecoveryService
+    {
+        private readonly EvidenceRecoveryResult result;
+
+        public FakeEvidenceRecoveryService(EvidenceRecoveryResult result)
+        {
+            this.result = result;
+        }
+
+        public List<ProjectId> RequestedProjects { get; } = new List<ProjectId>();
+
+        public Task<EvidenceRecoveryResult> RecoverAsync(
+            ProjectRecord project,
+            CancellationToken cancellationToken = default)
+        {
+            RequestedProjects.Add(project.Id);
+            return Task.FromResult(result);
         }
     }
 
