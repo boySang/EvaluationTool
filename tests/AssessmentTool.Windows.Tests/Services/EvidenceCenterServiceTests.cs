@@ -85,8 +85,8 @@ public sealed class EvidenceCenterServiceTests
     public async Task Host_software_audit_includes_all_decision_states_across_devices_in_stable_order()
     {
         var projectId = ProjectId.New();
-        var deviceA = CreateDevice(projectId, DeviceId.New(), "设备甲");
-        var deviceB = CreateDevice(projectId, DeviceId.New(), "设备乙");
+        var deviceA = CreateDevice(projectId, DeviceId.New(), "设备 A");
+        var deviceB = CreateDevice(projectId, DeviceId.New(), "设备 B");
         var earlierAt = DateTimeOffset.Parse("2026-07-17T08:00:00Z");
         var latestAt = DateTimeOffset.Parse("2026-07-17T09:00:00Z");
         var supersededBatch = CreateHostSoftwareBatch(
@@ -166,7 +166,7 @@ public sealed class EvidenceCenterServiceTests
             snapshot.HostSoftwareDiscoveries.Select(item => item.DecisionStatus));
 
         var rejected = snapshot.HostSoftwareDiscoveries[0];
-        Assert.Equal("设备甲", rejected.DeviceName);
+        Assert.Equal("设备 A", rejected.DeviceName);
         Assert.Equal(1, rejected.BatchRevision);
         Assert.Equal(latestAt, rejected.BatchRecordedAt);
         Assert.Equal(HostSoftwareCategory.Middleware, rejected.Category);
@@ -183,7 +183,7 @@ public sealed class EvidenceCenterServiceTests
         Assert.Equal(latestAt.AddMinutes(1), rejected.DecidedAt);
 
         var pending = snapshot.HostSoftwareDiscoveries[2];
-        Assert.Equal("设备乙", pending.DeviceName);
+        Assert.Equal("设备 B", pending.DeviceName);
         Assert.Equal(2, pending.BatchRevision);
         Assert.Null(pending.DecidedBy);
         Assert.Null(pending.DecisionSource);
