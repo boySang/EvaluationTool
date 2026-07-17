@@ -131,7 +131,12 @@ public sealed class DatabaseDiscoveryRunner
 
                 if (command.IsOptional
                     && output.Outcome == RemoteExecutionOutcome.Failed
-                    && output.FailureCategory == RemoteFailureCategory.ProcessFailed)
+                    && output.FailureCategory == RemoteFailureCategory.ProcessFailed
+                    && (output.ExitCode == 127
+                        || string.Equals(
+                            command.Id,
+                            "database-host-discovery-linux-services",
+                            StringComparison.Ordinal)))
                 {
                     continue;
                 }

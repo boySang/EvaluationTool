@@ -73,6 +73,24 @@ public sealed class DatabaseDiscoveryRunnerTests
         Assert.Empty(result.Candidates);
     }
 
+    [Fact]
+    public async Task Optional_container_permission_failure_is_not_silently_treated_as_complete()
+    {
+        var pack = LoadPack();
+        var session = new ScriptedSession(new Dictionary<string, CommandOutput>
+        {
+            [pack.Commands[0].Id] = Success(pack.Commands[0].Id, "202 mysqld-8.0"),
+            [pack.Commands[1].Id] = Success(pack.Commands[1].Id, ""),
+            [pack.Commands[2].Id] = Failed(pack.Commands[2].Id),
+        });
+
+        var result = await CreateRunner(session).RunAsync(pack, new RecordingProgress(), CancellationToken.None);
+
+        Assert.Equal(DatabaseDiscoveryOutcome.Failed, result.Outcome);
+        Assert.Equal(3, result.Outputs.Count);
+        Assert.Equal(3, session.ExecutedIds.Count);
+    }
+
     private static DatabaseDiscoveryRunner CreateRunner(IRemoteSession session)
     {
         return new DatabaseDiscoveryRunner(session, new CommandSafetyPolicy(), new HostDatabaseDiscovery());
