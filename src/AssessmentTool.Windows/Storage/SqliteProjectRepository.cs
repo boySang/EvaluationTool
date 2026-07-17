@@ -474,7 +474,7 @@ public sealed class SqliteProjectRepository :
                 using (var connection = OpenConnection())
                 using (var command = connection.CreateCommand())
                 {
-                    command.CommandText = "SELECT project_id, device_id, product, version, installation_type, instance_name, port_evidence, detection_evidence, confidence, confirmed_at_utc, confirmation_source FROM database_confirmations WHERE project_id = @projectId ORDER BY confirmed_at_utc, id;";
+                    command.CommandText = "SELECT project_id, device_id, product, version, installation_type, instance_name, port_evidence, detection_evidence, confidence, confirmed_at_utc, confirmation_source FROM database_confirmations WHERE project_id = @projectId ORDER BY confirmed_at_utc, rowid;";
                     command.Parameters.AddWithValue("@projectId", projectId.ToString());
                     using (var reader = command.ExecuteReader())
                     {

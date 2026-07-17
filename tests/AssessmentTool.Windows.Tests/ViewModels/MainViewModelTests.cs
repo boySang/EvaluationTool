@@ -280,7 +280,7 @@ public sealed class MainViewModelTests
 
         public DatabaseCandidateWorkflowService(DatabaseInstanceCandidate candidate)
         {
-            this.candidate = candidate;
+            this.candidate = candidate.RequireConfirmation();
         }
 
         public Task<CollectionWorkflowResult> RunAsync(

@@ -335,8 +335,11 @@ public sealed class SqliteProjectRepositoryTests
             var projectId = await repository.CreateProjectAsync("客户", "项目", @"C:\Evidence");
             var deviceId = await repository.AddDeviceAsync(
                 projectId, "Linux服务器", "192.0.2.20", 22, CredentialReference.New());
-            var first = CreateDatabaseConfirmation(projectId, deviceId, "PostgreSQL", "16.2", 0.92);
-            var second = CreateDatabaseConfirmation(projectId, deviceId, "PostgreSQL", "16.3", 0.95);
+            var confirmedAt = new DateTimeOffset(2026, 7, 17, 6, 9, 0, TimeSpan.Zero);
+            var first = CreateDatabaseConfirmation(
+                projectId, deviceId, "PostgreSQL", "16.2", 0.92, confirmedAt);
+            var second = CreateDatabaseConfirmation(
+                projectId, deviceId, "PostgreSQL", "16.3", 0.95, confirmedAt);
 
             await repository.SaveDatabaseConfirmationAsync(first);
             await repository.SaveDatabaseConfirmationAsync(second);
@@ -363,7 +366,13 @@ public sealed class SqliteProjectRepositoryTests
             var secondProject = await repository.CreateProjectAsync("客户", "项目B", @"C:\Evidence\B");
             var deviceId = await repository.AddDeviceAsync(
                 firstProject, "Linux服务器", "192.0.2.20", 22, CredentialReference.New());
-            var mismatched = CreateDatabaseConfirmation(secondProject, deviceId, "MySQL", "8.0", 0.9);
+            var mismatched = CreateDatabaseConfirmation(
+                secondProject,
+                deviceId,
+                "MySQL",
+                "8.0",
+                0.9,
+                new DateTimeOffset(2026, 7, 17, 6, 10, 0, TimeSpan.Zero));
 
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 repository.SaveDatabaseConfirmationAsync(mismatched));
@@ -388,7 +397,8 @@ public sealed class SqliteProjectRepositoryTests
         DeviceId deviceId,
         string product,
         string version,
-        double confidence)
+        double confidence,
+        DateTimeOffset confirmedAt)
     {
         return new DatabaseConfirmationRecord(
             projectId,
@@ -400,7 +410,7 @@ public sealed class SqliteProjectRepositoryTests
             "127.0.0.1:5432",
             "只读进程与服务元数据",
             confidence,
-            new DateTimeOffset(2026, 7, 17, 6, (int)(confidence * 10), 0, TimeSpan.Zero),
+            confirmedAt,
             "测评人员人工确认");
     }
 
