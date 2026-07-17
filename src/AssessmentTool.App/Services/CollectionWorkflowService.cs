@@ -252,7 +252,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     private static string BuildTechnicalDetails(string workflowStage, Exception exception)
     {
         var argument = exception as ArgumentException;
+        var parameterName = argument?.ParamName;
         return workflowStage + ":" + exception.GetType().Name
-            + (string.IsNullOrWhiteSpace(argument?.ParamName) ? string.Empty : ":" + argument.ParamName);
+            + (string.IsNullOrWhiteSpace(parameterName) ? string.Empty : ":" + parameterName);
     }
 }
