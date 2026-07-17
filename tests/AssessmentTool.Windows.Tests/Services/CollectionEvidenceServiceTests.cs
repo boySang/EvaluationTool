@@ -199,7 +199,8 @@ public sealed class CollectionEvidenceServiceTests : IDisposable
             "密码策略参数",
             new DateTime(2026, 7, 17),
             "https://man7.org/linux/man-pages/man5/login.defs.5.html",
-            false
+            false,
+            null
         });
     }
 

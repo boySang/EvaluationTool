@@ -276,7 +276,8 @@ public sealed class PlinkSessionTests
             "版本信息",
             new DateTime(2026, 7, 16),
             "https://vendor.example/docs",
-            false
+            false,
+            null
         });
     }
 

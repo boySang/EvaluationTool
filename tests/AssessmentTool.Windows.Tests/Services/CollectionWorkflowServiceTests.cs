@@ -261,6 +261,66 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Changed_high_confidence_identity_supersedes_stale_pending_batch_without_collecting()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.44", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nID=kylin")
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var evidence = new RecordingEvidenceService();
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.ChangedIdentity", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                evidence,
+                identifications);
+            var initial = await service.RunAsync(
+                CreateRequest(project, device, trust),
+                new CountingProgress(),
+                CancellationToken.None);
+            var firstBatch = Assert.Single(identifications.PendingBatches);
+            var staleCandidate = initial.DetectionCandidates.Single(candidate => candidate.Vendor == "kylin");
+
+            var changed = await service.RunAsync(
+                CreateRequest(project, device, trust, staleCandidate, firstBatch.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, changed.Outcome);
+            Assert.True(changed.PendingIdentificationBatchId.HasValue);
+            Assert.NotEqual(firstBatch.BatchId, changed.PendingIdentificationBatchId.Value);
+            Assert.Equal(2, identifications.PendingBatches.Count);
+            Assert.Equal("ubuntu", Assert.Single(identifications.PendingBatches[1].Candidates).Vendor);
+            var resolution = Assert.Single(identifications.Resolutions);
+            Assert.Equal(firstBatch.BatchId, resolution.BatchId);
+            Assert.Equal(PendingIdentificationResolution.SupersededByNewDetection, resolution.Resolution);
+            Assert.Empty(identifications.Records);
+            Assert.Empty(identifications.Tasks);
+            Assert.Equal(
+                new[] { "generic-linux-uname-a", "generic-linux-os-release" },
+                secondSession.ExecutedIds);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Generic_linux_collection_pack_contains_only_the_explicit_collection_subset()
     {
         var releaseDirectory = Path.Combine(
@@ -679,6 +739,13 @@ public sealed class CollectionWorkflowServiceTests
             DateTimeOffset recordedAt,
             CancellationToken cancellationToken = default)
         {
+            if (supersededBatchId.HasValue)
+            {
+                Resolutions.Add((
+                    supersededBatchId.Value,
+                    PendingIdentificationResolution.SupersededByNewDetection));
+            }
+
             var batch = new PendingDeviceIdentificationBatch(
                 Guid.NewGuid(), deviceId, PendingBatches.Count + 1, candidates, recordedAt);
             PendingBatches.Add(batch);

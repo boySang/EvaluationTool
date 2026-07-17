@@ -555,7 +555,8 @@ public sealed class WindowsProcessRunnerTests
             "版本信息",
             new DateTime(2026, 7, 16),
             "https://vendor.example/docs",
-            false
+            false,
+            null
         });
     }
 

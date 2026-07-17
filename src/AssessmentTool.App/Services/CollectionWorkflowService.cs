@@ -158,6 +158,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                             device,
                             request.PendingIdentificationBatchId,
                             result.Detection,
+                            result.Outcome == CollectionOutcome.NeedsUserConfirmation,
                             cancellationToken).ConfigureAwait(false);
                     await executionObserver.FinalizeAsync(
                         result.Outcome == CollectionOutcome.Stopped
@@ -220,6 +221,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         DeviceRecord device,
         Guid? previousPendingBatchId,
         DetectionResult? detection,
+        bool requiresConfirmation,
         CancellationToken cancellationToken)
     {
         if (detection == null)
@@ -227,7 +229,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return IdentificationPersistenceResult.Empty;
         }
 
-        if (detection.RequiresUserConfirmation)
+        if (requiresConfirmation || detection.RequiresUserConfirmation)
         {
             if (pendingIdentificationRepository == null)
             {
@@ -358,7 +360,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 request.DeviceSelection.Device,
                 request.PendingIdentificationBatchId,
                 detection,
-                cancellationToken).ConfigureAwait(false);
+                requiresConfirmation: false,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             if (identification.Record == null)
             {
                 throw new InvalidOperationException("设备身份尚未形成最终审计记录，已阻止创建采集任务。");
