@@ -22,5 +22,6 @@
     <EmbeddedResource Include="Storage/Migrations/008_pending_device_identification_batches.sql" />
     <EmbeddedResource Include="Storage/Migrations/009_collection_task_ledger.sql" />
     <EmbeddedResource Include="Storage/Migrations/010_published_command_packs.sql" />
+    <EmbeddedResource Include="Storage/Migrations/011_host_software_discovery.sql" />
   </ItemGroup>
 </Project>

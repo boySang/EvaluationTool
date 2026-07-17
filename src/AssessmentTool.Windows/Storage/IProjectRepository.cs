@@ -200,6 +200,39 @@ public interface ICommandPackPublishingRepository
         CancellationToken cancellationToken = default);
 }
 
+public interface IHostSoftwareDiscoveryRepository
+{
+    Task<HostSoftwareDiscoveryBatchRecord> AppendHostSoftwareDiscoveryBatchAsync(
+        ProjectId projectId,
+        DeviceId deviceId,
+        CollectionTaskId collectionTaskId,
+        IReadOnlyList<HostSoftwareDiscoveryCandidateInput> candidates,
+        string discoverySource,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<HostSoftwareDiscoveryBatchRecord?> GetLatestHostSoftwareDiscoveryBatchAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<HostSoftwareDiscoveryBatchRecord>> GetHostSoftwareDiscoveryHistoryAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+
+    Task<HostSoftwareCandidateDecisionRecord> AppendHostSoftwareCandidateDecisionAsync(
+        Guid candidateId,
+        HostSoftwareCandidateDecision decision,
+        string decidedBy,
+        string decisionSource,
+        string? reason,
+        DateTimeOffset decidedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<HostSoftwareCandidateDecisionRecord>> GetHostSoftwareCandidateDecisionsAsync(
+        Guid batchId,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class CommandDraftArchiveRecord
 {
     public CommandDraftArchiveRecord(

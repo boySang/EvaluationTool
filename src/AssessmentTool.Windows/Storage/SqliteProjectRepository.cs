@@ -23,7 +23,8 @@ public sealed partial class SqliteProjectRepository :
     IPendingDeviceIdentificationRepository,
     ICollectionTaskRepository,
     ICommandDraftRepository,
-    ICommandPackPublishingRepository
+    ICommandPackPublishingRepository,
+    IHostSoftwareDiscoveryRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
     private const string DeviceIdentificationSelect =
@@ -40,7 +41,8 @@ public sealed partial class SqliteProjectRepository :
         new Migration(7, "AssessmentTool.Windows.Storage.Migrations.007_device_identifications.sql"),
         new Migration(8, "AssessmentTool.Windows.Storage.Migrations.008_pending_device_identification_batches.sql"),
         new Migration(9, "AssessmentTool.Windows.Storage.Migrations.009_collection_task_ledger.sql"),
-        new Migration(10, "AssessmentTool.Windows.Storage.Migrations.010_published_command_packs.sql")
+        new Migration(10, "AssessmentTool.Windows.Storage.Migrations.010_published_command_packs.sql"),
+        new Migration(11, "AssessmentTool.Windows.Storage.Migrations.011_host_software_discovery.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
