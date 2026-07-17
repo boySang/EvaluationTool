@@ -61,7 +61,8 @@ public sealed class CommandPackLoader
         "resultDescription",
         "verificationDate",
         "officialSource",
-        "optional"
+        "optional",
+        "alternativeGroup"
     };
 
     private static readonly string[] RequiredPackStringProperties =
@@ -270,7 +271,29 @@ public sealed class CommandPackLoader
             RequiredText(document.ResultDescription, "结果说明"),
             ValidateVerificationDate(document.VerificationDate),
             ValidateCommandOfficialSource(document.OfficialSource, vendor),
-            document.Optional);
+            document.Optional,
+            ValidateAlternativeGroup(document.AlternativeGroup));
+    }
+
+    private static string? ValidateAlternativeGroup(string? value)
+    {
+        var group = OptionalText(value, "替代命令组");
+        if (group == null)
+        {
+            return null;
+        }
+
+        if (group.Length > 200)
+        {
+            throw new CommandPackException("替代命令组不能超过 200 个字符。");
+        }
+
+        if (group.Any(char.IsControl))
+        {
+            throw new CommandPackException("替代命令组不能包含控制字符。");
+        }
+
+        return group;
     }
 
     private static string ValidateModelRange(string? value)
@@ -500,6 +523,7 @@ public sealed class CommandPackLoader
             ValidateTokenType(GetRequiredProperty(commandObject, "isReadOnly", "命令定义"), JTokenType.Boolean, "命令定义", "isReadOnly");
             ValidateTokenType(GetRequiredProperty(commandObject, "timeoutSeconds", "命令定义"), JTokenType.Integer, "命令定义", "timeoutSeconds");
             ValidateNullableStringProperties(commandObject, NullableCommandStringProperties, "命令定义");
+            ValidateOptionalNullableStringProperty(commandObject, "alternativeGroup", "命令定义");
         }
 
         return token;
@@ -533,6 +557,17 @@ public sealed class CommandPackLoader
             {
                 throw new CommandPackException(objectName + "字段 " + propertyName + " JSON 类型必须为 String 或 Null。");
             }
+        }
+    }
+
+    private static void ValidateOptionalNullableStringProperty(JObject value, string propertyName, string objectName)
+    {
+        var property = value.Property(propertyName, StringComparison.Ordinal);
+        if (property != null
+            && property.Value.Type != JTokenType.String
+            && property.Value.Type != JTokenType.Null)
+        {
+            throw new CommandPackException(objectName + "字段 " + propertyName + " JSON 类型必须为 String 或 Null。");
         }
     }
 
@@ -726,5 +761,8 @@ public sealed class CommandPackLoader
 
         [JsonProperty("optional", Required = Required.Default)]
         public bool Optional { get; set; }
+
+        [JsonProperty("alternativeGroup", Required = Required.Default)]
+        public string? AlternativeGroup { get; set; }
     }
 }

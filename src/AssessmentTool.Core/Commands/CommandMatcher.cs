@@ -26,9 +26,23 @@ public sealed class CommandMatcher
 
         var target = detection.Candidates[0];
 
-        return pack.Commands
+        var candidates = pack.Commands
             .Select((command, index) => new { Command = command, Index = index, Score = Score(command, target) })
             .Where(item => item.Score >= 0)
+            .ToArray();
+
+        var selectedAlternativeCommands = candidates
+            .Where(item => item.Command.AlternativeGroup != null)
+            .GroupBy(item => item.Command.AlternativeGroup!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(item => item.Score)
+                .ThenBy(item => item.Index)
+                .First())
+            .ToArray();
+
+        return candidates
+            .Where(item => item.Command.AlternativeGroup == null)
+            .Concat(selectedAlternativeCommands)
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.Index)
             .Select(item => item.Command)

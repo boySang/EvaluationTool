@@ -45,7 +45,8 @@ public sealed class CommandDefinition
         string resultDescription,
         DateTime verificationDate,
         string officialSource,
-        bool isOptional = false)
+        bool isOptional = false,
+        string? alternativeGroup = null)
     {
         Id = id ?? throw new ArgumentNullException(nameof(id));
         Title = title ?? throw new ArgumentNullException(nameof(title));
@@ -67,6 +68,7 @@ public sealed class CommandDefinition
         VerificationDate = verificationDate;
         OfficialSource = officialSource ?? throw new ArgumentNullException(nameof(officialSource));
         IsOptional = isOptional;
+        AlternativeGroup = ValidateAlternativeGroup(alternativeGroup);
     }
 
     public string Id { get; }
@@ -89,5 +91,35 @@ public sealed class CommandDefinition
     public DateTime VerificationDate { get; }
     public string OfficialSource { get; }
     public bool IsOptional { get; }
+    public string? AlternativeGroup { get; }
     public bool IsEligibleForAutomaticExecution => VerificationStatus == VerificationStatus.Verified && IsReadOnly;
+
+    private static string? ValidateAlternativeGroup(string? value)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new ArgumentException("替代命令组不能为空。", nameof(value));
+        }
+
+        if (trimmed.Length > 200)
+        {
+            throw new ArgumentException("替代命令组不能超过 200 个字符。", nameof(value));
+        }
+
+        foreach (var character in trimmed)
+        {
+            if (char.IsControl(character))
+            {
+                throw new ArgumentException("替代命令组不能包含控制字符。", nameof(value));
+            }
+        }
+
+        return trimmed;
+    }
 }

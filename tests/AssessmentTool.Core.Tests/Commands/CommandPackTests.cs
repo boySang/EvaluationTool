@@ -567,6 +567,82 @@ public sealed class CommandPackTests
     }
 
     [Fact]
+    public void Matcher_keeps_complementary_commands_with_the_same_check_item_when_no_alternative_group_is_declared()
+    {
+        var json = PackJson(
+            commandId: "first-check",
+            commandText: "hostname",
+            secondCommand: CommandJson("second-check", "uname -a"));
+        var target = new DetectionCandidate(TargetCategory.Server, null, null, null, "1.0", "fixture", 1.0);
+
+        var commands = new CommandMatcher().Match(LoadJson(json), ConfirmedDetection(target));
+
+        Assert.Equal(new[] { "first-check", "second-check" }, commands.Select(command => command.Id));
+    }
+
+    [Fact]
+    public void Matcher_selects_only_the_most_specific_command_within_an_explicit_alternative_group()
+    {
+        var json = PackJson(
+            targetCategory: "NetworkDevice",
+            commandId: "generic-version",
+            commandText: "show version",
+            alternativeGroup: "version-query",
+            secondCommand: CommandJson(
+                "family-version",
+                "show version",
+                targetCategory: "NetworkDevice",
+                productFamily: "FamilyX",
+                alternativeGroup: "version-query") + ",\n    " +
+                CommandJson(
+                    "exact-version",
+                    "show version",
+                    targetCategory: "NetworkDevice",
+                    productFamily: "FamilyX",
+                    modelRange: "X1000",
+                    alternativeGroup: "version-query"));
+        var target = new DetectionCandidate(TargetCategory.NetworkDevice, null, "FamilyX", "X1000", "1.0", "fixture", 1.0);
+
+        var command = Assert.Single(new CommandMatcher().Match(LoadJson(json), ConfirmedDetection(target)));
+
+        Assert.Equal("exact-version", command.Id);
+        Assert.Equal("version-query", command.AlternativeGroup);
+    }
+
+    [Fact]
+    public void Matcher_uses_pack_order_to_break_equal_specificity_ties_within_an_alternative_group()
+    {
+        var json = PackJson(
+            commandId: "preferred-by-order",
+            commandText: "hostname",
+            alternativeGroup: "host-name-query",
+            secondCommand: CommandJson(
+                "later-equivalent",
+                "uname -n",
+                alternativeGroup: "HOST-NAME-QUERY"));
+        var target = new DetectionCandidate(TargetCategory.Server, null, null, null, "1.0", "fixture", 1.0);
+
+        var command = Assert.Single(new CommandMatcher().Match(LoadJson(json), ConfirmedDetection(target)));
+
+        Assert.Equal("preferred-by-order", command.Id);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("bad\u007fgroup")]
+    public void Loader_rejects_invalid_alternative_groups(string alternativeGroup)
+    {
+        Assert.Throws<CommandPackException>(() => LoadJson(PackJson(alternativeGroup: alternativeGroup)));
+    }
+
+    [Fact]
+    public void Loader_rejects_overlong_alternative_groups()
+    {
+        Assert.Throws<CommandPackException>(() => LoadJson(PackJson(alternativeGroup: new string('a', 201))));
+    }
+
+    [Fact]
     public void Matcher_matches_family_x_and_x1000_before_wildcard_and_fallback_rules()
     {
         var json = PackJson(
@@ -724,6 +800,25 @@ public sealed class CommandPackTests
             reverseRule.SelectToken("then.properties.officialSource.const")?.Value<string>());
     }
 
+    [Fact]
+    public void Schema_documents_optional_bounded_alternative_groups()
+    {
+        var schemaPath = Path.Combine(
+            FindRepositoryRoot(),
+            "command-packs",
+            "schema",
+            "command-pack.schema.json");
+        var schema = JObject.Parse(File.ReadAllText(schemaPath));
+        var commandSchema = schema["$defs"]!["command"]!;
+        var property = commandSchema["properties"]!["alternativeGroup"];
+
+        Assert.NotNull(property);
+        Assert.Equal(200, property!["maxLength"]?.Value<int>());
+        Assert.DoesNotContain(
+            "alternativeGroup",
+            commandSchema["required"]!.Values<string>());
+    }
+
     private static string PackJson(
         string? officialSource = null,
         string? version = null,
@@ -739,6 +834,7 @@ public sealed class CommandPackTests
         string modelRange = "*",
         string verificationDate = "2025-02-03",
         string commandOfficialSource = "https://example.com/commands/uname",
+        string? alternativeGroup = null,
         string? secondCommand = null)
     {
         return $@"{{
@@ -747,7 +843,7 @@ public sealed class CommandPackTests
   ""version"": ""{version ?? "1.0.0"}"",
   ""officialSource"": ""{officialSource ?? "https://example.com/commands"}"",
   ""commands"": [
-    {CommandJson(commandId, commandText, verificationStatus ?? "Verified", isReadOnly, targetCategory, vendor, productFamily, minimumVersion, maximumVersion, modelRange, verificationDate, commandOfficialSource)}{(secondCommand == null ? string.Empty : ",\n    " + secondCommand)}
+    {CommandJson(commandId, commandText, verificationStatus ?? "Verified", isReadOnly, targetCategory, vendor, productFamily, minimumVersion, maximumVersion, modelRange, verificationDate, commandOfficialSource, alternativeGroup)}{(secondCommand == null ? string.Empty : ",\n    " + secondCommand)}
   ]
 }}";
     }
@@ -776,7 +872,8 @@ public sealed class CommandPackTests
         string? maximumVersion = null,
         string modelRange = "*",
         string verificationDate = "2025-02-03",
-        string officialSource = "https://example.com/commands/uname")
+        string officialSource = "https://example.com/commands/uname",
+        string? alternativeGroup = null)
     {
         return $@"{{
       ""id"": ""{id}"",
@@ -797,6 +894,7 @@ public sealed class CommandPackTests
       ""pagingBehavior"": ""DisablePaging"",
       ""resultDescription"": ""确认系统信息"",
       ""verificationDate"": ""{verificationDate}"",
+      ""alternativeGroup"": {JsonStringOrNull(alternativeGroup)},
       ""officialSource"": ""{officialSource}""
     }}";
     }
