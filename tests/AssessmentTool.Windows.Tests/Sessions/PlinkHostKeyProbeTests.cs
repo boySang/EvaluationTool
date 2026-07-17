@@ -46,7 +46,7 @@ public sealed class PlinkHostKeyProbeTests
             Assert.DoesNotContain("-pwfile", runner.ArgumentTokens);
             Assert.DoesNotContain("-i", runner.ArgumentTokens);
             Assert.Throws<InvalidOperationException>(() => _ = runner.Request!.Command);
-            Assert.Empty(runner.Request.GetStandardInputBytes());
+            Assert.Empty(runner.Request!.GetStandardInputBytes());
         }
     }
 
