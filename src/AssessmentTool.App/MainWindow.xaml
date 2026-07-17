@@ -435,12 +435,25 @@
                   <TextBlock Text="设备类别" />
                   <ComboBox SelectedValue="{Binding DeviceEditor.Category, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,12">
                     <ComboBoxItem Content="自动识别（推荐）" Tag="{x:Static core:TargetCategory.Automatic}" />
-                    <ComboBoxItem Content="网络设备" Tag="{x:Static core:TargetCategory.NetworkDevice}" />
+                    <ComboBoxItem Content="华为 VRP 网络设备（当前支持）" Tag="{x:Static core:TargetCategory.NetworkDevice}" />
                     <ComboBoxItem Content="服务器" Tag="{x:Static core:TargetCategory.Server}" />
                     <ComboBoxItem Content="数据库" Tag="{x:Static core:TargetCategory.Database}" />
                     <ComboBoxItem Content="中间件" Tag="{x:Static core:TargetCategory.Middleware}" />
                     <ComboBoxItem Content="安全设备" Tag="{x:Static core:TargetCategory.SecurityDevice}" />
                   </ComboBox>
+                  <Border Background="{DynamicResource Brush.WarningBackground}" CornerRadius="8" Padding="12" Margin="0,0,0,12">
+                    <Border.Style>
+                      <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding DeviceEditor.Category}" Value="{x:Static core:TargetCategory.NetworkDevice}">
+                            <Setter Property="Visibility" Value="Visible" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </Border.Style>
+                    <TextBlock Text="当前网络设备适配器仅用于华为 VRP。首次只执行 display version 查询并要求人工确认；请勿为 H3C、Cisco、锐捷等其他厂商选择此项。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
+                  </Border>
                 </StackPanel>
 
                 <StackPanel>
@@ -586,7 +599,7 @@
             <TextBlock Text="只读采集任务" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="自动采集区不提供自由命令输入，只执行已验证命令包。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
             <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
-              <TextBlock Text="首个真实采集闭环支持已完成主机指纹确认和无命令登录测试的 SSH Linux 服务器；其他类型会被安全阻止。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
+              <TextBlock Text="当前支持已完成指纹确认和无命令登录测试的 SSH Linux 服务器，以及明确选择并人工确认的华为 VRP 网络设备；其他厂商和类型会被安全阻止。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
             </Border>
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>

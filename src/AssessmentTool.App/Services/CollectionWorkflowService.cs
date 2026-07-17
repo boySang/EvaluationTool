@@ -189,6 +189,17 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
 
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
+                    if (isHuaweiVrpWorkflow
+                        && result.Outcome == CollectionOutcome.NeedsUserConfirmation
+                        && (result.Detection == null || result.Detection.Candidates.Count == 0))
+                    {
+                        return CollectionWorkflowResult.Failed(new CollectionError(
+                            "未识别为华为 VRP 网络设备",
+                            "固定 display version 查询没有返回可由华为官方特征规则确认的结果",
+                            "请核对设备厂商；H3C、Cisco、锐捷等设备不得选择华为 VRP 适配器",
+                            "HuaweiVrpIdentityNotDetected"));
+                    }
+
                     var identification = executionObserver.HasTask
                         ? IdentificationPersistenceResult.Empty
                         : await SaveIdentificationStateAsync(

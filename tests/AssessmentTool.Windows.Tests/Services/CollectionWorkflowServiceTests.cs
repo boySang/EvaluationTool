@@ -282,6 +282,49 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Non_huawei_network_device_stops_after_version_probe_without_aaa_collection_or_pending_batch()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.NetworkDevice, "192.0.2.61", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var session = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["huawei-vrp-display-version"] = Success(
+                "huawei-vrp-display-version",
+                "H3C Comware Software, Version 7.1.070")
+        });
+        var evidence = new RecordingEvidenceService();
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.NonHuawei", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => session,
+                evidence,
+                identifications);
+
+            var result = await service.RunAsync(
+                CreateRequest(project, device, trust),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Failed, result.Outcome);
+            Assert.Equal("HuaweiVrpIdentityNotDetected", result.Error!.TechnicalDetails);
+            Assert.Equal(new[] { "huawei-vrp-display-version" }, session.ExecutedIds);
+            Assert.DoesNotContain("huawei-vrp-display-aaa-configuration", session.ExecutedIds);
+            Assert.Empty(identifications.PendingBatches);
+            Assert.Empty(identifications.Records);
+            Assert.Empty(identifications.Tasks);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Current_project_lock_replaces_only_the_collection_pack_and_is_snapshotted_in_the_task()
     {
         var project = CreateProject();

@@ -69,6 +69,8 @@ public sealed class MainWindowBindingTests
         Assert.Contains("命令库", text);
         Assert.Contains("组件中心", text);
         Assert.Contains("自动识别（推荐）", text);
+        Assert.Contains("华为 VRP 网络设备（当前支持）", text);
+        Assert.Contains("请勿为 H3C、Cisco、锐捷等其他厂商选择此项", text);
         Assert.Contains("SSH 用户名 *", text);
         Assert.Contains("密码验证", text);
         Assert.Contains("PuTTY PPK 私钥", text);
