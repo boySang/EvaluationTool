@@ -10,6 +10,7 @@ using AssessmentTool.Core.Execution;
 using AssessmentTool.Core.Security;
 using AssessmentTool.Windows.Credentials;
 using AssessmentTool.Windows.Sessions;
+using AssessmentTool.Windows.Storage;
 
 namespace AssessmentTool.App.Services;
 
@@ -18,6 +19,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     private readonly BuiltinCommandPackCatalog commandCatalog;
     private readonly Func<ConnectionProfile, IRemoteSession> createSession;
     private readonly ICollectionEvidenceService evidenceService;
+    private readonly IDeviceIdentificationRepository? identificationRepository;
 
     public CollectionWorkflowService(
         ICredentialVault credentialVault,
@@ -26,7 +28,21 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             new BuiltinCommandPackCatalog(),
             new SshReadOnlySessionFactory(
                 credentialVault ?? throw new ArgumentNullException(nameof(credentialVault))).Create,
-            evidenceService)
+            evidenceService,
+            null)
+    {
+    }
+
+    public CollectionWorkflowService(
+        ICredentialVault credentialVault,
+        ICollectionEvidenceService evidenceService,
+        IDeviceIdentificationRepository identificationRepository)
+        : this(
+            new BuiltinCommandPackCatalog(),
+            new SshReadOnlySessionFactory(
+                credentialVault ?? throw new ArgumentNullException(nameof(credentialVault))).Create,
+            evidenceService,
+            identificationRepository ?? throw new ArgumentNullException(nameof(identificationRepository)))
     {
     }
 
@@ -34,10 +50,20 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         BuiltinCommandPackCatalog commandCatalog,
         Func<ConnectionProfile, IRemoteSession> createSession,
         ICollectionEvidenceService evidenceService)
+        : this(commandCatalog, createSession, evidenceService, null)
+    {
+    }
+
+    internal CollectionWorkflowService(
+        BuiltinCommandPackCatalog commandCatalog,
+        Func<ConnectionProfile, IRemoteSession> createSession,
+        ICollectionEvidenceService evidenceService,
+        IDeviceIdentificationRepository? identificationRepository)
     {
         this.commandCatalog = commandCatalog ?? throw new ArgumentNullException(nameof(commandCatalog));
         this.createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
         this.evidenceService = evidenceService ?? throw new ArgumentNullException(nameof(evidenceService));
+        this.identificationRepository = identificationRepository;
     }
 
     public async Task<CollectionWorkflowResult> RunAsync(
@@ -113,6 +139,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     request,
                     fullPack,
                     result.IdentificationOutputs.Concat(result.CommandOutputs));
+                workflowStage = "保存设备身份识别审计记录";
+                await SaveIdentificationAsync(device, result.Detection, cancellationToken);
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
                     return MapResult(result);
@@ -144,6 +172,28 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "检查设备连接、组件中心和证据目录后重试",
                 BuildTechnicalDetails(workflowStage, exception)));
         }
+    }
+
+    private async Task SaveIdentificationAsync(
+        DeviceRecord device,
+        DetectionResult? detection,
+        CancellationToken cancellationToken)
+    {
+        if (identificationRepository == null
+            || detection == null
+            || detection.RequiresUserConfirmation
+            || detection.Candidates.Count != 1)
+        {
+            return;
+        }
+
+        await identificationRepository.AppendDeviceIdentificationAsync(
+            device.Id,
+            detection.Candidates[0],
+            detection.WasUserConfirmed,
+            detection.WasUserConfirmed ? "测评人员在设备识别候选界面人工确认" : null,
+            DateTimeOffset.UtcNow,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private async Task SaveOutputsAsync(

@@ -37,6 +37,7 @@ public sealed class MainViewModelTests
 
         await workspace.SelectProjectAsync(project);
         workspace.SelectedDevice = device;
+        await WaitUntilAsync(() => service.IdentificationLoadCount == 1);
 
         Assert.Equal("等保项目", viewModel.CurrentProjectName);
         Assert.Equal("核心交换机", viewModel.CurrentDeviceName);
@@ -50,6 +51,7 @@ public sealed class MainViewModelTests
         Assert.Contains(nameof(MainViewModel.PendingConnectionTestCount), changes);
         Assert.Same(componentCenter, viewModel.ComponentCenter);
         Assert.False(viewModel.ComponentCenter.IsSshAvailable);
+        Assert.Equal(1, service.IdentificationLoadCount);
         var essentialNavigation = viewModel.NavigationItems.Where(item =>
             item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
         Assert.Equal(3, essentialNavigation.Length);
@@ -214,6 +216,8 @@ public sealed class MainViewModelTests
             this.device = device;
         }
 
+        public int IdentificationLoadCount { get; private set; }
+
         public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<IReadOnlyList<ProjectRecord>> GetProjectsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<ProjectRecord>>(Array.Empty<ProjectRecord>());
@@ -222,6 +226,12 @@ public sealed class MainViewModelTests
         public Task<IReadOnlyList<DeviceRecord>> GetDevicesAsync(ProjectId projectId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<DeviceRecord>>(new[] { device });
+        public Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            IdentificationLoadCount++;
+            return Task.FromResult<DeviceIdentificationRecord?>(null);
+        }
         public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port,
             char[] password, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DeviceId> AddSshDeviceAsync(ProjectId projectId, string displayName, string host, int port,

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Commands;
+using AssessmentTool.Core.Detection;
 
 namespace AssessmentTool.Windows.Storage;
 
@@ -61,6 +62,25 @@ public interface IDatabaseConfirmationRepository
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DatabaseConfirmationRecord>> GetDatabaseConfirmationsAsync(
         ProjectId projectId,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IDeviceIdentificationRepository
+{
+    Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
+        DeviceId deviceId,
+        DetectionCandidate candidate,
+        bool wasUserConfirmed,
+        string? confirmationSource,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DeviceIdentificationRecord>> GetDeviceIdentificationHistoryAsync(
+        DeviceId deviceId,
         CancellationToken cancellationToken = default);
 }
 

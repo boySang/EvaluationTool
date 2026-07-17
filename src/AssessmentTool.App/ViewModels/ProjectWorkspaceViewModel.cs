@@ -30,6 +30,9 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
     private ProjectWorkspaceState state = ProjectWorkspaceState.Uninitialized;
     private bool exclusiveOperation;
     private int projectLoadGeneration;
+    private int identificationLoadGeneration;
+    private DeviceIdentificationRecord? selectedIdentification;
+    private string identificationStatusMessage = "选择设备后显示最近一次识别结果。";
     private string customerName = string.Empty;
     private string projectName = string.Empty;
     private string evidenceRoot = string.Empty;
@@ -72,6 +75,30 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
             }
 
             selectedDevice = value;
+            selectedIdentification = null;
+            unchecked { identificationLoadGeneration++; }
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(SelectedIdentification));
+            OnPropertyChanged(nameof(HasSelectedIdentification));
+            IdentificationStatusMessage = value == null
+                ? "选择设备后显示最近一次识别结果。"
+                : "尚未读取该设备的识别记录。";
+        }
+    }
+
+    public DeviceIdentificationRecord? SelectedIdentification => selectedIdentification;
+    public bool HasSelectedIdentification => selectedIdentification != null;
+    public string IdentificationStatusMessage
+    {
+        get => identificationStatusMessage;
+        private set
+        {
+            if (string.Equals(identificationStatusMessage, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            identificationStatusMessage = value;
             OnPropertyChanged();
         }
     }
@@ -160,6 +187,49 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
         return exclusiveOperation
             ? Task.CompletedTask
             : SelectProjectCoreAsync(project, unchecked(++projectLoadGeneration));
+    }
+
+    public async Task RefreshSelectedIdentificationAsync()
+    {
+        var device = selectedDevice;
+        if (device == null)
+        {
+            return;
+        }
+
+        var generation = identificationLoadGeneration;
+        IdentificationStatusMessage = "正在读取最近一次设备识别记录…";
+        try
+        {
+            var loaded = await service.GetLatestDeviceIdentificationAsync(device.Id);
+            if (generation != identificationLoadGeneration
+                || selectedDevice == null
+                || !selectedDevice.Id.Equals(device.Id))
+            {
+                return;
+            }
+
+            selectedIdentification = loaded;
+            OnPropertyChanged(nameof(SelectedIdentification));
+            OnPropertyChanged(nameof(HasSelectedIdentification));
+            IdentificationStatusMessage = loaded == null
+                ? "尚无识别记录；完成只读采集的识别阶段后会在此显示。"
+                : loaded.WasUserConfirmed
+                    ? "最近识别结果已经测评人员人工确认。"
+                    : "最近识别结果来自已验证规则自动识别。";
+        }
+        catch (Exception exception)
+        {
+            if (generation != identificationLoadGeneration)
+            {
+                return;
+            }
+
+            selectedIdentification = null;
+            OnPropertyChanged(nameof(SelectedIdentification));
+            OnPropertyChanged(nameof(HasSelectedIdentification));
+            IdentificationStatusMessage = "无法读取识别记录；请稍后重试。技术信息：" + exception.GetType().Name;
+        }
     }
 
     public async Task AddDeviceAsync(char[] password)

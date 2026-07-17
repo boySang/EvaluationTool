@@ -11,6 +11,7 @@ using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Execution;
 using AssessmentTool.Core.Security;
 using AssessmentTool.Windows.Credentials;
+using AssessmentTool.Windows.Storage;
 using Xunit;
 
 namespace AssessmentTool.Windows.Tests.Services;
@@ -126,6 +127,7 @@ public sealed class CollectionWorkflowServiceTests
             ["database-host-discovery-linux-podman-containers"] = MissingOptional("database-host-discovery-linux-podman-containers")
         });
         var evidence = new RecordingEvidenceService();
+        var identifications = new RecordingIdentificationRepository();
         var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.Database", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(releaseDirectory);
         try
@@ -133,7 +135,8 @@ public sealed class CollectionWorkflowServiceTests
             var service = new CollectionWorkflowService(
                 new BuiltinCommandPackCatalog(releaseDirectory),
                 _ => session,
-                evidence);
+                evidence,
+                identifications);
 
             var result = await service.RunAsync(
                 CreateRequest(project, device, trust),
@@ -150,6 +153,10 @@ public sealed class CollectionWorkflowServiceTests
             Assert.True(candidate.RequiresUserConfirmation);
             Assert.Equal(8, session.ExecutedIds.Count);
             Assert.Equal(session.ExecutedIds, evidence.SavedCommandIds);
+            var identification = Assert.Single(identifications.Records);
+            Assert.Equal(device.Id, identification.DeviceId);
+            Assert.Equal("ubuntu", identification.Vendor);
+            Assert.False(identification.WasUserConfirmed);
             Assert.Equal(
                 new[]
                 {
@@ -517,6 +524,51 @@ public sealed class CollectionWorkflowServiceTests
         {
             SavedCommandIds.Add(command.Id);
             return Task.FromResult<SavedCollectionEvidence>(null!);
+        }
+    }
+
+    private sealed class RecordingIdentificationRepository : IDeviceIdentificationRepository
+    {
+        internal List<DeviceIdentificationRecord> Records { get; } = new List<DeviceIdentificationRecord>();
+
+        public Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
+            DeviceId deviceId,
+            DetectionCandidate candidate,
+            bool wasUserConfirmed,
+            string? confirmationSource,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            var record = new DeviceIdentificationRecord(
+                deviceId,
+                Records.Count + 1,
+                candidate.Category,
+                candidate.Vendor,
+                candidate.ProductFamily,
+                candidate.Model,
+                candidate.Version,
+                candidate.Evidence,
+                candidate.Confidence,
+                wasUserConfirmed,
+                confirmationSource,
+                recordedAt);
+            Records.Add(record);
+            return Task.FromResult(record);
+        }
+
+        public Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Records.LastOrDefault(record => record.DeviceId.Equals(deviceId)));
+        }
+
+        public Task<IReadOnlyList<DeviceIdentificationRecord>> GetDeviceIdentificationHistoryAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<DeviceIdentificationRecord>>(
+                Records.Where(record => record.DeviceId.Equals(deviceId)).ToArray());
         }
     }
 }

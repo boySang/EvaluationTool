@@ -302,7 +302,7 @@
               <Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
             </Style>
           </Grid.Style>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
           <Grid Grid.Row="0">
             <StackPanel>
               <TextBlock Text="设备管理" Style="{StaticResource PageTitleStyle}" />
@@ -363,6 +363,40 @@
               <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="探测主机指纹" Style="{StaticResource FluentSecondaryButtonStyle}" IsEnabled="{Binding DeviceConnection.CanProbe}" Click="ProbeHostKey_Click" />
                 <Button Content="确认并测试登录" IsEnabled="{Binding DeviceConnection.CanConfirm}" Click="ConfirmHostKeyAndTest_Click" />
+              </StackPanel>
+            </Grid>
+          </Border>
+          <Border Grid.Row="6" Style="{StaticResource FluentCardStyle}" Padding="18" automation:AutomationProperties.Name="最近设备识别结果">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="2.1*" /></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="设备身份" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="保留识别依据、可信度和人工确认来源" Style="{StaticResource SecondaryTextStyle}" FontSize="12" />
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="{Binding Workspace.IdentificationStatusMessage}" TextWrapping="Wrap" />
+                <Grid Margin="0,10,0,0">
+                  <Grid.Style>
+                    <Style TargetType="Grid">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                      <Style.Triggers><DataTrigger Binding="{Binding Workspace.HasSelectedIdentification}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                    </Style>
+                  </Grid.Style>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="120" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                  <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                  <TextBlock Text="类别" Style="{StaticResource SecondaryTextStyle}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Workspace.SelectedIdentification.Category, Converter={StaticResource DeviceMetadataConverter}}" />
+                  <TextBlock Grid.Row="1" Text="厂商 / 型号" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Vendor, TargetNullValue=未知厂商}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Model, TargetNullValue=未知型号}" /></TextBlock>
+                  <TextBlock Grid.Row="2" Text="系列 / 版本" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.ProductFamily, TargetNullValue=未识别}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Version, TargetNullValue=未识别}" /></TextBlock>
+                  <TextBlock Grid.Row="3" Text="可信度 / 时间" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
+                  <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Confidence, StringFormat={}{0:P0}}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.RecordedAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" /></TextBlock>
+                  <TextBlock Grid.Row="4" Text="识别依据" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
+                  <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Workspace.SelectedIdentification.Evidence}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                  <TextBlock Grid.Row="5" Text="确认方式" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
+                  <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Workspace.SelectedIdentification.ConfirmationSource, TargetNullValue=已验证规则自动识别}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                </Grid>
               </StackPanel>
             </Grid>
           </Border>

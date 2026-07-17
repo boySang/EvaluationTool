@@ -39,6 +39,10 @@ public interface IProjectWorkspaceService
         ProjectId projectId,
         CancellationToken cancellationToken = default);
 
+    Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+
     Task<DeviceId> AddDeviceAsync(
         ProjectId projectId,
         string displayName,

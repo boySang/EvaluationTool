@@ -60,7 +60,8 @@ public partial class App : Application
                 new CollectionViewModel(
                     new CollectionWorkflowService(
                         credentialVault,
-                        new CollectionEvidenceService(repository)),
+                        new CollectionEvidenceService(repository),
+                        repository),
                     new DatabaseConfirmationService(repository)),
                 componentCenter,
                 new DeviceConnectionViewModel(

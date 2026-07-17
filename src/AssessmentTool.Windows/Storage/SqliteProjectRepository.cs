@@ -19,9 +19,12 @@ public sealed class SqliteProjectRepository :
     IProjectRepository,
     ISshHostKeyTrustRepository,
     IDatabaseConfirmationRepository,
+    IDeviceIdentificationRepository,
     ICommandDraftRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
+    private const string DeviceIdentificationSelect =
+        "SELECT device_id, revision, target_category, vendor, product_family, model, version, detection_evidence, confidence, was_user_confirmed, confirmation_source, recorded_at_utc FROM device_identifications";
 
     private static readonly Migration[] Migrations =
     {
@@ -30,7 +33,8 @@ public sealed class SqliteProjectRepository :
         new Migration(3, "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql"),
         new Migration(4, "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql"),
         new Migration(5, "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql"),
-        new Migration(6, "AssessmentTool.Windows.Storage.Migrations.006_device_ssh_authentication.sql")
+        new Migration(6, "AssessmentTool.Windows.Storage.Migrations.006_device_ssh_authentication.sql"),
+        new Migration(7, "AssessmentTool.Windows.Storage.Migrations.007_device_identifications.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -536,6 +540,116 @@ public sealed class SqliteProjectRepository :
                                 reader.GetDouble(8),
                                 ParseUtc(reader.GetString(9)),
                                 reader.GetString(10)));
+                        }
+                    }
+                }
+
+                return records.AsReadOnly();
+            },
+            cancellationToken);
+    }
+
+    public Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
+        DeviceId deviceId,
+        DetectionCandidate candidate,
+        bool wasUserConfirmed,
+        string? confirmationSource,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (candidate == null)
+        {
+            throw new ArgumentNullException(nameof(candidate));
+        }
+
+        return RunDatabaseOperationAsync(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                {
+                    token.ThrowIfCancellationRequested();
+                    long revision;
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "SELECT COALESCE(MAX(revision), 0) FROM device_identifications WHERE device_id = @deviceId;";
+                        command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                        revision = checked(Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) + 1L);
+                    }
+
+                    var record = new DeviceIdentificationRecord(
+                        deviceId,
+                        revision,
+                        candidate.Category,
+                        candidate.Vendor,
+                        candidate.ProductFamily,
+                        candidate.Model,
+                        candidate.Version,
+                        candidate.Evidence,
+                        candidate.Confidence,
+                        wasUserConfirmed,
+                        confirmationSource,
+                        recordedAt);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "INSERT INTO device_identifications(device_id, revision, target_category, vendor, product_family, model, version, detection_evidence, confidence, was_user_confirmed, confirmation_source, recorded_at_utc) VALUES(@deviceId, @revision, @targetCategory, @vendor, @productFamily, @model, @version, @evidence, @confidence, @wasUserConfirmed, @confirmationSource, @recordedAtUtc);";
+                        AddDeviceIdentificationParameters(command, record);
+                        command.ExecuteNonQuery();
+                    }
+
+                    token.ThrowIfCancellationRequested();
+                    transaction.Commit();
+                    return record;
+                }
+            },
+            cancellationToken);
+    }
+
+    public Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<DeviceIdentificationRecord?>(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    token.ThrowIfCancellationRequested();
+                    command.CommandText = DeviceIdentificationSelect
+                        + " WHERE device_id = @deviceId ORDER BY revision DESC LIMIT 1;";
+                    command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                    using (var reader = command.ExecuteReader())
+                    {
+                        return reader.Read() ? ReadDeviceIdentification(reader) : null;
+                    }
+                }
+            },
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DeviceIdentificationRecord>> GetDeviceIdentificationHistoryAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<IReadOnlyList<DeviceIdentificationRecord>>(
+            token =>
+            {
+                var records = new List<DeviceIdentificationRecord>();
+                using (var connection = OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = DeviceIdentificationSelect
+                        + " WHERE device_id = @deviceId ORDER BY revision;";
+                    command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            token.ThrowIfCancellationRequested();
+                            records.Add(ReadDeviceIdentification(reader));
                         }
                     }
                 }
@@ -1340,6 +1454,43 @@ public sealed class SqliteProjectRepository :
     private static string? ReadNullableString(SQLiteDataReader reader, int ordinal)
     {
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
+    private static void AddDeviceIdentificationParameters(
+        SQLiteCommand command,
+        DeviceIdentificationRecord record)
+    {
+        command.Parameters.AddWithValue("@deviceId", record.DeviceId.ToString());
+        command.Parameters.AddWithValue("@revision", record.Revision);
+        command.Parameters.AddWithValue("@targetCategory", (int)record.Category);
+        command.Parameters.AddWithValue("@vendor", (object?)record.Vendor ?? DBNull.Value);
+        command.Parameters.AddWithValue("@productFamily", (object?)record.ProductFamily ?? DBNull.Value);
+        command.Parameters.AddWithValue("@model", (object?)record.Model ?? DBNull.Value);
+        command.Parameters.AddWithValue("@version", (object?)record.Version ?? DBNull.Value);
+        command.Parameters.AddWithValue("@evidence", record.Evidence);
+        command.Parameters.AddWithValue("@confidence", record.Confidence);
+        command.Parameters.AddWithValue("@wasUserConfirmed", record.WasUserConfirmed ? 1 : 0);
+        command.Parameters.AddWithValue(
+            "@confirmationSource",
+            (object?)record.ConfirmationSource ?? DBNull.Value);
+        command.Parameters.AddWithValue("@recordedAtUtc", FormatUtc(record.RecordedAt));
+    }
+
+    private static DeviceIdentificationRecord ReadDeviceIdentification(SQLiteDataReader reader)
+    {
+        return new DeviceIdentificationRecord(
+            DeviceId.Parse(reader.GetString(0)),
+            reader.GetInt64(1),
+            ReadEnum<TargetCategory>(reader.GetInt32(2), "device identification target category"),
+            ReadNullableString(reader, 3),
+            ReadNullableString(reader, 4),
+            ReadNullableString(reader, 5),
+            ReadNullableString(reader, 6),
+            reader.GetString(7),
+            reader.GetDouble(8),
+            reader.GetInt32(9) == 1,
+            ReadNullableString(reader, 10),
+            ParseUtc(reader.GetString(11)));
     }
 
     private static DateTimeOffset? ReadNullableUtc(SQLiteDataReader reader, int ordinal)

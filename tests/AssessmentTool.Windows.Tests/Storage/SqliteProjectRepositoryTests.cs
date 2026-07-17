@@ -115,8 +115,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(6, version));
-            Assert.Equal(6, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(7, version));
+            Assert.Equal(7, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -144,7 +144,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(6, await repository.GetSchemaVersionAsync());
+            Assert.Equal(7, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -204,7 +204,70 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(deviceId, device.Id);
             Assert.Equal(SshAuthenticationMethod.Password, device.AuthenticationMethod);
             Assert.Null(device.PrivateKeyReference);
-            Assert.Equal(6, await repository.GetSchemaVersionAsync());
+            Assert.Equal(7, await repository.GetSchemaVersionAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Device_identification_history_is_append_only_and_latest_round_trips()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "识别项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "Linux服务器", "192.0.2.30", 22, CredentialReference.New());
+            var automatic = new DetectionCandidate(
+                TargetCategory.Server, "ubuntu", "Linux", null, "22.04", "ID=ubuntu", 0.95);
+            var confirmed = new DetectionCandidate(
+                TargetCategory.Server, "ubuntu", "Linux", "虚拟机", "22.04", "ID=ubuntu", 0.95);
+            var firstAt = new DateTimeOffset(2026, 7, 18, 1, 2, 3, TimeSpan.Zero);
+
+            var first = await repository.AppendDeviceIdentificationAsync(
+                deviceId, automatic, false, null, firstAt);
+            var second = await repository.AppendDeviceIdentificationAsync(
+                deviceId, confirmed, true, "测评人员人工确认", firstAt.AddMinutes(1));
+
+            Assert.Equal(1, first.Revision);
+            Assert.Equal(2, second.Revision);
+            var latest = await repository.GetLatestDeviceIdentificationAsync(deviceId);
+            Assert.NotNull(latest);
+            Assert.Equal(2, latest!.Revision);
+            Assert.Equal("虚拟机", latest.Model);
+            Assert.True(latest.WasUserConfirmed);
+            Assert.Equal("测评人员人工确认", latest.ConfirmationSource);
+            var history = await repository.GetDeviceIdentificationHistoryAsync(deviceId);
+            Assert.Equal(new long[] { 1, 2 }, history.Select(record => record.Revision));
+
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE device_identifications SET vendor = 'changed' WHERE device_id = @deviceId;";
+                command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                Assert.Throws<SQLiteException>(() => command.ExecuteNonQuery());
+                command.Parameters.Clear();
+                command.CommandText = "DELETE FROM device_identifications WHERE device_id = @deviceId;";
+                command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                Assert.Throws<SQLiteException>(() => command.ExecuteNonQuery());
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Device_identification_rejects_unknown_device_and_invalid_confirmation_metadata()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var candidate = new DetectionCandidate(
+                TargetCategory.Server, "ubuntu", null, null, "22.04", "ID=ubuntu", 0.95);
+
+            await Assert.ThrowsAnyAsync<Exception>(() => repository.AppendDeviceIdentificationAsync(
+                DeviceId.New(), candidate, false, null, DateTimeOffset.UtcNow));
+            await Assert.ThrowsAsync<ArgumentException>(() => repository.AppendDeviceIdentificationAsync(
+                DeviceId.New(), candidate, true, null, DateTimeOffset.UtcNow));
         }
     }
 

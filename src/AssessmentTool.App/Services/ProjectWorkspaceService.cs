@@ -13,6 +13,7 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
 {
     private readonly IProjectRepository repository;
     private readonly ICredentialVault credentialVault;
+    private readonly IDeviceIdentificationRepository? identificationRepository;
 
     public ProjectWorkspaceService(IProjectRepository repository, ICredentialVault credentialVault)
     {
@@ -20,6 +21,7 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
             ?? throw new ArgumentNullException(nameof(repository), "项目数据服务不可用，请重新启动软件后重试。");
         this.credentialVault = credentialVault
             ?? throw new ArgumentNullException(nameof(credentialVault), "凭据保护服务不可用，请重新启动软件后重试。");
+        identificationRepository = repository as IDeviceIdentificationRepository;
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -55,6 +57,20 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
     {
         ValidateProjectId(projectId);
         return repository.GetDevicesAsync(projectId, cancellationToken);
+    }
+
+    public Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (deviceId.Equals(default(DeviceId)))
+        {
+            throw new ArgumentException("请先选择有效设备后重试。", nameof(deviceId));
+        }
+
+        return identificationRepository == null
+            ? Task.FromResult<DeviceIdentificationRecord?>(null)
+            : identificationRepository.GetLatestDeviceIdentificationAsync(deviceId, cancellationToken);
     }
 
     public async Task<DeviceId> AddDeviceAsync(

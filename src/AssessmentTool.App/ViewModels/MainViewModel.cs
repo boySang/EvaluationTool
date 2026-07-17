@@ -110,6 +110,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
         {
             OnPropertyChanged(nameof(CurrentDeviceName));
+            if (Workspace != null)
+            {
+                _ = Workspace.RefreshSelectedIdentificationAsync();
+            }
+
             if (CanSynchronizeCollectionSelection())
             {
                 Collection.ClearDeviceSelection();
@@ -178,6 +183,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 || Collection.State == CollectionViewModelState.Failed)
             {
                 _ = EvidenceCenter.RefreshAsync();
+            }
+
+            if (Workspace != null
+                && (Collection.State == CollectionViewModelState.AwaitingConfirmation
+                    || Collection.State == CollectionViewModelState.AwaitingDatabaseConfirmation
+                    || Collection.State == CollectionViewModelState.DatabaseConfirmed
+                    || Collection.State == CollectionViewModelState.Completed))
+            {
+                _ = Workspace.RefreshSelectedIdentificationAsync();
             }
         }
     }

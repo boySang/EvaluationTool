@@ -57,8 +57,26 @@ public sealed class MainWindowBindingTests
         Assert.Contains("PuTTY PPK 私钥", text);
         Assert.Contains("自动探测指纹 → 人工确认 → 无命令测试登录", text);
         Assert.Contains("确认并测试登录", text);
+        Assert.Contains("设备身份", text);
+        Assert.Contains("保留识别依据、可信度和人工确认来源", text);
         Assert.DoesNotContain("扫描内网", text);
         Assert.DoesNotContain("漏洞扫描", text);
+    }
+
+    [Fact]
+    public void Device_page_binds_latest_persisted_identification_and_refreshes_on_selection()
+    {
+        var mainWindowPath = FindMainWindowXaml();
+        var xaml = File.ReadAllText(mainWindowPath);
+        var mainViewModel = File.ReadAllText(Path.Combine(
+            Path.GetDirectoryName(mainWindowPath)!,
+            "ViewModels",
+            "MainViewModel.cs"));
+
+        Assert.Contains("Workspace.SelectedIdentification.Category", xaml);
+        Assert.Contains("Workspace.SelectedIdentification.Evidence", xaml);
+        Assert.Contains("Workspace.IdentificationStatusMessage", xaml);
+        Assert.Contains("RefreshSelectedIdentificationAsync", mainViewModel);
     }
 
     [Fact]

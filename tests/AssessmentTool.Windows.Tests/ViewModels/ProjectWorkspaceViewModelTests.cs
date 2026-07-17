@@ -158,6 +158,37 @@ public sealed class ProjectWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task Selected_device_loads_latest_persisted_identification_for_display()
+    {
+        var project = CreateProject("项目");
+        var device = CreateDevice(project, "服务器");
+        var identification = new DeviceIdentificationRecord(
+            device.Id,
+            2,
+            TargetCategory.Server,
+            "ubuntu",
+            "Linux",
+            null,
+            "24.04",
+            "ID=ubuntu",
+            0.95,
+            true,
+            "测评人员人工确认",
+            DateTimeOffset.UtcNow);
+        var service = new FakeProjectWorkspaceService { LatestIdentification = identification };
+        service.DeviceLoads[project.Id] = Task.FromResult<IReadOnlyList<DeviceRecord>>(new[] { device });
+        var viewModel = new ProjectWorkspaceViewModel(service);
+        await viewModel.SelectProjectAsync(project);
+        viewModel.SelectedDevice = device;
+
+        await viewModel.RefreshSelectedIdentificationAsync();
+
+        Assert.Same(identification, viewModel.SelectedIdentification);
+        Assert.True(viewModel.HasSelectedIdentification);
+        Assert.Contains("人工确认", viewModel.IdentificationStatusMessage);
+    }
+
+    [Fact]
     public async Task Operations_reject_duplicate_submission_while_busy()
     {
         var createGate = new TaskCompletionSource<ProjectId>();
@@ -297,6 +328,7 @@ public sealed class ProjectWorkspaceViewModelTests
         public (ProjectId Project, string Name, string Host, int Port, string UserName, TargetCategory Category) AddArguments { get; private set; }
         public (ProjectId Project, string Name, string Host, int Port, string UserName, TargetCategory Category) PrivateKeyAddArguments { get; private set; }
         public int PrivateKeyAddCallCount { get; private set; }
+        public DeviceIdentificationRecord? LatestIdentification { get; set; }
 
         public Task InitializeAsync(CancellationToken cancellationToken = default)
         {
@@ -324,6 +356,13 @@ public sealed class ProjectWorkspaceViewModelTests
             return DeviceLoads.TryGetValue(projectId, out var result)
                 ? result
                 : Task.FromResult<IReadOnlyList<DeviceRecord>>(Array.Empty<DeviceRecord>());
+        }
+
+        public Task<DeviceIdentificationRecord?> GetLatestDeviceIdentificationAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(LatestIdentification);
         }
 
         public async Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port,
