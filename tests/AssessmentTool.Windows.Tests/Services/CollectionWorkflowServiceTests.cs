@@ -175,7 +175,7 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
-    public async Task Low_confidence_detection_is_persisted_before_confirmation_and_collection_is_blocked()
+    public async Task Ambiguous_detection_is_persisted_then_revalidated_before_collection()
     {
         var project = CreateProject();
         var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.43", "audit-user");
@@ -183,12 +183,12 @@ public sealed class CollectionWorkflowServiceTests
         var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
         {
             ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
-            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nVERSION_ID=24.04")
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nID=kylin")
         });
         var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
         {
             ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
-            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nVERSION_ID=24.04"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nID=kylin"),
             ["generic-linux-hostname"] = Success("generic-linux-hostname", "audit-host"),
             ["generic-linux-login-defs"] = Success("generic-linux-login-defs", "PASS_MAX_DAYS 90"),
             ["database-host-discovery-linux-processes"] = Success("database-host-discovery-linux-processes", string.Empty),
@@ -199,11 +199,6 @@ public sealed class CollectionWorkflowServiceTests
         var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
         var evidence = new RecordingEvidenceService();
         var identifications = new RecordingIdentificationRepository();
-        var rule = IdentificationRule.CreateVerified(
-            TargetCategory.Server,
-            "^ID=\\\"?(?<vendor>[a-z0-9._-]+)\\\"?$",
-            0.70,
-            "https://example.invalid/fixture");
         var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.Pending", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(releaseDirectory);
         try
@@ -212,8 +207,7 @@ public sealed class CollectionWorkflowServiceTests
                 new BuiltinCommandPackCatalog(releaseDirectory),
                 _ => sessions.Dequeue(),
                 evidence,
-                identifications,
-                new[] { rule });
+                identifications);
 
             var result = await service.RunAsync(
                 CreateRequest(project, device, trust),
@@ -224,14 +218,20 @@ public sealed class CollectionWorkflowServiceTests
             Assert.True(result.PendingIdentificationBatchId.HasValue);
             var pending = Assert.Single(identifications.PendingBatches);
             Assert.Equal(result.PendingIdentificationBatchId, pending.BatchId);
-            Assert.Equal("ubuntu", Assert.Single(pending.Candidates).Vendor);
+            Assert.Equal(new[] { "kylin", "ubuntu" },
+                pending.Candidates.Select(candidate => candidate.Vendor).OrderBy(vendor => vendor));
             Assert.Equal(
                 new[] { "generic-linux-uname-a", "generic-linux-os-release" },
                 firstSession.ExecutedIds);
             Assert.Empty(identifications.Records);
 
             var completed = await service.RunAsync(
-                CreateRequest(project, device, trust, Assert.Single(result.DetectionCandidates), pending.BatchId),
+                CreateRequest(
+                    project,
+                    device,
+                    trust,
+                    result.DetectionCandidates.Single(candidate => candidate.Vendor == "ubuntu"),
+                    pending.BatchId),
                 new CountingProgress(),
                 CancellationToken.None);
 
