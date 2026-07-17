@@ -20,6 +20,7 @@ public sealed class SqliteProjectRepository :
     ISshHostKeyTrustRepository,
     IDatabaseConfirmationRepository,
     IDeviceIdentificationRepository,
+    IPendingDeviceIdentificationRepository,
     ICommandDraftRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
@@ -34,7 +35,8 @@ public sealed class SqliteProjectRepository :
         new Migration(4, "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql"),
         new Migration(5, "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql"),
         new Migration(6, "AssessmentTool.Windows.Storage.Migrations.006_device_ssh_authentication.sql"),
-        new Migration(7, "AssessmentTool.Windows.Storage.Migrations.007_device_identifications.sql")
+        new Migration(7, "AssessmentTool.Windows.Storage.Migrations.007_device_identifications.sql"),
+        new Migration(8, "AssessmentTool.Windows.Storage.Migrations.008_pending_device_identification_batches.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -666,6 +668,215 @@ public sealed class SqliteProjectRepository :
                 return records.AsReadOnly();
             },
             cancellationToken);
+    }
+
+    public async Task<PendingDeviceIdentificationBatch> AppendPendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        IReadOnlyList<DetectionCandidate> candidates,
+        Guid? supersededBatchId,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (candidates == null)
+        {
+            throw new ArgumentNullException(nameof(candidates));
+        }
+
+        if (supersededBatchId == Guid.Empty)
+        {
+            throw new ArgumentException("被替换的识别候选批次标识不能为空。", nameof(supersededBatchId));
+        }
+
+        var copiedCandidates = candidates.ToArray();
+        foreach (var candidate in copiedCandidates)
+        {
+            if (candidate == null)
+            {
+                throw new ArgumentException("识别候选批次不能包含空项。", nameof(candidates));
+            }
+
+            _ = new DeviceIdentificationRecord(
+                deviceId, 1, candidate.Category, candidate.Vendor, candidate.ProductFamily,
+                candidate.Model, candidate.Version, candidate.Evidence, candidate.Confidence,
+                false, null, recordedAt);
+        }
+
+        var batchId = Guid.NewGuid();
+        var lockKey = databasePath + "\0" + deviceId;
+        using (var lease = await DeviceIdentificationWriteLock
+            .AcquireAsync(lockKey, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return await RunDatabaseOperationAsync(
+                token =>
+                {
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        long revision;
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "SELECT COALESCE(MAX(revision), 0) FROM pending_device_identification_batches WHERE device_id = @deviceId;";
+                            command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                            revision = checked(Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) + 1L);
+                        }
+
+                        var batch = new PendingDeviceIdentificationBatch(
+                            batchId, deviceId, revision, copiedCandidates, recordedAt);
+                        if (supersededBatchId.HasValue)
+                        {
+                            InsertPendingIdentificationResolution(
+                                connection,
+                                transaction,
+                                deviceId,
+                                supersededBatchId.Value,
+                                PendingIdentificationResolution.SupersededByNewDetection,
+                                recordedAt);
+                        }
+
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO pending_device_identification_batches(batch_id, device_id, revision, candidate_count, recorded_at_utc) VALUES(@batchId, @deviceId, @revision, @candidateCount, @recordedAtUtc);";
+                            command.Parameters.AddWithValue("@batchId", batch.BatchId.ToString("D"));
+                            command.Parameters.AddWithValue("@deviceId", batch.DeviceId.ToString());
+                            command.Parameters.AddWithValue("@revision", batch.Revision);
+                            command.Parameters.AddWithValue("@candidateCount", batch.Candidates.Count);
+                            command.Parameters.AddWithValue("@recordedAtUtc", FormatUtc(batch.RecordedAt));
+                            command.ExecuteNonQuery();
+                        }
+
+                        for (var ordinal = 0; ordinal < batch.Candidates.Count; ordinal++)
+                        {
+                            InsertPendingIdentificationCandidate(
+                                connection, transaction, batch.BatchId, ordinal, batch.Candidates[ordinal]);
+                        }
+
+                        token.ThrowIfCancellationRequested();
+                        transaction.Commit();
+                        return batch;
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public Task<PendingDeviceIdentificationBatch?> GetLatestPendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<PendingDeviceIdentificationBatch?>(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                {
+                    Guid batchId;
+                    long revision;
+                    int candidateCount;
+                    DateTimeOffset recordedAt;
+                    bool isResolved;
+                    using (var command = connection.CreateCommand())
+                    {
+                        token.ThrowIfCancellationRequested();
+                        command.CommandText = "SELECT b.batch_id, b.revision, b.candidate_count, b.recorded_at_utc, CASE WHEN r.batch_id IS NULL THEN 0 ELSE 1 END FROM pending_device_identification_batches b LEFT JOIN pending_device_identification_resolutions r ON r.batch_id = b.batch_id WHERE b.device_id = @deviceId ORDER BY b.revision DESC LIMIT 1;";
+                        command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                        using (var reader = command.ExecuteReader())
+                        {
+                            if (!reader.Read())
+                            {
+                                return null;
+                            }
+
+                            batchId = Guid.Parse(reader.GetString(0));
+                            revision = reader.GetInt64(1);
+                            candidateCount = reader.GetInt32(2);
+                            recordedAt = ParseUtc(reader.GetString(3));
+                            isResolved = reader.GetInt32(4) == 1;
+                        }
+                    }
+
+                    if (isResolved)
+                    {
+                        return null;
+                    }
+
+                    var candidates = new List<DetectionCandidate>();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT target_category, vendor, product_family, model, version, detection_evidence, confidence FROM pending_device_identification_candidates WHERE batch_id = @batchId ORDER BY ordinal;";
+                        command.Parameters.AddWithValue("@batchId", batchId.ToString("D"));
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                token.ThrowIfCancellationRequested();
+                                candidates.Add(new DetectionCandidate(
+                                    ReadEnum<TargetCategory>(reader.GetInt32(0), "pending identification target category"),
+                                    ReadNullableString(reader, 1),
+                                    ReadNullableString(reader, 2),
+                                    ReadNullableString(reader, 3),
+                                    ReadNullableString(reader, 4),
+                                    reader.GetString(5),
+                                    reader.GetDouble(6)));
+                            }
+                        }
+                    }
+
+                    if (candidates.Count != candidateCount)
+                    {
+                        throw new InvalidDataException("待确认识别候选批次不完整，已阻止恢复。");
+                    }
+
+                    return new PendingDeviceIdentificationBatch(
+                        batchId, deviceId, revision, candidates, recordedAt);
+                }
+            },
+            cancellationToken);
+    }
+
+    public async Task ResolvePendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        Guid batchId,
+        PendingIdentificationResolution resolution,
+        DateTimeOffset resolvedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Enum.IsDefined(typeof(PendingIdentificationResolution), resolution))
+        {
+            throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "待确认识别批次处理结果无效。");
+        }
+
+        if (batchId == Guid.Empty)
+        {
+            throw new ArgumentException("待确认识别批次标识不能为空。", nameof(batchId));
+        }
+
+        if (resolvedAt == default(DateTimeOffset))
+        {
+            throw new ArgumentException("待确认识别批次处理时间不能为空。", nameof(resolvedAt));
+        }
+
+        var lockKey = databasePath + "\0" + deviceId;
+        using (var lease = await DeviceIdentificationWriteLock
+            .AcquireAsync(lockKey, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            await RunDatabaseOperationAsync(
+                token =>
+                {
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        InsertPendingIdentificationResolution(
+                            connection, transaction, deviceId, batchId, resolution, resolvedAt);
+                        transaction.Commit();
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     public Task<Guid> SaveCommandDraftAsync(
@@ -1483,6 +1694,53 @@ public sealed class SqliteProjectRepository :
             "@confirmationSource",
             (object?)record.ConfirmationSource ?? DBNull.Value);
         command.Parameters.AddWithValue("@recordedAtUtc", FormatUtc(record.RecordedAt));
+    }
+
+    private static void InsertPendingIdentificationCandidate(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        Guid batchId,
+        int ordinal,
+        DetectionCandidate candidate)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO pending_device_identification_candidates(batch_id, ordinal, target_category, vendor, product_family, model, version, detection_evidence, confidence) VALUES(@batchId, @ordinal, @targetCategory, @vendor, @productFamily, @model, @version, @evidence, @confidence);";
+            command.Parameters.AddWithValue("@batchId", batchId.ToString("D"));
+            command.Parameters.AddWithValue("@ordinal", ordinal);
+            command.Parameters.AddWithValue("@targetCategory", (int)candidate.Category);
+            command.Parameters.AddWithValue("@vendor", (object?)candidate.Vendor ?? DBNull.Value);
+            command.Parameters.AddWithValue("@productFamily", (object?)candidate.ProductFamily ?? DBNull.Value);
+            command.Parameters.AddWithValue("@model", (object?)candidate.Model ?? DBNull.Value);
+            command.Parameters.AddWithValue("@version", (object?)candidate.Version ?? DBNull.Value);
+            command.Parameters.AddWithValue("@evidence", candidate.Evidence);
+            command.Parameters.AddWithValue("@confidence", candidate.Confidence);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private static void InsertPendingIdentificationResolution(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        DeviceId deviceId,
+        Guid batchId,
+        PendingIdentificationResolution resolution,
+        DateTimeOffset resolvedAt)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO pending_device_identification_resolutions(batch_id, resolution, resolved_at_utc) SELECT b.batch_id, @resolution, @resolvedAtUtc FROM pending_device_identification_batches b WHERE b.batch_id = @batchId AND b.device_id = @deviceId AND NOT EXISTS (SELECT 1 FROM pending_device_identification_resolutions r WHERE r.batch_id = b.batch_id);";
+            command.Parameters.AddWithValue("@batchId", batchId.ToString("D"));
+            command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+            command.Parameters.AddWithValue("@resolution", (int)resolution);
+            command.Parameters.AddWithValue("@resolvedAtUtc", FormatUtc(resolvedAt));
+            if (command.ExecuteNonQuery() != 1)
+            {
+                throw new InvalidOperationException("待确认识别批次不存在、已处理或不属于当前设备。");
+            }
+        }
     }
 
     private static DeviceIdentificationRecord ReadDeviceIdentification(SQLiteDataReader reader)

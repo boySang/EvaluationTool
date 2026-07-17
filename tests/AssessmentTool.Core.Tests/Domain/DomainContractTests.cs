@@ -197,6 +197,25 @@ public sealed class DomainContractTests
     }
 
     [Fact]
+    public void DetectionResult_confirm_uses_the_fresh_current_candidate_after_revalidation()
+    {
+        var freshCandidate = CreateCandidate(0.42);
+        var persistedEquivalent = new DetectionCandidate(
+            freshCandidate.Category,
+            freshCandidate.Vendor,
+            freshCandidate.ProductFamily,
+            freshCandidate.Model,
+            freshCandidate.Version,
+            freshCandidate.Evidence,
+            freshCandidate.Confidence);
+        var result = new DetectionResult(new[] { freshCandidate });
+
+        var confirmed = result.Confirm(persistedEquivalent);
+
+        Assert.Same(freshCandidate, Assert.Single(confirmed.Candidates));
+    }
+
+    [Fact]
     public void DetectionResult_confirm_rejects_automatic_candidate()
     {
         var candidate = new DetectionCandidate(

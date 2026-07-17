@@ -49,7 +49,8 @@ public sealed class CollectionWorkflowRequest
     public CollectionWorkflowRequest(
         ProjectRecord project,
         CollectionDeviceSelection deviceSelection,
-        DetectionCandidate? confirmedCandidate = null)
+        DetectionCandidate? confirmedCandidate = null,
+        Guid? pendingIdentificationBatchId = null)
     {
         Project = project ?? throw new ArgumentNullException(nameof(project));
         DeviceSelection = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
@@ -58,12 +59,25 @@ public sealed class CollectionWorkflowRequest
             throw new ArgumentException("所选设备不属于当前项目。", nameof(deviceSelection));
         }
 
+        if ((confirmedCandidate == null && pendingIdentificationBatchId.HasValue)
+            || (confirmedCandidate != null && !pendingIdentificationBatchId.HasValue))
+        {
+            throw new ArgumentException("人工确认候选和待确认识别批次必须同时提供。");
+        }
+
+        if (pendingIdentificationBatchId == Guid.Empty)
+        {
+            throw new ArgumentException("待确认识别批次标识不能为空。", nameof(pendingIdentificationBatchId));
+        }
+
         ConfirmedCandidate = confirmedCandidate;
+        PendingIdentificationBatchId = pendingIdentificationBatchId;
     }
 
     public ProjectRecord Project { get; }
     public CollectionDeviceSelection DeviceSelection { get; }
     public DetectionCandidate? ConfirmedCandidate { get; }
+    public Guid? PendingIdentificationBatchId { get; }
 }
 
 public enum CollectionWorkflowOutcome
@@ -140,13 +154,15 @@ public sealed class CollectionWorkflowResult
         IEnumerable<DetectionCandidate> detectionCandidates,
         IEnumerable<DatabaseInstanceCandidate> databaseCandidates,
         IEnumerable<CompletedCollectionCommand> completedCommands,
-        CollectionError? error)
+        CollectionError? error,
+        Guid? pendingIdentificationBatchId)
     {
         Outcome = outcome;
         DetectionCandidates = Copy(detectionCandidates, nameof(detectionCandidates));
         DatabaseCandidates = Copy(databaseCandidates, nameof(databaseCandidates));
         CompletedCommands = Copy(completedCommands, nameof(completedCommands));
         Error = error;
+        PendingIdentificationBatchId = pendingIdentificationBatchId;
     }
 
     public CollectionWorkflowOutcome Outcome { get; }
@@ -154,6 +170,7 @@ public sealed class CollectionWorkflowResult
     public IReadOnlyList<DatabaseInstanceCandidate> DatabaseCandidates { get; }
     public IReadOnlyList<CompletedCollectionCommand> CompletedCommands { get; }
     public CollectionError? Error { get; }
+    public Guid? PendingIdentificationBatchId { get; }
 
     public static CollectionWorkflowResult Completed(IEnumerable<CompletedCollectionCommand> completedCommands)
     {
@@ -162,10 +179,13 @@ public sealed class CollectionWorkflowResult
             Array.Empty<DetectionCandidate>(),
             Array.Empty<DatabaseInstanceCandidate>(),
             completedCommands,
+            null,
             null);
     }
 
-    public static CollectionWorkflowResult RequiresConfirmation(IEnumerable<DetectionCandidate> candidates)
+    public static CollectionWorkflowResult RequiresConfirmation(
+        IEnumerable<DetectionCandidate> candidates,
+        Guid pendingIdentificationBatchId)
     {
         var copied = Copy(candidates, nameof(candidates));
         if (copied.Count == 0)
@@ -173,12 +193,18 @@ public sealed class CollectionWorkflowResult
             throw new ArgumentException("需要确认时必须提供识别候选项。", nameof(candidates));
         }
 
+        if (pendingIdentificationBatchId == Guid.Empty)
+        {
+            throw new ArgumentException("待确认识别批次标识不能为空。", nameof(pendingIdentificationBatchId));
+        }
+
         return new CollectionWorkflowResult(
             CollectionWorkflowOutcome.RequiresConfirmation,
             copied,
             Array.Empty<DatabaseInstanceCandidate>(),
             Array.Empty<CompletedCollectionCommand>(),
-            null);
+            null,
+            pendingIdentificationBatchId);
     }
 
     public static CollectionWorkflowResult RequiresDatabaseConfirmation(
@@ -196,6 +222,7 @@ public sealed class CollectionWorkflowResult
             Array.Empty<DetectionCandidate>(),
             copied,
             completedCommands ?? Array.Empty<CompletedCollectionCommand>(),
+            null,
             null);
     }
 
@@ -206,7 +233,8 @@ public sealed class CollectionWorkflowResult
             Array.Empty<DetectionCandidate>(),
             Array.Empty<DatabaseInstanceCandidate>(),
             Array.Empty<CompletedCollectionCommand>(),
-            error ?? throw new ArgumentNullException(nameof(error)));
+            error ?? throw new ArgumentNullException(nameof(error)),
+            null);
     }
 
     public static CollectionWorkflowResult Stopped()
@@ -216,6 +244,7 @@ public sealed class CollectionWorkflowResult
             Array.Empty<DetectionCandidate>(),
             Array.Empty<DatabaseInstanceCandidate>(),
             Array.Empty<CompletedCollectionCommand>(),
+            null,
             null);
     }
 

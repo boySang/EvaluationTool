@@ -84,6 +84,27 @@ public interface IDeviceIdentificationRepository
         CancellationToken cancellationToken = default);
 }
 
+public interface IPendingDeviceIdentificationRepository
+{
+    Task<PendingDeviceIdentificationBatch> AppendPendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        IReadOnlyList<DetectionCandidate> candidates,
+        Guid? supersededBatchId,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<PendingDeviceIdentificationBatch?> GetLatestPendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+
+    Task ResolvePendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        Guid batchId,
+        PendingIdentificationResolution resolution,
+        DateTimeOffset resolvedAt,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ISshHostKeyTrustRepository
 {
     Task<SshHostKeyTrustRecord> GetSshHostKeyTrustAsync(

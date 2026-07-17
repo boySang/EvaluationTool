@@ -175,6 +175,83 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Low_confidence_detection_is_persisted_before_confirmation_and_collection_is_blocked()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.43", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nVERSION_ID=24.04")
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nVERSION_ID=24.04"),
+            ["generic-linux-hostname"] = Success("generic-linux-hostname", "audit-host"),
+            ["generic-linux-login-defs"] = Success("generic-linux-login-defs", "PASS_MAX_DAYS 90"),
+            ["database-host-discovery-linux-processes"] = Success("database-host-discovery-linux-processes", string.Empty),
+            ["database-host-discovery-linux-services"] = Success("database-host-discovery-linux-services", string.Empty),
+            ["database-host-discovery-linux-docker-containers"] = MissingOptional("database-host-discovery-linux-docker-containers"),
+            ["database-host-discovery-linux-podman-containers"] = MissingOptional("database-host-discovery-linux-podman-containers")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var evidence = new RecordingEvidenceService();
+        var identifications = new RecordingIdentificationRepository();
+        var rule = IdentificationRule.CreateVerified(
+            TargetCategory.Server,
+            "^ID=\\\"?(?<vendor>[a-z0-9._-]+)\\\"?$",
+            0.70,
+            "https://example.invalid/fixture");
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.Pending", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                evidence,
+                identifications,
+                new[] { rule });
+
+            var result = await service.RunAsync(
+                CreateRequest(project, device, trust),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, result.Outcome);
+            Assert.True(result.PendingIdentificationBatchId.HasValue);
+            var pending = Assert.Single(identifications.PendingBatches);
+            Assert.Equal(result.PendingIdentificationBatchId, pending.BatchId);
+            Assert.Equal("ubuntu", Assert.Single(pending.Candidates).Vendor);
+            Assert.Equal(
+                new[] { "generic-linux-uname-a", "generic-linux-os-release" },
+                firstSession.ExecutedIds);
+            Assert.Empty(identifications.Records);
+
+            var completed = await service.RunAsync(
+                CreateRequest(project, device, trust, Assert.Single(result.DetectionCandidates), pending.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, completed.Outcome);
+            var identification = Assert.Single(identifications.Records);
+            Assert.True(identification.WasUserConfirmed);
+            Assert.Equal("ubuntu", identification.Vendor);
+            Assert.Equal(pending.BatchId, Assert.Single(identifications.Resolutions).BatchId);
+            Assert.Equal(
+                PendingIdentificationResolution.RevalidatedAndCompleted,
+                identifications.Resolutions[0].Resolution);
+            Assert.Equal(8, secondSession.ExecutedIds.Count);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Generic_linux_collection_pack_contains_only_the_explicit_collection_subset()
     {
         var releaseDirectory = Path.Combine(
@@ -309,14 +386,18 @@ public sealed class CollectionWorkflowServiceTests
     private static CollectionWorkflowRequest CreateRequest(
         ProjectRecord project,
         DeviceRecord device,
-        HostKeyTrust trust)
+        HostKeyTrust trust,
+        DetectionCandidate? confirmedCandidate = null,
+        Guid? pendingIdentificationBatchId = null)
     {
         return new CollectionWorkflowRequest(
             project,
             new CollectionDeviceSelection(
                 device,
                 isRequiredComponentAvailable: true,
-                hostKeyTrust: trust));
+                hostKeyTrust: trust),
+            confirmedCandidate,
+            pendingIdentificationBatchId);
     }
 
     private static HostKeyTrust CreateTrust(string host, int port, HostKeyTrustState state)
@@ -527,9 +608,15 @@ public sealed class CollectionWorkflowServiceTests
         }
     }
 
-    private sealed class RecordingIdentificationRepository : IDeviceIdentificationRepository
+    private sealed class RecordingIdentificationRepository :
+        IDeviceIdentificationRepository,
+        IPendingDeviceIdentificationRepository
     {
         internal List<DeviceIdentificationRecord> Records { get; } = new List<DeviceIdentificationRecord>();
+        internal List<PendingDeviceIdentificationBatch> PendingBatches { get; } =
+            new List<PendingDeviceIdentificationBatch>();
+        internal List<(Guid BatchId, PendingIdentificationResolution Resolution)> Resolutions { get; } =
+            new List<(Guid BatchId, PendingIdentificationResolution Resolution)>();
 
         public Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
             DeviceId deviceId,
@@ -570,6 +657,38 @@ public sealed class CollectionWorkflowServiceTests
         {
             return Task.FromResult<IReadOnlyList<DeviceIdentificationRecord>>(
                 Records.Where(record => record.DeviceId.Equals(deviceId)).ToArray());
+        }
+
+        public Task<PendingDeviceIdentificationBatch> AppendPendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            IReadOnlyList<DetectionCandidate> candidates,
+            Guid? supersededBatchId,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            var batch = new PendingDeviceIdentificationBatch(
+                Guid.NewGuid(), deviceId, PendingBatches.Count + 1, candidates, recordedAt);
+            PendingBatches.Add(batch);
+            return Task.FromResult(batch);
+        }
+
+        public Task<PendingDeviceIdentificationBatch?> GetLatestPendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<PendingDeviceIdentificationBatch?>(
+                PendingBatches.LastOrDefault(batch => batch.DeviceId.Equals(deviceId)));
+        }
+
+        public Task ResolvePendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            Guid batchId,
+            PendingIdentificationResolution resolution,
+            DateTimeOffset resolvedAt,
+            CancellationToken cancellationToken = default)
+        {
+            Resolutions.Add((batchId, resolution));
+            return Task.CompletedTask;
         }
     }
 }

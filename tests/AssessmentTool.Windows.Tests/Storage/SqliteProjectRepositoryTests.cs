@@ -115,8 +115,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(7, version));
-            Assert.Equal(7, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(8, version));
+            Assert.Equal(8, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -144,7 +144,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(7, await repository.GetSchemaVersionAsync());
+            Assert.Equal(8, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -204,7 +204,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(deviceId, device.Id);
             Assert.Equal(SshAuthenticationMethod.Password, device.AuthenticationMethod);
             Assert.Null(device.PrivateKeyReference);
-            Assert.Equal(7, await repository.GetSchemaVersionAsync());
+            Assert.Equal(8, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -284,6 +284,68 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(Enumerable.Range(1, 12).Select(value => (long)value),
                 history.Select(record => record.Revision));
             Assert.Equal(0, SqliteProjectRepository.DeviceIdentificationWriteLockCount);
+        }
+    }
+
+    [Fact]
+    public async Task Pending_identification_batches_restore_latest_and_append_resolutions()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "候选恢复项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "待识别设备", "192.0.2.32", 22, CredentialReference.New());
+            var firstCandidates = new[]
+            {
+                new DetectionCandidate(
+                    TargetCategory.Server, "ubuntu", "Linux", null, "22.04", "ID=ubuntu", 0.70),
+                new DetectionCandidate(
+                    TargetCategory.Server, "kylin", "Linux", null, "V10", "ID=kylin", 0.65)
+            };
+            var first = await repository.AppendPendingDeviceIdentificationAsync(
+                deviceId, firstCandidates, null, DateTimeOffset.UtcNow);
+
+            var restored = await repository.GetLatestPendingDeviceIdentificationAsync(deviceId);
+
+            Assert.NotNull(restored);
+            Assert.Equal(first.BatchId, restored!.BatchId);
+            Assert.Equal(new[] { "ubuntu", "kylin" },
+                restored.Candidates.Select(candidate => candidate.Vendor));
+            var replacement = await repository.AppendPendingDeviceIdentificationAsync(
+                deviceId,
+                new[]
+                {
+                    new DetectionCandidate(
+                        TargetCategory.Server, "ubuntu", "Linux", null, "24.04", "ID=ubuntu", 0.80)
+                },
+                first.BatchId,
+                DateTimeOffset.UtcNow.AddMinutes(1));
+            Assert.Equal(2, replacement.Revision);
+            Assert.Equal(replacement.BatchId,
+                (await repository.GetLatestPendingDeviceIdentificationAsync(deviceId))!.BatchId);
+
+            await repository.ResolvePendingDeviceIdentificationAsync(
+                deviceId,
+                replacement.BatchId,
+                PendingIdentificationResolution.RevalidatedAndCompleted,
+                DateTimeOffset.UtcNow.AddMinutes(2));
+
+            Assert.Null(await repository.GetLatestPendingDeviceIdentificationAsync(deviceId));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.ResolvePendingDeviceIdentificationAsync(
+                    deviceId,
+                    replacement.BatchId,
+                    PendingIdentificationResolution.RevalidatedAndCompleted,
+                    DateTimeOffset.UtcNow.AddMinutes(3)));
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE pending_device_identification_batches SET candidate_count = 1 WHERE batch_id = @batchId;";
+                command.Parameters.AddWithValue("@batchId", first.BatchId.ToString("D"));
+                Assert.Throws<SQLiteException>(() => command.ExecuteNonQuery());
+            }
         }
     }
 

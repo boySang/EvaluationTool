@@ -110,14 +110,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
         {
             OnPropertyChanged(nameof(CurrentDeviceName));
+            if (CanSynchronizeCollectionSelection())
+            {
+                Collection.ClearDeviceSelection();
+            }
+
             if (Workspace != null)
             {
                 _ = Workspace.RefreshSelectedIdentificationAsync();
+                if (Workspace.SelectedDevice != null)
+                {
+                    _ = Collection.RestorePendingIdentificationAsync(Workspace.SelectedDevice);
+                }
             }
 
             if (CanSynchronizeCollectionSelection())
             {
-                Collection.ClearDeviceSelection();
                 _ = SynchronizeSelectedDeviceAsync();
             }
         }

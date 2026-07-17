@@ -17,9 +17,11 @@ namespace AssessmentTool.App.Services;
 public sealed class CollectionWorkflowService : ICollectionWorkflowService
 {
     private readonly BuiltinCommandPackCatalog commandCatalog;
+    private readonly IReadOnlyList<IdentificationRule> identificationRules;
     private readonly Func<ConnectionProfile, IRemoteSession> createSession;
     private readonly ICollectionEvidenceService evidenceService;
     private readonly IDeviceIdentificationRepository? identificationRepository;
+    private readonly IPendingDeviceIdentificationRepository? pendingIdentificationRepository;
 
     public CollectionWorkflowService(
         ICredentialVault credentialVault,
@@ -58,12 +60,15 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         BuiltinCommandPackCatalog commandCatalog,
         Func<ConnectionProfile, IRemoteSession> createSession,
         ICollectionEvidenceService evidenceService,
-        IDeviceIdentificationRepository? identificationRepository)
+        IDeviceIdentificationRepository? identificationRepository,
+        IReadOnlyList<IdentificationRule>? identificationRules = null)
     {
         this.commandCatalog = commandCatalog ?? throw new ArgumentNullException(nameof(commandCatalog));
         this.createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
         this.evidenceService = evidenceService ?? throw new ArgumentNullException(nameof(evidenceService));
         this.identificationRepository = identificationRepository;
+        pendingIdentificationRepository = identificationRepository as IPendingDeviceIdentificationRepository;
+        this.identificationRules = identificationRules ?? new[] { BuiltInIdentificationRules.LinuxOsReleaseId };
     }
 
     public async Task<CollectionWorkflowResult> RunAsync(
@@ -125,7 +130,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 var runner = new CollectionRunner(
                     session,
                     commandCatalog.SelectGenericLinuxIdentificationCommands(fullPack),
-                    new[] { BuiltInIdentificationRules.LinuxOsReleaseId },
+                    identificationRules,
                     new DetectionEngine(),
                     new CommandMatcher(),
                     new CommandSafetyPolicy());
@@ -140,10 +145,14 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     fullPack,
                     result.IdentificationOutputs.Concat(result.CommandOutputs));
                 workflowStage = "保存设备身份识别审计记录";
-                await SaveIdentificationAsync(device, result.Detection, cancellationToken);
+                var pendingBatchId = await SaveIdentificationStateAsync(
+                    device,
+                    request.PendingIdentificationBatchId,
+                    result.Detection,
+                    cancellationToken);
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
-                    return MapResult(result);
+                    return MapResult(result, pendingBatchId);
                 }
 
                 workflowStage = "执行数据库主机只读发现";
@@ -174,26 +183,65 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         }
     }
 
-    private async Task SaveIdentificationAsync(
+    private async Task<Guid?> SaveIdentificationStateAsync(
         DeviceRecord device,
+        Guid? previousPendingBatchId,
         DetectionResult? detection,
         CancellationToken cancellationToken)
     {
-        if (identificationRepository == null
-            || detection == null
-            || detection.RequiresUserConfirmation
-            || detection.Candidates.Count != 1)
+        if (detection == null)
         {
-            return;
+            return null;
         }
 
-        await identificationRepository.AppendDeviceIdentificationAsync(
-            device.Id,
-            detection.Candidates[0],
-            detection.WasUserConfirmed,
-            detection.WasUserConfirmed ? "测评人员在设备识别候选界面人工确认" : null,
-            DateTimeOffset.UtcNow,
-            cancellationToken).ConfigureAwait(false);
+        if (detection.RequiresUserConfirmation)
+        {
+            if (pendingIdentificationRepository == null)
+            {
+                throw new InvalidOperationException("待确认识别候选持久化服务不可用，已阻止继续。");
+            }
+
+            var batch = await pendingIdentificationRepository.AppendPendingDeviceIdentificationAsync(
+                device.Id,
+                detection.Candidates,
+                previousPendingBatchId,
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+            return batch.BatchId;
+        }
+
+        if (detection.Candidates.Count != 1)
+        {
+            return null;
+        }
+
+        if (identificationRepository != null)
+        {
+            await identificationRepository.AppendDeviceIdentificationAsync(
+                device.Id,
+                detection.Candidates[0],
+                detection.WasUserConfirmed,
+                detection.WasUserConfirmed ? "测评人员在设备识别候选界面人工确认" : null,
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (previousPendingBatchId.HasValue)
+        {
+            if (pendingIdentificationRepository == null)
+            {
+                throw new InvalidOperationException("待确认识别候选处理服务不可用，已阻止继续。");
+            }
+
+            await pendingIdentificationRepository.ResolvePendingDeviceIdentificationAsync(
+                device.Id,
+                previousPendingBatchId.Value,
+                PendingIdentificationResolution.RevalidatedAndCompleted,
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
     }
 
     private async Task SaveOutputsAsync(
@@ -220,7 +268,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         }
     }
 
-    private static CollectionWorkflowResult MapResult(CollectionResult result)
+    private static CollectionWorkflowResult MapResult(CollectionResult result, Guid? pendingBatchId)
     {
         switch (result.Outcome)
         {
@@ -230,7 +278,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             case CollectionOutcome.NeedsUserConfirmation:
                 return CollectionWorkflowResult.RequiresConfirmation(
                     (result.Detection ?? throw new InvalidOperationException("识别确认结果缺少候选项。"))
-                    .Candidates);
+                    .Candidates,
+                    pendingBatchId ?? throw new InvalidOperationException("识别确认结果缺少持久化批次。"));
             case CollectionOutcome.Stopped:
                 return CollectionWorkflowResult.Stopped();
             default:

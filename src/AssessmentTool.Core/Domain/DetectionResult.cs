@@ -76,12 +76,14 @@ public sealed class DetectionResult
             throw new ArgumentException("人工确认结果必须选择具体对象类别。", nameof(selectedCandidate));
         }
 
-        if (!Candidates.Any(candidate => IsSameCandidate(candidate, selectedCandidate)))
+        var currentCandidate = Candidates.FirstOrDefault(candidate =>
+            IsSameCandidate(candidate, selectedCandidate));
+        if (currentCandidate == null)
         {
             throw new ArgumentException("人工确认结果不属于本次识别候选，已阻止继续执行。", nameof(selectedCandidate));
         }
 
-        return new DetectionResult(new[] { selectedCandidate }, wasUserConfirmed: true);
+        return new DetectionResult(new[] { currentCandidate }, wasUserConfirmed: true);
     }
 
     private static bool IsSameCandidate(DetectionCandidate left, DetectionCandidate right)

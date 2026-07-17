@@ -11,6 +11,7 @@ using AssessmentTool.App.Services;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Execution;
+using AssessmentTool.Windows.Storage;
 
 namespace AssessmentTool.App.ViewModels;
 
@@ -33,6 +34,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
 {
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
+    private readonly IPendingDeviceIdentificationRepository? pendingIdentificationRepository;
     private readonly DelegateCommand startCommand;
     private readonly DelegateCommand stopCommand;
     private readonly ParameterizedDelegateCommand<DetectionCandidate> confirmDetectionCommand;
@@ -52,22 +54,27 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private int completedCommandCount;
     private int totalCommandCount;
     private int activeGeneration;
+    private int pendingIdentificationLoadGeneration;
+    private Guid? pendingIdentificationBatchId;
+    private DeviceId pendingIdentificationDeviceId;
+    private bool isRecoveredIdentification;
     private CollectionError? error;
 
     public CollectionViewModel(
         ICollectionWorkflowService workflowService,
-        IDatabaseConfirmationService databaseConfirmationService)
+        IDatabaseConfirmationService databaseConfirmationService,
+        IPendingDeviceIdentificationRepository? pendingIdentificationRepository = null)
     {
         this.workflowService = workflowService ?? throw new ArgumentNullException(nameof(workflowService));
         this.databaseConfirmationService = databaseConfirmationService
             ?? throw new ArgumentNullException(nameof(databaseConfirmationService));
+        this.pendingIdentificationRepository = pendingIdentificationRepository;
         state = CollectionViewModelState.Idle;
         startCommand = new DelegateCommand(() => _ = StartAsync(), CanStart);
         stopCommand = new DelegateCommand(Stop, () => State == CollectionViewModelState.Running);
         confirmDetectionCommand = new ParameterizedDelegateCommand<DetectionCandidate>(
             candidate => _ = ConfirmAndRetryAsync(candidate),
-            candidate => State == CollectionViewModelState.AwaitingConfirmation
-                && DetectionCandidates.Contains(candidate));
+            CanConfirmDetection);
         confirmDatabaseCommand = new ParameterizedDelegateCommand<DatabaseInstanceCandidate>(
             candidate => _ = ConfirmDatabaseAsync(candidate),
             candidate => State == CollectionViewModelState.AwaitingDatabaseConfirmation
@@ -92,6 +99,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public int TotalCommandCount => totalCommandCount;
     public CollectionError? Error => error;
     public bool IsDetectionConfirmationVisible => State == CollectionViewModelState.AwaitingConfirmation;
+    public bool IsRecoveredIdentification => isRecoveredIdentification;
     public bool IsDatabaseConfirmationVisible => State == CollectionViewModelState.AwaitingDatabaseConfirmation;
     public bool IsComponentCenterNavigationSuggested =>
         selectedDevice != null && !IsRequiredComponentAvailable;
@@ -103,6 +111,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         if (selectedProject == null || !selectedProject.Id.Equals(nextProject.Id))
         {
             selectedDevice = null;
+            ClearPendingIdentification();
             OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         }
 
@@ -115,13 +124,22 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         EnsureSelectionCanChange();
         selectedDevice = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
-        RefreshReadiness();
+        if (pendingIdentificationBatchId.HasValue
+            && pendingIdentificationDeviceId.Equals(selectedDevice.Device.Id))
+        {
+            SetState(CollectionViewModelState.AwaitingConfirmation);
+        }
+        else
+        {
+            RefreshReadiness();
+        }
     }
 
     public void ClearDeviceSelection()
     {
         EnsureSelectionCanChange();
         selectedDevice = null;
+        ClearPendingIdentification();
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         RefreshReadiness();
     }
@@ -133,6 +151,67 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         RefreshReadiness();
     }
 
+    public async Task RestorePendingIdentificationAsync(DeviceRecord device)
+    {
+        if (device == null)
+        {
+            throw new ArgumentNullException(nameof(device));
+        }
+
+        var generation = unchecked(++pendingIdentificationLoadGeneration);
+        if (pendingIdentificationRepository == null
+            || selectedProject == null
+            || !device.ProjectId.Equals(selectedProject.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            var restored = await pendingIdentificationRepository
+                .GetLatestPendingDeviceIdentificationAsync(device.Id)
+                .ConfigureAwait(true);
+            if (generation != pendingIdentificationLoadGeneration
+                || selectedProject == null
+                || !device.ProjectId.Equals(selectedProject.Id)
+                || (selectedDevice != null && !selectedDevice.Device.Id.Equals(device.Id)))
+            {
+                return;
+            }
+
+            if (restored == null)
+            {
+                ClearPendingIdentification();
+                RefreshReadiness();
+                return;
+            }
+
+            pendingIdentificationBatchId = restored.BatchId;
+            pendingIdentificationDeviceId = restored.DeviceId;
+            isRecoveredIdentification = true;
+            OnPropertyChanged(nameof(IsRecoveredIdentification));
+            SetDetectionCandidates(restored.Candidates);
+            progressMessage = "已恢复上次待确认的设备识别候选；确认后会重新执行低风险识别，不会直接使用旧结果采集。";
+            OnPropertyChanged(nameof(ProgressMessage));
+            SetState(CollectionViewModelState.AwaitingConfirmation);
+        }
+        catch (Exception exception)
+        {
+            if (generation != pendingIdentificationLoadGeneration)
+            {
+                return;
+            }
+
+            ClearPendingIdentification();
+            SetError(new CollectionError(
+                "待确认识别候选读取失败",
+                "本地项目数据库无法读取上次保存的候选批次",
+                "检查本地数据目录权限和磁盘状态后重新选择设备",
+                exception.GetType().Name));
+            RefreshReadiness();
+        }
+    }
+
     public Task StartAsync()
     {
         if (!CanStart())
@@ -140,7 +219,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             throw new InvalidOperationException("项目、设备、连接组件和主机指纹均就绪后才能开始采集。");
         }
 
-        return RunAsync(null);
+        return RunAsync(null, null);
     }
 
     public Task ConfirmAndRetryAsync(DetectionCandidate candidate)
@@ -151,12 +230,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         }
 
         if (State != CollectionViewModelState.AwaitingConfirmation
-            || !DetectionCandidates.Contains(candidate))
+            || !DetectionCandidates.Contains(candidate)
+            || !pendingIdentificationBatchId.HasValue
+            || !CanConfirmDetection(candidate))
         {
-            throw new InvalidOperationException("只能确认当前识别候选项。");
+            throw new InvalidOperationException("只能在连接和组件就绪后确认当前识别候选项。");
         }
 
-        return RunAsync(candidate);
+        return RunAsync(candidate, pendingIdentificationBatchId.Value);
     }
 
     public void Stop()
@@ -224,12 +305,28 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             && selectedDevice.IsHostKeyTrusted;
     }
 
+    private bool CanConfirmDetection(DetectionCandidate? candidate)
+    {
+        return candidate != null
+            && State == CollectionViewModelState.AwaitingConfirmation
+            && DetectionCandidates.Contains(candidate)
+            && pendingIdentificationBatchId.HasValue
+            && selectedProject != null
+            && selectedDevice != null
+            && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)
+            && selectedDevice.Device.Id.Equals(pendingIdentificationDeviceId)
+            && IsRequiredComponentAvailable
+            && selectedDevice.IsHostKeyTrusted;
+    }
+
     private bool IsRequiredComponentAvailable =>
         requiredComponentAvailabilityOverride
         ?? selectedDevice?.IsRequiredComponentAvailable
         ?? false;
 
-    private async Task RunAsync(DetectionCandidate? confirmedCandidate)
+    private async Task RunAsync(
+        DetectionCandidate? confirmedCandidate,
+        Guid? confirmationBatchId)
     {
         if (selectedProject == null || selectedDevice == null)
         {
@@ -243,6 +340,11 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             SetError(null);
             SetDetectionCandidates(Array.Empty<DetectionCandidate>());
             SetDatabaseCandidates(Array.Empty<DatabaseInstanceCandidate>());
+            if (confirmationBatchId.HasValue && isRecoveredIdentification)
+            {
+                isRecoveredIdentification = false;
+                OnPropertyChanged(nameof(IsRecoveredIdentification));
+            }
             selectedDatabaseCandidate = null;
             OnPropertyChanged(nameof(SelectedDatabaseCandidate));
             SetState(CollectionViewModelState.Running);
@@ -252,7 +354,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 var request = new CollectionWorkflowRequest(
                     selectedProject,
                     selectedDevice,
-                    confirmedCandidate);
+                    confirmedCandidate,
+                    confirmationBatchId);
                 var progress = new ContextProgress<CollectionProgress>(value =>
                 {
                     if (generation == activeGeneration
@@ -268,23 +371,49 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                     SetCompletedCommands(Array.Empty<CompletedCollectionCommand>());
                     SetDetectionCandidates(Array.Empty<DetectionCandidate>());
                     SetDatabaseCandidates(Array.Empty<DatabaseInstanceCandidate>());
-                    SetState(CollectionViewModelState.Stopped);
+                    if (confirmationBatchId.HasValue)
+                    {
+                        await RestorePendingIdentificationAsync(selectedDevice.Device);
+                    }
+                    else
+                    {
+                        SetState(CollectionViewModelState.Stopped);
+                    }
                 }
                 else
                 {
                     Apply(result);
+                    if (confirmationBatchId.HasValue
+                        && result.Outcome == CollectionWorkflowOutcome.Failed)
+                    {
+                        await RestorePendingIdentificationAsync(selectedDevice.Device);
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
-                SetState(CollectionViewModelState.Stopped);
+                if (confirmationBatchId.HasValue)
+                {
+                    await RestorePendingIdentificationAsync(selectedDevice.Device);
+                }
+                else
+                {
+                    SetState(CollectionViewModelState.Stopped);
+                }
             }
             catch (Exception exception)
             {
                 if (cancellation.IsCancellationRequested)
                 {
                     SetError(null);
-                    SetState(CollectionViewModelState.Stopped);
+                    if (confirmationBatchId.HasValue)
+                    {
+                        await RestorePendingIdentificationAsync(selectedDevice.Device);
+                    }
+                    else
+                    {
+                        SetState(CollectionViewModelState.Stopped);
+                    }
                 }
                 else
                 {
@@ -294,6 +423,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                         "检查组件中心和设备连接后重试",
                         exception.GetType().Name));
                     SetState(CollectionViewModelState.Failed);
+                    if (confirmationBatchId.HasValue)
+                    {
+                        await RestorePendingIdentificationAsync(selectedDevice.Device);
+                    }
                 }
             }
             finally
@@ -319,15 +452,20 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         switch (result.Outcome)
         {
             case CollectionWorkflowOutcome.Completed:
-                SetDetectionCandidates(Array.Empty<DetectionCandidate>());
+                ClearPendingIdentification();
                 SetState(CollectionViewModelState.Completed);
                 break;
             case CollectionWorkflowOutcome.RequiresConfirmation:
+                pendingIdentificationBatchId = result.PendingIdentificationBatchId
+                    ?? throw new InvalidOperationException("待确认识别结果缺少持久化批次标识。");
+                pendingIdentificationDeviceId = selectedDevice?.Device.Id ?? default(DeviceId);
+                isRecoveredIdentification = false;
+                OnPropertyChanged(nameof(IsRecoveredIdentification));
                 SetDetectionCandidates(result.DetectionCandidates);
                 SetState(CollectionViewModelState.AwaitingConfirmation);
                 break;
             case CollectionWorkflowOutcome.RequiresDatabaseConfirmation:
-                SetDetectionCandidates(Array.Empty<DetectionCandidate>());
+                ClearPendingIdentification();
                 SetDatabaseCandidates(result.DatabaseCandidates);
                 SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
                 break;
@@ -349,7 +487,11 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         if (State != CollectionViewModelState.Running && State != CollectionViewModelState.Stopping)
         {
-            SetState(CanStart() ? CollectionViewModelState.Ready : CollectionViewModelState.Idle);
+            SetState(pendingIdentificationBatchId.HasValue
+                ? CollectionViewModelState.AwaitingConfirmation
+                : CanStart()
+                    ? CollectionViewModelState.Ready
+                    : CollectionViewModelState.Idle);
         }
 
         RaiseCommandStates();
@@ -381,6 +523,20 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         detectionCandidates = new ReadOnlyCollection<DetectionCandidate>(candidates.ToArray());
         OnPropertyChanged(nameof(DetectionCandidates));
+    }
+
+    private void ClearPendingIdentification()
+    {
+        unchecked { pendingIdentificationLoadGeneration++; }
+        pendingIdentificationBatchId = null;
+        pendingIdentificationDeviceId = default(DeviceId);
+        if (isRecoveredIdentification)
+        {
+            isRecoveredIdentification = false;
+            OnPropertyChanged(nameof(IsRecoveredIdentification));
+        }
+
+        SetDetectionCandidates(Array.Empty<DetectionCandidate>());
     }
 
     private void SetCompletedCommands(IEnumerable<CompletedCollectionCommand> commands)

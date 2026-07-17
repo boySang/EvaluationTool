@@ -9,6 +9,7 @@ using AssessmentTool.App.ViewModels;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Execution;
+using AssessmentTool.Windows.Storage;
 using Xunit;
 
 namespace AssessmentTool.Windows.Tests.ViewModels;
@@ -101,7 +102,7 @@ public sealed class CollectionViewModelTests
     {
         var candidate = CreateCandidate("A", 0.70);
         var service = new FakeCollectionWorkflowService(
-            CollectionWorkflowResult.RequiresConfirmation(new[] { candidate }));
+            CollectionWorkflowResult.RequiresConfirmation(new[] { candidate }, Guid.NewGuid()));
         var confirmationService = new FakeDatabaseConfirmationService();
         var viewModel = CreateReadyViewModel(service, confirmationService);
 
@@ -137,8 +138,9 @@ public sealed class CollectionViewModelTests
     public async Task Confirming_detection_retries_with_selected_candidate()
     {
         var candidate = CreateCandidate("A", 0.70);
+        var pendingBatchId = Guid.NewGuid();
         var service = new FakeCollectionWorkflowService(
-            CollectionWorkflowResult.RequiresConfirmation(new[] { candidate }),
+            CollectionWorkflowResult.RequiresConfirmation(new[] { candidate }, pendingBatchId),
             CollectionWorkflowResult.Completed(new[] { new CompletedCollectionCommand("cmd-1") }));
         var viewModel = CreateReadyViewModel(service);
 
@@ -150,6 +152,44 @@ public sealed class CollectionViewModelTests
         Assert.Single(viewModel.CompletedCommands);
         Assert.Equal(2, service.Requests.Count);
         Assert.Same(candidate, service.Requests[1].ConfirmedCandidate);
+        Assert.Equal(pendingBatchId, service.Requests[1].PendingIdentificationBatchId);
+    }
+
+    [Fact]
+    public async Task Restored_detection_requires_current_trusted_device_and_is_revalidated_before_collection()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project);
+        var candidate = CreateCandidate("A", 0.70);
+        var pending = new PendingDeviceIdentificationBatch(
+            Guid.NewGuid(), device.Id, 1, new[] { candidate }, DateTimeOffset.UtcNow);
+        var repository = new FakePendingIdentificationRepository(pending);
+        var service = new FakeCollectionWorkflowService(
+            CollectionWorkflowResult.Completed(new[] { new CompletedCollectionCommand("cmd-1") }));
+        var viewModel = new CollectionViewModel(
+            service,
+            new FakeDatabaseConfirmationService(),
+            repository);
+        viewModel.SelectProject(project);
+
+        await viewModel.RestorePendingIdentificationAsync(device);
+
+        Assert.Equal(CollectionViewModelState.AwaitingConfirmation, viewModel.State);
+        Assert.True(viewModel.IsRecoveredIdentification);
+        Assert.False(viewModel.ConfirmDetectionCommand.CanExecute(candidate));
+        Assert.Contains("重新执行低风险识别", viewModel.ProgressMessage);
+
+        var trust = CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        viewModel.SelectDevice(new CollectionDeviceSelection(device, true, trust));
+        Assert.True(viewModel.ConfirmDetectionCommand.CanExecute(candidate));
+
+        await viewModel.ConfirmAndRetryAsync(candidate);
+
+        var request = Assert.Single(service.Requests);
+        Assert.Same(candidate, request.ConfirmedCandidate);
+        Assert.Equal(pending.BatchId, request.PendingIdentificationBatchId);
+        Assert.Equal(CollectionViewModelState.Completed, viewModel.State);
+        Assert.False(viewModel.IsRecoveredIdentification);
     }
 
     [Fact]
@@ -550,6 +590,44 @@ public sealed class CollectionViewModelTests
             }
 
             return Task.FromResult(results.Dequeue());
+        }
+    }
+
+    private sealed class FakePendingIdentificationRepository : IPendingDeviceIdentificationRepository
+    {
+        private readonly PendingDeviceIdentificationBatch? pending;
+
+        public FakePendingIdentificationRepository(PendingDeviceIdentificationBatch? pending)
+        {
+            this.pending = pending;
+        }
+
+        public Task<PendingDeviceIdentificationBatch> AppendPendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            IReadOnlyList<DetectionCandidate> candidates,
+            Guid? supersededBatchId,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<PendingDeviceIdentificationBatch?> GetLatestPendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                pending != null && pending.DeviceId.Equals(deviceId) ? pending : null);
+        }
+
+        public Task ResolvePendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            Guid batchId,
+            PendingIdentificationResolution resolution,
+            DateTimeOffset resolvedAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 

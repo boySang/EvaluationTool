@@ -783,6 +783,15 @@
               <StackPanel>
                 <TextBlock Text="识别结果需要人工确认" Style="{StaticResource SectionTitleStyle}" />
                 <TextBlock Text="请根据识别依据选择正确对象；确认前不会执行完整采集命令。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,12" />
+                <Border Background="{DynamicResource Brush.WarningBackground}" CornerRadius="7" Padding="12,9" Margin="0,0,0,12">
+                  <Border.Style>
+                    <Style TargetType="Border">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                      <Style.Triggers><DataTrigger Binding="{Binding Collection.IsRecoveredIdentification}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <TextBlock Text="{Binding Collection.ProgressMessage}" Foreground="{DynamicResource Brush.Warning}" TextWrapping="Wrap" />
+                </Border>
                 <ItemsControl ItemsSource="{Binding Collection.DetectionCandidates}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate>
@@ -801,7 +810,7 @@
                             <TextBlock Text="{Binding Evidence, StringFormat=识别依据：{0}}" TextWrapping="Wrap" Margin="0,6,16,0" />
                           </StackPanel>
                           <Button Grid.Column="1"
-                                  Content="确认此结果并继续"
+                                  Content="确认并重新识别"
                                   Command="{Binding DataContext.Collection.ConfirmDetectionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                   CommandParameter="{Binding}"
                                   VerticalAlignment="Center" />

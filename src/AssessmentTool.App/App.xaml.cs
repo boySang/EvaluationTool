@@ -62,7 +62,8 @@ public partial class App : Application
                         credentialVault,
                         new CollectionEvidenceService(repository),
                         repository),
-                    new DatabaseConfirmationService(repository)),
+                    new DatabaseConfirmationService(repository),
+                    repository),
                 componentCenter,
                 new DeviceConnectionViewModel(
                     new SshConnectionWorkflowService(repository, credentialVault)),
