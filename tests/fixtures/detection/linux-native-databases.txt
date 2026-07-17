@@ -1,7 +1,7 @@
 # command: database-host-discovery-linux-processes
- 1042 postgres-15     /usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/15/main
- 2051 mysqld-8.0      /usr/sbin/mysqld-8.0 --defaults-file=/etc/mysql/my.cnf
- 3099 mariadbd-10.11  /usr/sbin/mariadbd-10.11 --defaults-file=/etc/mysql/mariadb.cnf
+ 1042 postgres-15
+ 2051 mysqld-8.0
+ 3099 mariadbd-10.11
 # command: database-host-discovery-linux-services
 postgresql@15-main.service loaded active running PostgreSQL Cluster 15-main
 mysql.service loaded active running MySQL Community Server

@@ -23,10 +23,10 @@ public sealed class DatabaseHostDiscoveryCommandPackTests
 
     private static readonly IReadOnlyList<string> ExpectedCommands = new[]
     {
-        "ps -eo pid,comm,args",
+        "ps -eo pid,comm",
         "systemctl list-units --type=service --state=running --no-pager",
-        "docker ps --no-trunc --format {{json .}}",
-        "podman ps --no-trunc --format {{json .}}"
+        "docker ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'",
+        "podman ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'"
     };
 
     [Fact]
@@ -41,12 +41,12 @@ public sealed class DatabaseHostDiscoveryCommandPackTests
     }
 
     [Fact]
-    public void Docker_and_podman_commands_are_optional_while_native_discovery_is_required()
+    public void Process_discovery_is_required_while_platform_specific_sources_are_optional()
     {
         var commands = ReadCommands().ToDictionary(CommandText, StringComparer.Ordinal);
 
         Assert.Null(commands[ExpectedCommands[0]]["optional"]);
-        Assert.Null(commands[ExpectedCommands[1]]["optional"]);
+        Assert.True(commands[ExpectedCommands[1]].Value<bool>("optional"));
         Assert.True(commands[ExpectedCommands[2]].Value<bool>("optional"));
         Assert.True(commands[ExpectedCommands[3]].Value<bool>("optional"));
     }
@@ -92,6 +92,23 @@ public sealed class DatabaseHostDiscoveryCommandPackTests
     }
 
     [Fact]
+    public void Discovery_commands_do_not_collect_process_arguments_or_unbounded_container_metadata()
+    {
+        var commandTexts = ReadCommands().Select(CommandText).ToArray();
+
+        Assert.DoesNotContain(commandTexts, command => command.Contains("args", StringComparison.Ordinal));
+        Assert.DoesNotContain(commandTexts, command => command.Contains("{{json .}}", StringComparison.Ordinal));
+        Assert.All(
+            commandTexts.Skip(2),
+            command =>
+            {
+                Assert.Contains(".Image", command, StringComparison.Ordinal);
+                Assert.Contains(".Names", command, StringComparison.Ordinal);
+                Assert.Contains(".Ports", command, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
     public void Schema_can_express_optional_commands()
     {
         var root = FindRepositoryRoot();
@@ -114,7 +131,7 @@ public sealed class DatabaseHostDiscoveryCommandPackTests
 
         Assert.Equal("database-host-discovery-linux", pack.Id);
         Assert.Equal(
-            new[] { false, false, true, true },
+            new[] { false, true, true, true },
             pack.Commands.Select(command => command.IsOptional));
         Assert.All(pack.Commands, command => Assert.True(new CommandSafetyPolicy().Validate(command).Allowed));
     }

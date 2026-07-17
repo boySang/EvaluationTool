@@ -20,17 +20,17 @@ public sealed class HostDatabaseDiscoveryTests
         "PostgreSQL",
         "15",
         "postgresql@15-main.service",
-        " 1042 postgres-15     /usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/15/main")]
+        "1042 postgres-15")]
     [InlineData(
         "MySQL",
         "8.0",
         "mysql.service",
-        " 2051 mysqld-8.0      /usr/sbin/mysqld-8.0 --defaults-file=/etc/mysql/my.cnf")]
+        "2051 mysqld-8.0")]
     [InlineData(
         "MariaDB",
         "10.11",
         "mariadb.service",
-        " 3099 mariadbd-10.11  /usr/sbin/mariadbd-10.11 --defaults-file=/etc/mysql/mariadb.cnf")]
+        "3099 mariadbd-10.11")]
     public void Detects_supported_native_database_services(
         string product,
         string version,
@@ -56,21 +56,21 @@ public sealed class HostDatabaseDiscoveryTests
         "16.3",
         "fixture-postgres",
         "127.0.0.1:15432->5432/tcp",
-        "{\"Command\":\"docker-entrypoint.sh postgres\",\"Image\":\"postgres:16.3\",\"Names\":\"fixture-postgres\",\"Ports\":\"127.0.0.1:15432->5432/tcp\"}",
+        "{\"Image\":\"postgres:16.3\",\"Names\":\"fixture-postgres\",\"Ports\":\"127.0.0.1:15432->5432/tcp\"}",
         false)]
     [InlineData(
         "MySQL",
         null,
         "fixture-mysql",
         "127.0.0.1:13306->3306/tcp",
-        "{\"Command\":\"docker-entrypoint.sh mysqld\",\"Image\":\"mysql:latest\",\"Names\":\"fixture-mysql\",\"Ports\":\"127.0.0.1:13306->3306/tcp\"}",
+        "{\"Image\":\"mysql:latest\",\"Names\":\"fixture-mysql\",\"Ports\":\"127.0.0.1:13306->3306/tcp\"}",
         true)]
     [InlineData(
         "MariaDB",
         "11.4",
         "fixture-mariadb",
         "127.0.0.1:13307->3306/tcp",
-        "{\"Command\":\"mariadbd\",\"Image\":\"docker.io/library/mariadb:11.4\",\"Names\":\"fixture-mariadb\",\"Ports\":\"127.0.0.1:13307->3306/tcp\"}",
+        "{\"Image\":\"docker.io/library/mariadb:11.4\",\"Names\":\"fixture-mariadb\",\"Ports\":\"127.0.0.1:13307->3306/tcp\"}",
         false)]
     public void Detects_supported_container_databases_without_trusting_latest(
         string product,
@@ -149,7 +149,7 @@ public sealed class HostDatabaseDiscoveryTests
     [Fact]
     public void Failed_optional_docker_and_podman_outputs_are_ignored()
     {
-        var processLine = " 1042 postgres-15 /usr/lib/postgresql/15/bin/postgres -D /srv/fixture";
+        var processLine = "1042 postgres-15";
         var outputs = new[]
         {
             Successful(ProcessCommandId, processLine),
@@ -182,8 +182,8 @@ public sealed class HostDatabaseDiscoveryTests
                 ProcessCommandId,
                 string.Join(
                     "\n",
-                    " 1042 postgres-15 /usr/lib/postgresql/15/bin/postgres -D /srv/postgres-15",
-                    " 1043 postgres-16 /usr/lib/postgresql/16/bin/postgres -D /srv/postgres-16")),
+                    "1042 postgres-15",
+                    "1043 postgres-16")),
             Successful(
                 ServiceCommandId,
                 "postgresql.service loaded active running PostgreSQL database server")
@@ -210,6 +210,7 @@ public sealed class HostDatabaseDiscoveryTests
     [InlineData("{\"Image\":\"postgres:16\",\"Image\":\"mysql:8\",\"Names\":\"duplicate\",\"Ports\":\"5432/tcp\"}")]
     [InlineData("{\"Image\":\"postgres:16\",\"Names\":\"trailing\",\"Ports\":\"5432/tcp\"} {}")]
     [InlineData("{\"Image\":\"postgres:16\",\"Names\":\"bad\\u0001name\",\"Ports\":\"5432/tcp\"}")]
+    [InlineData("{\"Image\":\"postgres:16\",\"Names\":\"extra\",\"Ports\":\"5432/tcp\",\"Command\":\"secret argument\"}")]
     public void Malformed_or_control_character_container_json_is_ignored(string line)
     {
         var output = Successful(DockerCommandId, line);
@@ -218,16 +219,13 @@ public sealed class HostDatabaseDiscoveryTests
     }
 
     [Fact]
-    public void Process_credentials_are_redacted_from_candidate_evidence()
+    public void Process_output_with_extra_arguments_is_rejected_instead_of_becoming_evidence()
     {
         var output = Successful(
             ProcessCommandId,
-            " 2051 mysqld-8.0 /usr/sbin/mysqld-8.0 --user=audit --password=customer-secret");
+            "2051 mysqld-8.0 --password=customer-secret");
 
-        var candidate = Assert.Single(new HostDatabaseDiscovery().Detect(new[] { output }));
-
-        Assert.DoesNotContain("customer-secret", candidate.Evidence, StringComparison.Ordinal);
-        Assert.Contains("--password=***", candidate.Evidence, StringComparison.Ordinal);
+        Assert.Empty(new HostDatabaseDiscovery().Detect(new[] { output }));
     }
 
     [Fact]
@@ -329,7 +327,7 @@ public sealed class HostDatabaseDiscoveryTests
 
     private static string ContainerLine(string image, string name, string ports)
     {
-        return "{\"Command\":\"fixture\",\"Image\":\"" + image
-            + "\",\"Names\":\"" + name + "\",\"Ports\":\"" + ports + "\"}";
+        return "{\"Image\":\"" + image + "\",\"Names\":\"" + name
+            + "\",\"Ports\":\"" + ports + "\"}";
     }
 }

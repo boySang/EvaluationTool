@@ -16,6 +16,10 @@ public sealed class BuiltinCommandPackCatalog
     private const string GenericLinuxRelativePath = "command-packs/builtin/generic-linux.json";
     private const string GenericLinuxResourceName = "AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json";
     private const string GenericLinuxSha256 = "3a4521b6e88ac329f3a7e6c2b76dbfe5a71e1f7f7f0d4096069d00c96237cb00";
+    private const string DatabaseDiscoveryPackId = "database-host-discovery-linux";
+    private const string DatabaseDiscoveryRelativePath = "command-packs/builtin/database-host-discovery-linux.json";
+    private const string DatabaseDiscoveryResourceName = "AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json";
+    private const string DatabaseDiscoverySha256 = "15ca85ad86624e1e0bfd244b480445614ec39497bf1ecfc869c62922ac4e8761";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -29,6 +33,15 @@ public sealed class BuiltinCommandPackCatalog
         {
             "generic-linux-hostname",
             "generic-linux-login-defs"
+        });
+
+    private static readonly IReadOnlyList<string> DatabaseDiscoveryIds =
+        new ReadOnlyCollection<string>(new[]
+        {
+            "database-host-discovery-linux-processes",
+            "database-host-discovery-linux-services",
+            "database-host-discovery-linux-docker-containers",
+            "database-host-discovery-linux-podman-containers"
         });
 
     private readonly string releaseDirectory;
@@ -61,9 +74,23 @@ public sealed class BuiltinCommandPackCatalog
 
     public CommandPack LoadGenericLinux()
     {
-        var packBytes = LoadGenericLinuxBytes();
+        var packBytes = LoadPackBytes(
+            GenericLinuxRelativePath,
+            GenericLinuxResourceName,
+            "通用 Linux 命令包");
         var pack = new CommandPackLoader().Load(packBytes, GenericLinuxSha256);
         EnsureGenericLinuxLayout(pack);
+        return pack;
+    }
+
+    public CommandPack LoadDatabaseHostDiscoveryLinux()
+    {
+        var packBytes = LoadPackBytes(
+            DatabaseDiscoveryRelativePath,
+            DatabaseDiscoveryResourceName,
+            "Linux 数据库主机发现命令包");
+        var pack = new CommandPackLoader().Load(packBytes, DatabaseDiscoverySha256);
+        EnsureDatabaseDiscoveryLayout(pack);
         return pack;
     }
 
@@ -83,11 +110,11 @@ public sealed class BuiltinCommandPackCatalog
         return pack.SelectCommands(CollectionIds);
     }
 
-    private byte[] LoadGenericLinuxBytes()
+    private byte[] LoadPackBytes(string relativePath, string resourceName, string description)
     {
         var releasePath = Path.Combine(
             releaseDirectory,
-            GenericLinuxRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            relativePath.Replace('/', Path.DirectorySeparatorChar));
 
         if (File.Exists(releasePath))
         {
@@ -100,7 +127,7 @@ public sealed class BuiltinCommandPackCatalog
                     FileShare.Read,
                     bufferSize: 4096,
                     options: FileOptions.SequentialScan);
-                return ReadBounded(stream, "发布目录中的通用 Linux 命令包");
+                return ReadBounded(stream, "发布目录中的" + description);
             }
             catch (CommandPackException)
             {
@@ -108,17 +135,17 @@ public sealed class BuiltinCommandPackCatalog
             }
             catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)
             {
-                throw new CommandPackException("无法读取发布目录中的通用 Linux 命令包。", exception);
+                throw new CommandPackException("无法读取发布目录中的" + description + "。", exception);
             }
         }
 
-        using var resource = resourceAssembly.GetManifestResourceStream(GenericLinuxResourceName);
+        using var resource = resourceAssembly.GetManifestResourceStream(resourceName);
         if (resource == null)
         {
-            throw new CommandPackException("发布目录和程序集资源中都缺少通用 Linux 命令包。");
+            throw new CommandPackException("发布目录和程序集资源中都缺少" + description + "。");
         }
 
-        return ReadBounded(resource, "内嵌的通用 Linux 命令包");
+        return ReadBounded(resource, "内嵌的" + description);
     }
 
     private static byte[] ReadBounded(Stream stream, string description)
@@ -176,6 +203,24 @@ public sealed class BuiltinCommandPackCatalog
         if (!expectedIds.SetEquals(actualIds))
         {
             throw new CommandPackException("通用 Linux 内置命令包的命令分类与受信任目录不一致。");
+        }
+    }
+
+    private static void EnsureDatabaseDiscoveryLayout(CommandPack pack)
+    {
+        if (pack == null)
+        {
+            throw new ArgumentNullException(nameof(pack));
+        }
+
+        if (!string.Equals(pack.Id, DatabaseDiscoveryPackId, StringComparison.Ordinal))
+        {
+            throw new CommandPackException("命令包不是受支持的 Linux 数据库主机发现内置命令包。");
+        }
+
+        if (!DatabaseDiscoveryIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal))
+        {
+            throw new CommandPackException("Linux 数据库主机发现命令包的命令顺序与受信任目录不一致。");
         }
     }
 }

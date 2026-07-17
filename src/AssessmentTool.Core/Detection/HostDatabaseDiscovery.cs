@@ -13,14 +13,13 @@ public sealed class HostDatabaseDiscovery
 {
     private const int MaximumLineLength = 65536;
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
-    private static readonly Regex ProcessShape = Pattern(@"^\s*\d+\s+(?<command>\S+)\s+(?<arguments>.+)$");
+    private static readonly Regex ProcessShape = Pattern(@"^\s*\d+\s+(?<command>\S+)\s*$");
     private static readonly Regex PostgreSqlProcess = Pattern(@"^postgres(?:ql)?(?:[-_](?<version>\d+(?:\.\d+)*))?$");
     private static readonly Regex MySqlProcess = Pattern(@"^mysqld(?:[-_](?<version>\d+(?:\.\d+)*))?$");
     private static readonly Regex MariaDbProcess = Pattern(@"^mariadbd(?:[-_](?<version>\d+(?:\.\d+)*))?$");
     private static readonly Regex PostgreSqlService = Pattern(@"^(?<name>postgresql(?:@(?<version>\d+(?:\.\d+)*(?:-[A-Za-z0-9_-]+)?))?\.service)\s+loaded\s+active\s+running\s+.+$");
     private static readonly Regex MySqlService = Pattern(@"^(?<name>mysql\.service)\s+loaded\s+active\s+running\s+MySQL(?:\s+(?<version>\d+(?:\.\d+)*))?(?:\s+Community\s+Server)?$");
     private static readonly Regex MariaDbService = Pattern(@"^(?<name>mariadb\.service)\s+loaded\s+active\s+running\s+MariaDB(?:\s+(?<version>\d+(?:\.\d+)*))?(?:\s+database\s+server)?$");
-    private static readonly Regex SensitiveArgument = Pattern(@"(?<prefix>--?(?:password|passwd|pwd)(?:\s+|=))(?<secret>""[^""]*""|'[^']*'|\S+)");
 
     private const string ProcessCommandId = "database-host-discovery-linux-processes";
     private const string ServiceCommandId = "database-host-discovery-linux-services";
@@ -98,7 +97,7 @@ public sealed class HostDatabaseDiscovery
             }
 
             var command = shape.Groups["command"].Value;
-            var evidence = RedactSensitiveArguments(line);
+            var evidence = line.Trim();
             AddProcessObservation(evidence, command, PostgreSqlProcess, "PostgreSQL", observations);
             AddProcessObservation(evidence, command, MySqlProcess, "MySQL", observations);
             AddProcessObservation(evidence, command, MariaDbProcess, "MariaDB", observations);
@@ -177,6 +176,15 @@ public sealed class HostDatabaseDiscovery
                 }
             }
             catch (JsonException)
+            {
+                continue;
+            }
+
+            var propertyNames = document.Properties().Select(property => property.Name).ToArray();
+            if (propertyNames.Length != 3
+                || !propertyNames.Contains("Image", StringComparer.Ordinal)
+                || !propertyNames.Contains("Names", StringComparer.Ordinal)
+                || !propertyNames.Contains("Ports", StringComparer.Ordinal))
             {
                 continue;
             }
@@ -358,11 +366,6 @@ public sealed class HostDatabaseDiscovery
     private static bool ContainsControl(string value)
     {
         return value.Any(char.IsControl);
-    }
-
-    private static string RedactSensitiveArguments(string value)
-    {
-        return SensitiveArgument.Replace(value, "${prefix}***");
     }
 
     private static string? CaptureVersion(Match match)

@@ -94,6 +94,26 @@ public sealed class MainWindowBindingTests
     }
 
     [Fact]
+    public void Collection_page_exposes_database_candidate_confirmation_without_database_connection_actions()
+    {
+        var source = File.ReadAllText(FindMainWindowXaml());
+
+        Assert.Contains("Value=\"AwaitingDatabaseConfirmation\"", source);
+        Assert.Contains("Collection.DatabaseCandidates", source);
+        Assert.Contains("Collection.ConfirmDatabaseCommand", source);
+        Assert.Contains("Collection.SelectedDatabaseCandidate.Product", source);
+        Assert.Contains("Collection.SelectedDatabaseCandidate.InstanceName", source);
+        Assert.Contains("Collection.SelectedDatabaseCandidate.InstallationType", source);
+        Assert.Contains("Value=\"DatabaseConfirmed\"", source);
+        Assert.Contains("Content=\"确认此数据库实例\"", source);
+        Assert.Contains("CommandParameter=\"{Binding}\"", source);
+        Assert.Contains("此操作仅确认主机侧只读发现结果，本阶段不执行 SQL，也不建立数据库直连。", source);
+        Assert.Contains("仅确认发现结果，本阶段未执行 SQL，也未建立数据库直连。", source);
+        Assert.DoesNotContain("Content=\"连接数据库\"", source);
+        Assert.DoesNotContain("Content=\"执行 SQL\"", source);
+    }
+
+    [Fact]
     public void Evidence_center_primary_action_style_is_declared()
     {
         var mainWindow = File.ReadAllText(FindMainWindowXaml());

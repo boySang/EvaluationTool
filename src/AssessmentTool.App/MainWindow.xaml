@@ -489,6 +489,167 @@
               </StackPanel>
             </Border>
 
+            <Border automation:AutomationProperties.Name="数据库候选人工确认">
+              <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Collection.State}" Value="AwaitingDatabaseConfirmation">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Border.Style>
+              <StackPanel>
+                <Grid Margin="0,0,0,6">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="发现数据库实例，需要人工确认" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="请根据实例名称、安装方式和发现依据选择正确结果。无法判断时不要确认，可保留当前记录后人工核查。"
+                               Style="{StaticResource SecondaryTextStyle}"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Border Grid.Column="1"
+                          Background="{DynamicResource Brush.WarningBackground}"
+                          BorderBrush="{DynamicResource Brush.Warning}"
+                          BorderThickness="1"
+                          CornerRadius="12"
+                          Padding="10,4"
+                          VerticalAlignment="Top">
+                    <TextBlock Text="需要人工确认" Foreground="{DynamicResource Brush.WarningText}" FontSize="12" />
+                  </Border>
+                </Grid>
+
+                <Border Background="{DynamicResource Brush.InfoBackground}"
+                        BorderBrush="{DynamicResource Brush.Accent}"
+                        BorderThickness="3,0,0,0"
+                        CornerRadius="7"
+                        Padding="14,11"
+                        Margin="0,10,0,14">
+                  <StackPanel>
+                    <TextBlock Text="安全边界" FontWeight="SemiBold" Foreground="{DynamicResource Brush.Accent}" />
+                    <TextBlock Text="此操作仅确认主机侧只读发现结果，本阶段不执行 SQL，也不建立数据库直连。"
+                               TextWrapping="Wrap"
+                               Margin="0,4,0,0" />
+                  </StackPanel>
+                </Border>
+
+                <ItemsControl ItemsSource="{Binding Collection.DatabaseCandidates}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                              BorderBrush="{DynamicResource Brush.Border}"
+                              BorderThickness="1"
+                              CornerRadius="8"
+                              Padding="16"
+                              Margin="0,0,0,10">
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                          <StackPanel Margin="0,0,20,0">
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Text="▰" Foreground="{DynamicResource Brush.Accent}" FontSize="16" Margin="0,0,9,0" VerticalAlignment="Center" />
+                              <TextBlock Text="{Binding Product}" FontWeight="SemiBold" FontSize="17" VerticalAlignment="Center" />
+                              <Border Background="{DynamicResource Brush.AccentSoft}" CornerRadius="10" Padding="8,2" Margin="10,0,0,0">
+                                <TextBlock FontSize="11" Foreground="{DynamicResource Brush.Accent}">
+                                  <Run Text="可信度 " /><Run Text="{Binding Confidence, StringFormat={}{0:P0}}" />
+                                </TextBlock>
+                              </Border>
+                            </StackPanel>
+
+                            <Grid Margin="25,11,0,0">
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                              </Grid.ColumnDefinitions>
+                              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                              <TextBlock Text="实例名称" Style="{StaticResource SecondaryTextStyle}" />
+                              <TextBlock Grid.Column="1" Text="{Binding InstanceName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Grid.Column="2" Text="安装方式" Style="{StaticResource SecondaryTextStyle}" />
+                              <TextBlock Grid.Column="3" Text="{Binding InstallationType}" FontWeight="SemiBold" />
+                              <TextBlock Grid.Row="1" Text="版本" Style="{StaticResource SecondaryTextStyle}" Margin="0,7,0,0" />
+                              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Version, TargetNullValue=未识别}" Margin="0,7,0,0" />
+                              <TextBlock Grid.Row="1" Grid.Column="2" Text="端口依据" Style="{StaticResource SecondaryTextStyle}" Margin="0,7,0,0" />
+                              <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding PortEvidence, TargetNullValue=未发现}" Margin="0,7,0,0" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+
+                            <Border Background="{DynamicResource Brush.Surface}"
+                                    BorderBrush="{DynamicResource Brush.Border}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="10,8"
+                                    Margin="25,12,0,0">
+                              <TextBlock Text="{Binding Evidence, StringFormat=发现依据：{0}}" TextWrapping="Wrap" />
+                            </Border>
+                          </StackPanel>
+                          <Button Grid.Column="1"
+                                  Content="确认此数据库实例"
+                                  Style="{StaticResource FluentPrimaryButtonStyle}"
+                                  Command="{Binding DataContext.Collection.ConfirmDatabaseCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                  CommandParameter="{Binding}"
+                                  VerticalAlignment="Center"
+                                  automation:AutomationProperties.Name="仅确认发现的数据库实例，不执行 SQL" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border automation:AutomationProperties.Name="数据库发现结果已确认">
+              <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Collection.State}" Value="DatabaseConfirmed">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Border.Style>
+              <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                  <Border Width="34" Height="34" CornerRadius="17" Background="{DynamicResource Brush.SuccessBackground}" Margin="0,0,12,0">
+                    <TextBlock Text="✓" Foreground="{DynamicResource Brush.Success}" FontWeight="Bold" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                  </Border>
+                  <StackPanel>
+                    <TextBlock Text="数据库发现结果已确认" Style="{StaticResource SectionTitleStyle}" Foreground="{DynamicResource Brush.Success}" />
+                    <TextBlock Text="已保存人工确认结果，可继续查看本次主机采集证据。" Style="{StaticResource SecondaryTextStyle}" />
+                  </StackPanel>
+                </StackPanel>
+                <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                        BorderBrush="{DynamicResource Brush.Border}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="14"
+                        Margin="0,14,0,12">
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <StackPanel>
+                      <TextBlock Text="数据库产品" Style="{StaticResource SecondaryTextStyle}" />
+                      <TextBlock Text="{Binding Collection.SelectedDatabaseCandidate.Product}" FontWeight="SemiBold" FontSize="16" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                      <TextBlock Text="实例名称" Style="{StaticResource SecondaryTextStyle}" />
+                      <TextBlock Text="{Binding Collection.SelectedDatabaseCandidate.InstanceName}" FontWeight="SemiBold" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                      <TextBlock Text="安装方式" Style="{StaticResource SecondaryTextStyle}" />
+                      <TextBlock Text="{Binding Collection.SelectedDatabaseCandidate.InstallationType}" FontWeight="SemiBold" Margin="0,3,0,0" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
+                <Border Background="{DynamicResource Brush.SuccessBackground}" CornerRadius="7" Padding="14,10">
+                  <TextBlock Text="✓ 仅确认发现结果，本阶段未执行 SQL，也未建立数据库直连。"
+                             Foreground="{DynamicResource Brush.Success}"
+                             FontWeight="SemiBold"
+                             TextWrapping="Wrap" />
+                </Border>
+              </StackPanel>
+            </Border>
+
             <Border>
               <Border.Style>
                 <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">

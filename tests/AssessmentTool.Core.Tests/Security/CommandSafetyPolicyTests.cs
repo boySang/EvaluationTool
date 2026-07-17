@@ -148,10 +148,10 @@ public sealed class CommandSafetyPolicyTests
     }
 
     [Theory]
-    [InlineData("ps -eo pid,comm,args")]
+    [InlineData("ps -eo pid,comm")]
     [InlineData("systemctl list-units --type=service --state=running --no-pager")]
-    [InlineData("docker ps --no-trunc --format {{json .}}")]
-    [InlineData("podman ps --no-trunc --format {{json .}}")]
+    [InlineData("docker ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'")]
+    [InlineData("podman ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'")]
     public void Allows_exact_inventory_command_templates(string commandText)
     {
         var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
@@ -168,6 +168,9 @@ public sealed class CommandSafetyPolicyTests
     [InlineData("podman restart db", "unsafe-command")]
     [InlineData("docker ps --no-trunc --format {{.ID}}", "unsupported-command-shape")]
     [InlineData("podman ps --no-trunc --format {{.Names}}", "unsupported-command-shape")]
+    [InlineData("docker ps --no-trunc --format {{json .}}", "unsupported-command-shape")]
+    [InlineData("podman ps --no-trunc --format {{json .}}", "unsupported-command-shape")]
+    [InlineData("ps -eo pid,comm,args", "unsupported-command-shape")]
     [InlineData("ps -eo pid,comm,args --sort=pid", "unsupported-command-shape")]
     [InlineData("systemctl list-units --type=service --state=running --no-pager --all", "unsupported-command-shape")]
     [InlineData("docker ps --no-trunc --format {{json .}} --all", "unsupported-command-shape")]

@@ -16,16 +16,27 @@ namespace AssessmentTool.App.Services;
 public sealed class CollectionWorkflowService : ICollectionWorkflowService
 {
     private readonly BuiltinCommandPackCatalog commandCatalog;
-    private readonly SshReadOnlySessionFactory sessionFactory;
+    private readonly Func<ConnectionProfile, IRemoteSession> createSession;
     private readonly ICollectionEvidenceService evidenceService;
 
     public CollectionWorkflowService(
         ICredentialVault credentialVault,
         ICollectionEvidenceService evidenceService)
+        : this(
+            new BuiltinCommandPackCatalog(),
+            new SshReadOnlySessionFactory(
+                credentialVault ?? throw new ArgumentNullException(nameof(credentialVault))).Create,
+            evidenceService)
     {
-        commandCatalog = new BuiltinCommandPackCatalog();
-        sessionFactory = new SshReadOnlySessionFactory(
-            credentialVault ?? throw new ArgumentNullException(nameof(credentialVault)));
+    }
+
+    internal CollectionWorkflowService(
+        BuiltinCommandPackCatalog commandCatalog,
+        Func<ConnectionProfile, IRemoteSession> createSession,
+        ICollectionEvidenceService evidenceService)
+    {
+        this.commandCatalog = commandCatalog ?? throw new ArgumentNullException(nameof(commandCatalog));
+        this.createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
         this.evidenceService = evidenceService ?? throw new ArgumentNullException(nameof(evidenceService));
     }
 
@@ -75,8 +86,9 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         {
             var fullPack = commandCatalog.LoadGenericLinux();
             var collectionPack = commandCatalog.CreateGenericLinuxCollectionPack(fullPack);
+            var databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
             var profile = CreateProfile(device, trusted);
-            var session = sessionFactory.Create(profile);
+            var session = createSession(profile);
             CollectionResult result;
             using (session as IDisposable)
             {
@@ -91,13 +103,26 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     new CollectionRequest(collectionPack, request.ConfirmedCandidate),
                     progress,
                     cancellationToken);
-            }
 
-            await SaveOutputsAsync(
-                request,
-                fullPack,
-                result.IdentificationOutputs.Concat(result.CommandOutputs));
-            return MapResult(result);
+                await SaveOutputsAsync(
+                    request,
+                    fullPack,
+                    result.IdentificationOutputs.Concat(result.CommandOutputs));
+                if (result.Outcome != CollectionOutcome.Completed)
+                {
+                    return MapResult(result);
+                }
+
+                var discoveryResult = await new DatabaseDiscoveryRunner(
+                    session,
+                    new CommandSafetyPolicy(),
+                    new HostDatabaseDiscovery()).RunAsync(
+                        databaseDiscoveryPack,
+                        progress,
+                        cancellationToken);
+                await SaveOutputsAsync(request, databaseDiscoveryPack, discoveryResult.Outputs);
+                return MapDatabaseDiscovery(result, discoveryResult);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -157,6 +182,38 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     "检查识别结果、只读命令兼容性和连接权限后重试",
                     result.Outcome.ToString()));
         }
+    }
+
+    private static CollectionWorkflowResult MapDatabaseDiscovery(
+        CollectionResult collection,
+        DatabaseDiscoveryResult discovery)
+    {
+        if (discovery.Outcome == DatabaseDiscoveryOutcome.Stopped)
+        {
+            return CollectionWorkflowResult.Stopped();
+        }
+
+        if (discovery.Outcome != DatabaseDiscoveryOutcome.Completed)
+        {
+            return CollectionWorkflowResult.Failed(new CollectionError(
+                "数据库主机只读发现未完成",
+                discovery.Message,
+                "检查只读账户是否可读取进程与 systemd 服务；Docker 或 Podman 未安装不影响其他发现",
+                discovery.Outcome.ToString()));
+        }
+
+        var completed = collection.CommandOutputs
+            .Concat(discovery.Outputs.Where(output => output.Outcome == RemoteExecutionOutcome.Succeeded))
+            .Select(output => new CompletedCollectionCommand(output.CommandId))
+            .ToArray();
+        if (discovery.Candidates.Count == 0)
+        {
+            return CollectionWorkflowResult.Completed(completed);
+        }
+
+        return CollectionWorkflowResult.RequiresDatabaseConfirmation(
+            discovery.Candidates.Select(candidate => candidate.RequireConfirmation()),
+            completed);
     }
 
     private static ConnectionProfile CreateProfile(DeviceRecord device, HostKeyTrust trust)

@@ -96,6 +96,35 @@ public sealed class BuiltinCommandPackCatalogTests
         Assert.Contains("Link=\"command-packs/builtin/generic-linux.json\"", project);
         Assert.Contains("CopyToOutputDirectory=\"PreserveNewest\"", project);
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json\"", project);
+        Assert.Contains("Link=\"command-packs/builtin/database-host-discovery-linux.json\"", project);
+        Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json\"", project);
+    }
+
+    [Fact]
+    public void LoadDatabaseHostDiscoveryLinux_uses_fixed_hash_layout_and_embedded_fallback()
+    {
+        var releaseDirectory = CreateReleaseDirectory();
+        try
+        {
+            var pack = new BuiltinCommandPackCatalog(releaseDirectory).LoadDatabaseHostDiscoveryLinux();
+
+            Assert.Equal("database-host-discovery-linux", pack.Id);
+            Assert.Equal("1.1.0", pack.Version);
+            Assert.Equal(
+                new[]
+                {
+                    "database-host-discovery-linux-processes",
+                    "database-host-discovery-linux-services",
+                    "database-host-discovery-linux-docker-containers",
+                    "database-host-discovery-linux-podman-containers"
+                },
+                pack.Commands.Select(command => command.Id));
+            Assert.All(pack.Commands, command => Assert.True(command.IsEligibleForAutomaticExecution));
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
     }
 
     private static string CreateReleaseDirectory()

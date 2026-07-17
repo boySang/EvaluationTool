@@ -11,7 +11,7 @@ public sealed class CommandSafetyPolicy
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex AllowedReadOnlyShape = new Regex(
-        @"^(?:(?:show|display)\s+(?!clock(?:\s|$))(?:(?:[A-Za-z0-9_-]+\s+){0,3})version(?:\s+[A-Za-z0-9_.-]+)*|(?:show|display)\s+clock|uname(?:\s+-[A-Za-z]+)?|hostname|cat\s+(?:/etc/os-release|/etc/lsb-release|/etc/redhat-release|/etc/debian_version|/etc/login\.defs|/proc/version|/proc/cpuinfo|/proc/meminfo)|ps(?:\s+(?:-[A-Za-z]+|[aux]+))*|ps\s+-eo\s+pid,comm,args|systemctl\s+list-units|systemctl\s+list-units\s+--type=service\s+--state=running\s+--no-pager|(?:docker|podman)\s+ps(?:\s+(?:-a|--all|--no-trunc|--quiet|--size))*|(?:docker|podman)\s+ps\s+--no-trunc\s+--format\s+\{\{json\s+\.\}\}|Get-ComputerInfo)$",
+        @"^(?:(?:show|display)\s+(?!clock(?:\s|$))(?:(?:[A-Za-z0-9_-]+\s+){0,3})version(?:\s+[A-Za-z0-9_.-]+)*|(?:show|display)\s+clock|uname(?:\s+-[A-Za-z]+)?|hostname|cat\s+(?:/etc/os-release|/etc/lsb-release|/etc/redhat-release|/etc/debian_version|/etc/login\.defs|/proc/version|/proc/cpuinfo|/proc/meminfo)|ps(?:\s+(?:-[A-Za-z]+|[aux]+))*|ps\s+-eo\s+pid,comm|systemctl\s+list-units|systemctl\s+list-units\s+--type=service\s+--state=running\s+--no-pager|(?:docker|podman)\s+ps(?:\s+(?:-a|--all|--no-trunc|--quiet|--size))*|(?:docker|podman)\s+ps\s+--no-trunc\s+--format\s+'\{""Image"":\{\{json\s+\.Image\}\},""Names"":\{\{json\s+\.Names\}\},""Ports"":\{\{json\s+\.Ports\}\}\}'|Get-ComputerInfo)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex AllowedSqlMetadataTemplate = new Regex(

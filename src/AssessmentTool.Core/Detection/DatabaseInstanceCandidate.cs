@@ -49,7 +49,7 @@ public sealed class DatabaseInstanceCandidate
     public double Confidence { get; }
     public bool RequiresUserConfirmation { get; }
 
-    internal DatabaseInstanceCandidate RequireConfirmation()
+    public DatabaseInstanceCandidate RequireConfirmation()
     {
         return RequiresUserConfirmation
             ? this

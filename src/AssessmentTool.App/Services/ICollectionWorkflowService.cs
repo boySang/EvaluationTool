@@ -182,7 +182,8 @@ public sealed class CollectionWorkflowResult
     }
 
     public static CollectionWorkflowResult RequiresDatabaseConfirmation(
-        IEnumerable<DatabaseInstanceCandidate> candidates)
+        IEnumerable<DatabaseInstanceCandidate> candidates,
+        IEnumerable<CompletedCollectionCommand>? completedCommands = null)
     {
         var copied = Copy(candidates, nameof(candidates));
         if (copied.Count == 0 || copied.All(candidate => !candidate.RequiresUserConfirmation))
@@ -194,7 +195,7 @@ public sealed class CollectionWorkflowResult
             CollectionWorkflowOutcome.RequiresDatabaseConfirmation,
             Array.Empty<DetectionCandidate>(),
             copied,
-            Array.Empty<CompletedCollectionCommand>(),
+            completedCommands ?? Array.Empty<CompletedCollectionCommand>(),
             null);
     }
 

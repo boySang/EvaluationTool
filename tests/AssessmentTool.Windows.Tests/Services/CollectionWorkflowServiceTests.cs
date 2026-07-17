@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
+using AssessmentTool.Core.Commands;
+using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Execution;
 using AssessmentTool.Core.Security;
@@ -102,6 +104,64 @@ public sealed class CollectionWorkflowServiceTests
         Assert.Equal("RequiredComponentUnavailable", result.Error!.TechnicalDetails);
         Assert.Equal(0, vault.OperationCount);
         Assert.Equal(0, evidence.SaveCount);
+    }
+
+    [Fact]
+    public async Task Completed_linux_collection_discovers_databases_saves_all_outputs_and_requires_confirmation()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.42", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var session = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nVERSION_ID=24.04"),
+            ["generic-linux-hostname"] = Success("generic-linux-hostname", "audit-host"),
+            ["generic-linux-login-defs"] = Success("generic-linux-login-defs", "PASS_MAX_DAYS 90"),
+            ["database-host-discovery-linux-processes"] = Success("database-host-discovery-linux-processes", "101 postgres-16"),
+            ["database-host-discovery-linux-services"] = Success(
+                "database-host-discovery-linux-services",
+                "postgresql@16-main.service loaded active running PostgreSQL Cluster 16-main"),
+            ["database-host-discovery-linux-docker-containers"] = MissingOptional("database-host-discovery-linux-docker-containers"),
+            ["database-host-discovery-linux-podman-containers"] = MissingOptional("database-host-discovery-linux-podman-containers")
+        });
+        var evidence = new RecordingEvidenceService();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.Database", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => session,
+                evidence);
+
+            var result = await service.RunAsync(
+                CreateRequest(project, device, trust),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresDatabaseConfirmation, result.Outcome);
+            var candidate = Assert.Single(result.DatabaseCandidates);
+            Assert.Equal("PostgreSQL", candidate.Product);
+            Assert.Equal("16", candidate.Version);
+            Assert.True(candidate.RequiresUserConfirmation);
+            Assert.Equal(8, session.ExecutedIds.Count);
+            Assert.Equal(session.ExecutedIds, evidence.SavedCommandIds);
+            Assert.Equal(
+                new[]
+                {
+                    "generic-linux-hostname",
+                    "generic-linux-login-defs",
+                    "database-host-discovery-linux-processes",
+                    "database-host-discovery-linux-services"
+                },
+                result.CompletedCommands.Select(command => command.CommandId));
+            Assert.True(session.Disposed);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
     }
 
     [Fact]
@@ -306,6 +366,26 @@ public sealed class CollectionWorkflowServiceTests
         });
     }
 
+    private static CommandOutput Success(string commandId, string output)
+    {
+        var now = new DateTimeOffset(2026, 7, 17, 0, 3, 0, TimeSpan.Zero);
+        return new CommandOutput(commandId, output, string.Empty, 0, RemoteExecutionOutcome.Succeeded, null, now, now);
+    }
+
+    private static CommandOutput MissingOptional(string commandId)
+    {
+        var now = new DateTimeOffset(2026, 7, 17, 0, 3, 0, TimeSpan.Zero);
+        return new CommandOutput(
+            commandId,
+            string.Empty,
+            "command not found",
+            127,
+            RemoteExecutionOutcome.Failed,
+            RemoteFailureCategory.ProcessFailed,
+            now,
+            now);
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo? directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -393,6 +473,47 @@ public sealed class CollectionWorkflowServiceTests
         public void Report(CollectionProgress value)
         {
             ReportCount++;
+        }
+    }
+
+    private sealed class ScriptedRemoteSession : IRemoteSession, IDisposable
+    {
+        private readonly IReadOnlyDictionary<string, CommandOutput> outputs;
+
+        internal ScriptedRemoteSession(IReadOnlyDictionary<string, CommandOutput> outputs)
+        {
+            this.outputs = outputs;
+        }
+
+        internal List<string> ExecutedIds { get; } = new List<string>();
+        internal bool Disposed { get; private set; }
+
+        public Task<CommandOutput> ExecuteAsync(CommandDefinition command, CancellationToken cancellationToken)
+        {
+            ExecutedIds.Add(command.Id);
+            return Task.FromResult(outputs[command.Id]);
+        }
+
+        public void Dispose()
+        {
+            Disposed = true;
+        }
+    }
+
+    private sealed class RecordingEvidenceService : ICollectionEvidenceService
+    {
+        internal List<string> SavedCommandIds { get; } = new List<string>();
+
+        public Task<SavedCollectionEvidence> SaveAsync(
+            ProjectRecord project,
+            DeviceRecord device,
+            string commandPackVersion,
+            CommandDefinition command,
+            CommandOutput output,
+            CancellationToken cancellationToken = default)
+        {
+            SavedCommandIds.Add(command.Id);
+            return Task.FromResult<SavedCollectionEvidence>(null!);
         }
     }
 }
