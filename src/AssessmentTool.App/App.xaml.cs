@@ -46,6 +46,9 @@ public partial class App : Application
                 return;
             }
 
+            startupStage = "恢复异常中断的采集任务";
+            await repository.MarkInterruptedCollectionTasksAsync(DateTimeOffset.UtcNow);
+
             startupStage = "检查 SSH 连接组件";
             var componentCenter = new ComponentCenterViewModel(new ComponentStatusService());
             await componentCenter.RefreshAsync();

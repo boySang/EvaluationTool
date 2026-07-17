@@ -21,6 +21,7 @@ public sealed class SqliteProjectRepository :
     IDatabaseConfirmationRepository,
     IDeviceIdentificationRepository,
     IPendingDeviceIdentificationRepository,
+    ICollectionTaskRepository,
     ICommandDraftRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
@@ -36,12 +37,15 @@ public sealed class SqliteProjectRepository :
         new Migration(5, "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql"),
         new Migration(6, "AssessmentTool.Windows.Storage.Migrations.006_device_ssh_authentication.sql"),
         new Migration(7, "AssessmentTool.Windows.Storage.Migrations.007_device_identifications.sql"),
-        new Migration(8, "AssessmentTool.Windows.Storage.Migrations.008_pending_device_identification_batches.sql")
+        new Migration(8, "AssessmentTool.Windows.Storage.Migrations.008_pending_device_identification_batches.sql"),
+        new Migration(9, "AssessmentTool.Windows.Storage.Migrations.009_collection_task_ledger.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
         new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
     private static readonly KeyedAsyncLock DeviceIdentificationWriteLock =
+        new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
+    private static readonly KeyedAsyncLock CollectionTaskWriteLock =
         new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
 
     private readonly string connectionString;
@@ -968,6 +972,294 @@ public sealed class SqliteProjectRepository :
                         token.ThrowIfCancellationRequested();
                         transaction.Commit();
                         return record;
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<CollectionTaskRecord> CreateCollectionTaskAsync(
+        CollectionTaskRecord task,
+        CancellationToken cancellationToken = default)
+    {
+        if (task == null)
+        {
+            throw new ArgumentNullException(nameof(task));
+        }
+
+        using (var lease = await CollectionTaskWriteLock
+            .AcquireAsync(databasePath, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return await RunDatabaseOperationAsync(
+                token =>
+                {
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO collection_tasks(id, project_id, device_id, identification_revision, connection_protocol, host, port, user_name, authentication_method, host_key_algorithm, host_key_fingerprint, command_count, created_at_utc) VALUES(@id, @projectId, @deviceId, @identificationRevision, @protocol, @host, @port, @userName, @authenticationMethod, @hostKeyAlgorithm, @hostKeyFingerprint, @commandCount, @createdAtUtc);";
+                            command.Parameters.AddWithValue("@id", task.Id.ToString());
+                            command.Parameters.AddWithValue("@projectId", task.ProjectId.ToString());
+                            command.Parameters.AddWithValue("@deviceId", task.DeviceId.ToString());
+                            command.Parameters.AddWithValue("@identificationRevision", task.IdentificationRevision);
+                            command.Parameters.AddWithValue("@protocol", (int)task.ConnectionProtocol);
+                            command.Parameters.AddWithValue("@host", task.Host);
+                            command.Parameters.AddWithValue("@port", task.Port);
+                            command.Parameters.AddWithValue("@userName", task.UserName);
+                            command.Parameters.AddWithValue("@authenticationMethod", (int)task.AuthenticationMethod);
+                            command.Parameters.AddWithValue("@hostKeyAlgorithm", task.HostKeyAlgorithm);
+                            command.Parameters.AddWithValue("@hostKeyFingerprint", task.HostKeyFingerprint);
+                            command.Parameters.AddWithValue("@commandCount", task.Commands.Count);
+                            command.Parameters.AddWithValue("@createdAtUtc", FormatUtc(task.CreatedAt));
+                            command.ExecuteNonQuery();
+                        }
+
+                        foreach (var item in task.Commands)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            using (var command = connection.CreateCommand())
+                            {
+                                command.Transaction = transaction;
+                                command.CommandText = "INSERT INTO collection_task_commands(task_id, ordinal, command_pack_id, command_pack_version, command_pack_sha256, command_id, command_text, check_item, result_description, risk_level, is_optional, safety_validated_at_utc) VALUES(@taskId, @ordinal, @packId, @packVersion, @packSha256, @commandId, @commandText, @checkItem, @resultDescription, @riskLevel, @isOptional, @safetyValidatedAtUtc);";
+                                command.Parameters.AddWithValue("@taskId", task.Id.ToString());
+                                command.Parameters.AddWithValue("@ordinal", item.Ordinal);
+                                command.Parameters.AddWithValue("@packId", item.CommandPackId);
+                                command.Parameters.AddWithValue("@packVersion", item.CommandPackVersion);
+                                command.Parameters.AddWithValue("@packSha256", item.CommandPackSha256);
+                                command.Parameters.AddWithValue("@commandId", item.CommandId);
+                                command.Parameters.AddWithValue("@commandText", item.CommandText);
+                                command.Parameters.AddWithValue("@checkItem", item.CheckItem);
+                                command.Parameters.AddWithValue("@resultDescription", item.ResultDescription);
+                                command.Parameters.AddWithValue("@riskLevel", (int)item.RiskLevel);
+                                command.Parameters.AddWithValue("@isOptional", item.IsOptional ? 1 : 0);
+                                command.Parameters.AddWithValue("@safetyValidatedAtUtc", FormatUtc(item.SafetyValidatedAt));
+                                command.ExecuteNonQuery();
+                            }
+                        }
+
+                        InsertCollectionTaskEvent(
+                            connection,
+                            transaction,
+                            new CollectionTaskEventRecord(
+                                task.Id, 1, CollectionTaskState.Ready, null, "TaskCreated", task.CreatedAt));
+                        transaction.Commit();
+                        return task;
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<CollectionTaskEventRecord> AppendCollectionTaskEventAsync(
+        CollectionTaskId taskId,
+        long expectedRevision,
+        CollectionTaskState state,
+        int? commandOrdinal,
+        string eventCode,
+        DateTimeOffset occurredAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (expectedRevision < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expectedRevision));
+        }
+
+        using (var lease = await CollectionTaskWriteLock
+            .AcquireAsync(databasePath, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return await RunDatabaseOperationAsync(
+                token =>
+                {
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        long currentRevision;
+                        CollectionTaskState currentState;
+                        int commandCount;
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "SELECT e.revision, e.state, t.command_count FROM collection_tasks t INNER JOIN collection_task_events e ON e.task_id = t.id WHERE t.id = @taskId ORDER BY e.revision DESC LIMIT 1;";
+                            command.Parameters.AddWithValue("@taskId", taskId.ToString());
+                            using (var reader = command.ExecuteReader())
+                            {
+                                if (!reader.Read())
+                                {
+                                    throw new InvalidOperationException("采集任务不存在。");
+                                }
+
+                                currentRevision = reader.GetInt64(0);
+                                currentState = ReadEnum<CollectionTaskState>(reader.GetInt32(1), "collection task state");
+                                commandCount = reader.GetInt32(2);
+                            }
+                        }
+
+                        if (currentRevision != expectedRevision)
+                        {
+                            throw new InvalidOperationException("采集任务状态已变化，请刷新后重试。");
+                        }
+
+                        if (!CanTransitionCollectionTask(currentState, state))
+                        {
+                            throw new InvalidOperationException("采集任务状态转换不允许。");
+                        }
+
+                        if (commandOrdinal.HasValue && commandOrdinal.Value >= commandCount)
+                        {
+                            throw new ArgumentOutOfRangeException(nameof(commandOrdinal));
+                        }
+
+                        var record = new CollectionTaskEventRecord(
+                            taskId,
+                            checked(currentRevision + 1L),
+                            state,
+                            commandOrdinal,
+                            eventCode,
+                            occurredAt);
+                        InsertCollectionTaskEvent(connection, transaction, record);
+                        transaction.Commit();
+                        return record;
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public Task<IReadOnlyList<CollectionTaskRecord>> GetCollectionTasksAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<IReadOnlyList<CollectionTaskRecord>>(
+            token =>
+            {
+                var headers = new List<StoredCollectionTaskHeader>();
+                using (var connection = OpenConnection())
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT id, project_id, device_id, identification_revision, connection_protocol, host, port, user_name, authentication_method, host_key_algorithm, host_key_fingerprint, command_count, created_at_utc FROM collection_tasks WHERE project_id = @projectId ORDER BY created_at_utc, id;";
+                        command.Parameters.AddWithValue("@projectId", projectId.ToString());
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                token.ThrowIfCancellationRequested();
+                                headers.Add(new StoredCollectionTaskHeader(
+                                    CollectionTaskId.Parse(reader.GetString(0)),
+                                    ProjectId.Parse(reader.GetString(1)),
+                                    DeviceId.Parse(reader.GetString(2)),
+                                    reader.GetInt64(3),
+                                    ReadEnum<ConnectionProtocol>(reader.GetInt32(4), "collection task protocol"),
+                                    reader.GetString(5),
+                                    reader.GetInt32(6),
+                                    reader.GetString(7),
+                                    ReadEnum<SshAuthenticationMethod>(reader.GetInt32(8), "collection task authentication"),
+                                    reader.GetString(9),
+                                    reader.GetString(10),
+                                    reader.GetInt32(11),
+                                    ParseUtc(reader.GetString(12))));
+                            }
+                        }
+                    }
+
+                    return headers.Select(header => header.ToRecord(
+                        ReadCollectionTaskCommands(connection, header.Id, header.CommandCount, token)))
+                        .ToArray();
+                }
+            },
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<CollectionTaskEventRecord>> GetCollectionTaskEventsAsync(
+        CollectionTaskId taskId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<IReadOnlyList<CollectionTaskEventRecord>>(
+            token =>
+            {
+                var events = new List<CollectionTaskEventRecord>();
+                using (var connection = OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT revision, state, command_ordinal, event_code, occurred_at_utc FROM collection_task_events WHERE task_id = @taskId ORDER BY revision;";
+                    command.Parameters.AddWithValue("@taskId", taskId.ToString());
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            token.ThrowIfCancellationRequested();
+                            events.Add(new CollectionTaskEventRecord(
+                                taskId,
+                                reader.GetInt64(0),
+                                ReadEnum<CollectionTaskState>(reader.GetInt32(1), "collection task state"),
+                                reader.IsDBNull(2) ? (int?)null : reader.GetInt32(2),
+                                reader.GetString(3),
+                                ParseUtc(reader.GetString(4))));
+                        }
+                    }
+                }
+
+                return events.ToArray();
+            },
+            cancellationToken);
+    }
+
+    public async Task<int> MarkInterruptedCollectionTasksAsync(
+        DateTimeOffset interruptedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (interruptedAt == default(DateTimeOffset))
+        {
+            throw new ArgumentException("任务恢复时间不能为空。", nameof(interruptedAt));
+        }
+
+        using (var lease = await CollectionTaskWriteLock
+            .AcquireAsync(databasePath, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return await RunDatabaseOperationAsync(
+                token =>
+                {
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        var active = new List<(CollectionTaskId Id, long Revision)>();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "SELECT e.task_id, e.revision FROM collection_task_events e INNER JOIN (SELECT task_id, MAX(revision) AS revision FROM collection_task_events GROUP BY task_id) latest ON latest.task_id = e.task_id AND latest.revision = e.revision WHERE e.state IN (2, 3);";
+                            using (var reader = command.ExecuteReader())
+                            {
+                                while (reader.Read())
+                                {
+                                    token.ThrowIfCancellationRequested();
+                                    active.Add((CollectionTaskId.Parse(reader.GetString(0)), reader.GetInt64(1)));
+                                }
+                            }
+                        }
+
+                        foreach (var item in active)
+                        {
+                            InsertCollectionTaskEvent(
+                                connection,
+                                transaction,
+                                new CollectionTaskEventRecord(
+                                    item.Id,
+                                    checked(item.Revision + 1L),
+                                    CollectionTaskState.Interrupted,
+                                    null,
+                                    "ApplicationRestarted",
+                                    interruptedAt));
+                        }
+
+                        transaction.Commit();
+                        return active.Count;
                     }
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -1917,6 +2209,88 @@ public sealed class SqliteProjectRepository :
             storedExecution.ErrorText);
     }
 
+    private static IReadOnlyList<CollectionTaskCommandSnapshot> ReadCollectionTaskCommands(
+        SQLiteConnection connection,
+        CollectionTaskId taskId,
+        int expectedCount,
+        CancellationToken cancellationToken)
+    {
+        var commands = new List<CollectionTaskCommandSnapshot>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT ordinal, command_pack_id, command_pack_version, command_pack_sha256, command_id, command_text, check_item, result_description, risk_level, is_optional, safety_validated_at_utc FROM collection_task_commands WHERE task_id = @taskId ORDER BY ordinal;";
+            command.Parameters.AddWithValue("@taskId", taskId.ToString());
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    commands.Add(new CollectionTaskCommandSnapshot(
+                        reader.GetInt32(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetString(3),
+                        reader.GetString(4),
+                        reader.GetString(5),
+                        reader.GetString(6),
+                        reader.GetString(7),
+                        ReadEnum<CommandRiskLevel>(reader.GetInt32(8), "collection task risk level"),
+                        reader.GetInt32(9) == 1,
+                        ParseUtc(reader.GetString(10))));
+                }
+            }
+        }
+
+        if (commands.Count != expectedCount)
+        {
+            throw new InvalidDataException("采集任务命令快照不完整，已阻止读取。");
+        }
+
+        return commands;
+    }
+
+    private static void InsertCollectionTaskEvent(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        CollectionTaskEventRecord record)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO collection_task_events(task_id, revision, state, command_ordinal, event_code, occurred_at_utc) VALUES(@taskId, @revision, @state, @commandOrdinal, @eventCode, @occurredAtUtc);";
+            command.Parameters.AddWithValue("@taskId", record.TaskId.ToString());
+            command.Parameters.AddWithValue("@revision", record.Revision);
+            command.Parameters.AddWithValue("@state", (int)record.State);
+            command.Parameters.AddWithValue("@commandOrdinal", (object?)record.CommandOrdinal ?? DBNull.Value);
+            command.Parameters.AddWithValue("@eventCode", record.EventCode);
+            command.Parameters.AddWithValue("@occurredAtUtc", FormatUtc(record.OccurredAt));
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private static bool CanTransitionCollectionTask(
+        CollectionTaskState current,
+        CollectionTaskState next)
+    {
+        switch (current)
+        {
+            case CollectionTaskState.Ready:
+                return next == CollectionTaskState.Running;
+            case CollectionTaskState.Running:
+                return next == CollectionTaskState.Stopping
+                    || next == CollectionTaskState.Completed
+                    || next == CollectionTaskState.Failed
+                    || next == CollectionTaskState.Stopped
+                    || next == CollectionTaskState.Interrupted;
+            case CollectionTaskState.Stopping:
+                return next == CollectionTaskState.Stopped
+                    || next == CollectionTaskState.Failed
+                    || next == CollectionTaskState.Interrupted;
+            default:
+                return false;
+        }
+    }
+
     private static TEnum ReadEnum<TEnum>(int value, string description)
         where TEnum : struct
     {
@@ -1948,6 +2322,71 @@ public sealed class SqliteProjectRepository :
 
         public int Version { get; }
         public string ResourceName { get; }
+    }
+
+    private sealed class StoredCollectionTaskHeader
+    {
+        public StoredCollectionTaskHeader(
+            CollectionTaskId id,
+            ProjectId projectId,
+            DeviceId deviceId,
+            long identificationRevision,
+            ConnectionProtocol connectionProtocol,
+            string host,
+            int port,
+            string userName,
+            SshAuthenticationMethod authenticationMethod,
+            string hostKeyAlgorithm,
+            string hostKeyFingerprint,
+            int commandCount,
+            DateTimeOffset createdAt)
+        {
+            Id = id;
+            ProjectId = projectId;
+            DeviceId = deviceId;
+            IdentificationRevision = identificationRevision;
+            ConnectionProtocol = connectionProtocol;
+            Host = host;
+            Port = port;
+            UserName = userName;
+            AuthenticationMethod = authenticationMethod;
+            HostKeyAlgorithm = hostKeyAlgorithm;
+            HostKeyFingerprint = hostKeyFingerprint;
+            CommandCount = commandCount;
+            CreatedAt = createdAt;
+        }
+
+        public CollectionTaskId Id { get; }
+        public ProjectId ProjectId { get; }
+        public DeviceId DeviceId { get; }
+        public long IdentificationRevision { get; }
+        public ConnectionProtocol ConnectionProtocol { get; }
+        public string Host { get; }
+        public int Port { get; }
+        public string UserName { get; }
+        public SshAuthenticationMethod AuthenticationMethod { get; }
+        public string HostKeyAlgorithm { get; }
+        public string HostKeyFingerprint { get; }
+        public int CommandCount { get; }
+        public DateTimeOffset CreatedAt { get; }
+
+        public CollectionTaskRecord ToRecord(IReadOnlyList<CollectionTaskCommandSnapshot> commands)
+        {
+            return new CollectionTaskRecord(
+                Id,
+                ProjectId,
+                DeviceId,
+                IdentificationRevision,
+                ConnectionProtocol,
+                Host,
+                Port,
+                UserName,
+                AuthenticationMethod,
+                HostKeyAlgorithm,
+                HostKeyFingerprint,
+                commands,
+                CreatedAt);
+        }
     }
 
     private sealed class NormalizedEvidence

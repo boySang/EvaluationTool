@@ -137,6 +137,47 @@ public readonly struct DeviceId : IEquatable<DeviceId>
     }
 }
 
+public readonly struct CollectionTaskId : IEquatable<CollectionTaskId>
+{
+    private readonly Guid value;
+
+    private CollectionTaskId(Guid value)
+    {
+        this.value = value;
+    }
+
+    public Guid Value => value == Guid.Empty
+        ? throw new InvalidOperationException(nameof(CollectionTaskId) + " has not been initialized.")
+        : value;
+
+    internal bool IsValid => value != Guid.Empty;
+
+    public static CollectionTaskId New()
+    {
+        return new CollectionTaskId(Guid.NewGuid());
+    }
+
+    public static CollectionTaskId Parse(string value)
+    {
+        if (value == null)
+        {
+            throw new ArgumentNullException(nameof(value));
+        }
+
+        if (!Guid.TryParseExact(value, "D", out var parsed) || parsed == Guid.Empty)
+        {
+            throw new ArgumentException("Value must be a non-empty GUID in D format.", nameof(value));
+        }
+
+        return new CollectionTaskId(parsed);
+    }
+
+    public bool Equals(CollectionTaskId other) => value.Equals(other.value);
+    public override bool Equals(object? obj) => obj is CollectionTaskId other && Equals(other);
+    public override int GetHashCode() => value.GetHashCode();
+    public override string ToString() => Value.ToString("D");
+}
+
 public readonly struct CredentialReference : IEquatable<CredentialReference>
 {
     private readonly Guid value;

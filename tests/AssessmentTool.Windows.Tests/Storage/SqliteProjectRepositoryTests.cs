@@ -115,8 +115,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(8, version));
-            Assert.Equal(8, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(9, version));
+            Assert.Equal(9, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -144,7 +144,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(8, await repository.GetSchemaVersionAsync());
+            Assert.Equal(9, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -204,7 +204,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(deviceId, device.Id);
             Assert.Equal(SshAuthenticationMethod.Password, device.AuthenticationMethod);
             Assert.Null(device.PrivateKeyReference);
-            Assert.Equal(8, await repository.GetSchemaVersionAsync());
+            Assert.Equal(9, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -398,6 +398,98 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(completed.Revision,
                 Assert.Single(await repository.GetDeviceIdentificationHistoryAsync(deviceId)).Revision);
             Assert.Null(await repository.GetLatestPendingDeviceIdentificationAsync(deviceId));
+        }
+    }
+
+    [Fact]
+    public async Task Collection_task_ledger_preserves_snapshot_and_marks_abandoned_running_task_interrupted()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "任务总账项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId,
+                "Linux服务器",
+                "192.0.2.34",
+                22,
+                "audit-user",
+                TargetCategory.Server,
+                ConnectionProtocol.Ssh,
+                CredentialReference.New());
+            var identification = await repository.AppendDeviceIdentificationAsync(
+                deviceId,
+                new DetectionCandidate(
+                    TargetCategory.Server, "ubuntu", "Linux", null, "24.04", "ID=ubuntu", 0.95),
+                false,
+                null,
+                DateTimeOffset.UtcNow);
+            var task = new CollectionTaskRecord(
+                CollectionTaskId.New(),
+                projectId,
+                deviceId,
+                identification.Revision,
+                ConnectionProtocol.Ssh,
+                "192.0.2.34",
+                22,
+                "audit-user",
+                SshAuthenticationMethod.Password,
+                "ssh-ed25519",
+                "ssh-ed25519 255 SHA256:task-ledger-fixture",
+                new[]
+                {
+                    new CollectionTaskCommandSnapshot(
+                        0,
+                        "generic-linux",
+                        "1.0.0",
+                        Hash,
+                        "generic-linux-hostname",
+                        "hostname",
+                        "1.1.1",
+                        "读取主机名",
+                        CommandRiskLevel.Low,
+                        false,
+                        DateTimeOffset.UtcNow)
+                },
+                DateTimeOffset.UtcNow);
+
+            await repository.CreateCollectionTaskAsync(task);
+            var stored = Assert.Single(await repository.GetCollectionTasksAsync(projectId));
+            Assert.Equal(task.Id, stored.Id);
+            Assert.Equal(task.Commands[0].CommandPackSha256, Assert.Single(stored.Commands).CommandPackSha256);
+            var created = Assert.Single(await repository.GetCollectionTaskEventsAsync(task.Id));
+            Assert.Equal(CollectionTaskState.Ready, created.State);
+
+            var running = await repository.AppendCollectionTaskEventAsync(
+                task.Id, created.Revision, CollectionTaskState.Running, null, "ExecutionStarted", DateTimeOffset.UtcNow);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.AppendCollectionTaskEventAsync(
+                    task.Id, created.Revision, CollectionTaskState.Completed, null, "StaleCompletion", DateTimeOffset.UtcNow));
+
+            Assert.Equal(1, await repository.MarkInterruptedCollectionTasksAsync(DateTimeOffset.UtcNow));
+            Assert.Equal(0, await repository.MarkInterruptedCollectionTasksAsync(DateTimeOffset.UtcNow));
+            var events = await repository.GetCollectionTaskEventsAsync(task.Id);
+            Assert.Equal(
+                new[] { CollectionTaskState.Ready, CollectionTaskState.Running, CollectionTaskState.Interrupted },
+                events.Select(item => item.State));
+            Assert.Equal(running.Revision + 1, events.Last().Revision);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.AppendCollectionTaskEventAsync(
+                    task.Id,
+                    events.Last().Revision,
+                    CollectionTaskState.Running,
+                    null,
+                    "ResumeForbidden",
+                    DateTimeOffset.UtcNow));
+
+            using (var connection = database.OpenConnection())
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE collection_tasks SET host = 'changed' WHERE id = @id;";
+                command.Parameters.AddWithValue("@id", task.Id.ToString());
+                Assert.Throws<SQLiteException>(() => command.ExecuteNonQuery());
+            }
         }
     }
 

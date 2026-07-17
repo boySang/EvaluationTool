@@ -113,6 +113,34 @@ public interface IPendingDeviceIdentificationRepository
         CancellationToken cancellationToken = default);
 }
 
+public interface ICollectionTaskRepository
+{
+    Task<CollectionTaskRecord> CreateCollectionTaskAsync(
+        CollectionTaskRecord task,
+        CancellationToken cancellationToken = default);
+
+    Task<CollectionTaskEventRecord> AppendCollectionTaskEventAsync(
+        CollectionTaskId taskId,
+        long expectedRevision,
+        CollectionTaskState state,
+        int? commandOrdinal,
+        string eventCode,
+        DateTimeOffset occurredAt,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CollectionTaskRecord>> GetCollectionTasksAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CollectionTaskEventRecord>> GetCollectionTaskEventsAsync(
+        CollectionTaskId taskId,
+        CancellationToken cancellationToken = default);
+
+    Task<int> MarkInterruptedCollectionTasksAsync(
+        DateTimeOffset interruptedAt,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ISshHostKeyTrustRepository
 {
     Task<SshHostKeyTrustRecord> GetSshHostKeyTrustAsync(
