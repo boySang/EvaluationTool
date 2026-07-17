@@ -193,6 +193,67 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Pending_identification_restore_blocks_collection_until_local_lookup_finishes()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project);
+        var repository = new BlockingPendingIdentificationRepository();
+        var viewModel = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService(),
+            repository);
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+        Assert.True(viewModel.StartCommand.CanExecute(null));
+
+        var restoring = viewModel.RestorePendingIdentificationAsync(device);
+        await AwaitWithTimeout(repository.Started.Task);
+
+        Assert.Equal(CollectionViewModelState.RestoringIdentification, viewModel.State);
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+        Assert.Contains("正在检查", viewModel.ProgressMessage);
+
+        repository.Complete(null);
+        await AwaitWithTimeout(restoring);
+
+        Assert.Equal(CollectionViewModelState.Ready, viewModel.State);
+        Assert.True(viewModel.StartCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Switching_devices_clears_previous_device_progress_candidates_and_results()
+    {
+        var project = CreateProject();
+        var databaseCandidate = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
+        var service = new FakeCollectionWorkflowService(
+            new[] { CreateProgress(CollectionState.Executing, "旧设备采集中", "old-command", 2, 4) },
+            CollectionWorkflowResult.RequiresDatabaseConfirmation(
+                new[] { databaseCandidate },
+                new[] { new CompletedCollectionCommand("old-command") }));
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(CreateSelection(project, true, HostKeyTrustState.Verified));
+        await viewModel.StartAsync();
+        Assert.NotEmpty(viewModel.DatabaseCandidates);
+        Assert.NotEmpty(viewModel.CompletedCommands);
+
+        viewModel.SelectDevice(CreateSelection(project, true, HostKeyTrustState.Verified));
+
+        Assert.Equal(CollectionViewModelState.Ready, viewModel.State);
+        Assert.Null(viewModel.ProgressState);
+        Assert.Equal(string.Empty, viewModel.ProgressMessage);
+        Assert.Null(viewModel.CurrentCommand);
+        Assert.Equal(0, viewModel.CompletedCommandCount);
+        Assert.Equal(0, viewModel.TotalCommandCount);
+        Assert.Empty(viewModel.DatabaseCandidates);
+        Assert.Empty(viewModel.CompletedCommands);
+        Assert.Null(viewModel.Error);
+    }
+
+    [Fact]
     public async Task Database_candidates_require_confirmation_without_starting_database_collection()
     {
         var candidate = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
@@ -618,6 +679,59 @@ public sealed class CollectionViewModelTests
         {
             return Task.FromResult(
                 pending != null && pending.DeviceId.Equals(deviceId) ? pending : null);
+        }
+
+        public Task ResolvePendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            Guid batchId,
+            PendingIdentificationResolution resolution,
+            DateTimeOffset resolvedAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<DeviceIdentificationRecord> CompletePendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            Guid batchId,
+            DetectionCandidate confirmedCandidate,
+            string confirmationSource,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    private sealed class BlockingPendingIdentificationRepository : IPendingDeviceIdentificationRepository
+    {
+        private readonly TaskCompletionSource<PendingDeviceIdentificationBatch?> completion =
+            new TaskCompletionSource<PendingDeviceIdentificationBatch?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<bool> Started { get; } =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Complete(PendingDeviceIdentificationBatch? value)
+        {
+            completion.TrySetResult(value);
+        }
+
+        public Task<PendingDeviceIdentificationBatch?> GetLatestPendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult(true);
+            return completion.Task;
+        }
+
+        public Task<PendingDeviceIdentificationBatch> AppendPendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            IReadOnlyList<DetectionCandidate> candidates,
+            Guid? supersededBatchId,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
 
         public Task ResolvePendingDeviceIdentificationAsync(

@@ -19,6 +19,7 @@ public enum CollectionViewModelState
 {
     Idle,
     Ready,
+    RestoringIdentification,
     Running,
     Stopping,
     AwaitingConfirmation,
@@ -58,6 +59,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private Guid? pendingIdentificationBatchId;
     private DeviceId pendingIdentificationDeviceId;
     private bool isRecoveredIdentification;
+    private bool isRestoringIdentification;
     private CollectionError? error;
 
     public CollectionViewModel(
@@ -112,6 +114,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         {
             selectedDevice = null;
             ClearPendingIdentification();
+            ClearDeviceTransientState();
             OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         }
 
@@ -122,7 +125,15 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public void SelectDevice(CollectionDeviceSelection deviceSelection)
     {
         EnsureSelectionCanChange();
-        selectedDevice = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
+        var nextSelection = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
+        if (selectedDevice != null
+            && !selectedDevice.Device.Id.Equals(nextSelection.Device.Id))
+        {
+            ClearPendingIdentification();
+            ClearDeviceTransientState();
+        }
+
+        selectedDevice = nextSelection;
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         if (pendingIdentificationBatchId.HasValue
             && pendingIdentificationDeviceId.Equals(selectedDevice.Device.Id))
@@ -140,6 +151,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         EnsureSelectionCanChange();
         selectedDevice = null;
         ClearPendingIdentification();
+        ClearDeviceTransientState();
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         RefreshReadiness();
     }
@@ -166,6 +178,11 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             return;
         }
 
+        isRestoringIdentification = true;
+        progressMessage = "正在检查当前设备是否存在上次待确认的识别结果。";
+        OnPropertyChanged(nameof(ProgressMessage));
+        SetState(CollectionViewModelState.RestoringIdentification);
+
         try
         {
             var restored = await pendingIdentificationRepository
@@ -178,6 +195,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             {
                 return;
             }
+
+            isRestoringIdentification = false;
 
             if (restored == null)
             {
@@ -202,6 +221,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 return;
             }
 
+            isRestoringIdentification = false;
             ClearPendingIdentification();
             SetError(new CollectionError(
                 "待确认识别候选读取失败",
@@ -295,6 +315,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         return State != CollectionViewModelState.Running
             && State != CollectionViewModelState.Stopping
+            && State != CollectionViewModelState.RestoringIdentification
             && State != CollectionViewModelState.AwaitingConfirmation
             && State != CollectionViewModelState.AwaitingDatabaseConfirmation
             && State != CollectionViewModelState.ConfirmingDatabase
@@ -487,7 +508,9 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         if (State != CollectionViewModelState.Running && State != CollectionViewModelState.Stopping)
         {
-            SetState(pendingIdentificationBatchId.HasValue
+            SetState(isRestoringIdentification
+                ? CollectionViewModelState.RestoringIdentification
+                : pendingIdentificationBatchId.HasValue
                 ? CollectionViewModelState.AwaitingConfirmation
                 : CanStart()
                     ? CollectionViewModelState.Ready
@@ -528,6 +551,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private void ClearPendingIdentification()
     {
         unchecked { pendingIdentificationLoadGeneration++; }
+        isRestoringIdentification = false;
         pendingIdentificationBatchId = null;
         pendingIdentificationDeviceId = default(DeviceId);
         if (isRecoveredIdentification)
@@ -537,6 +561,25 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         }
 
         SetDetectionCandidates(Array.Empty<DetectionCandidate>());
+    }
+
+    private void ClearDeviceTransientState()
+    {
+        progressState = null;
+        progressMessage = string.Empty;
+        currentCommand = null;
+        completedCommandCount = 0;
+        totalCommandCount = 0;
+        selectedDatabaseCandidate = null;
+        SetCompletedCommands(Array.Empty<CompletedCollectionCommand>());
+        SetDatabaseCandidates(Array.Empty<DatabaseInstanceCandidate>());
+        SetError(null);
+        OnPropertyChanged(nameof(ProgressState));
+        OnPropertyChanged(nameof(ProgressMessage));
+        OnPropertyChanged(nameof(CurrentCommand));
+        OnPropertyChanged(nameof(CompletedCommandCount));
+        OnPropertyChanged(nameof(TotalCommandCount));
+        OnPropertyChanged(nameof(SelectedDatabaseCandidate));
     }
 
     private void SetCompletedCommands(IEnumerable<CompletedCollectionCommand> commands)
