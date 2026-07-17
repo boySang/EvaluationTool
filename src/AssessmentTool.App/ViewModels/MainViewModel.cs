@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AssessmentTool.App.Services;
@@ -35,12 +36,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         CollectionViewModel collection,
         ComponentCenterViewModel componentCenter,
         DeviceConnectionViewModel deviceConnection,
-        Action toggleTheme)
+        Action toggleTheme,
+        EvidenceCenterViewModel? evidenceCenter = null)
     {
         Workspace = workspace;
         Collection = collection ?? throw new ArgumentNullException(nameof(collection));
         ComponentCenter = componentCenter ?? throw new ArgumentNullException(nameof(componentCenter));
         DeviceConnection = deviceConnection ?? throw new ArgumentNullException(nameof(deviceConnection));
+        EvidenceCenter = evidenceCenter
+            ?? new EvidenceCenterViewModel(new EmptyEvidenceCenterService());
         DeviceEditor = new DeviceEditorViewModel();
         toggleThemeCommand = new DelegateCommand(
             toggleTheme ?? throw new ArgumentNullException(nameof(toggleTheme)),
@@ -72,6 +76,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public CollectionViewModel Collection { get; }
     public ComponentCenterViewModel ComponentCenter { get; }
     public DeviceConnectionViewModel DeviceConnection { get; }
+    public EvidenceCenterViewModel EvidenceCenter { get; }
     public DeviceEditorViewModel DeviceEditor { get; }
     public IReadOnlyList<NavigationItemViewModel> NavigationItems { get; }
     public ICommand ToggleThemeCommand => toggleThemeCommand;
@@ -83,6 +88,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public int PendingConnectionTestCount => ProjectDeviceCount;
     public int CollectionFailureCount => Collection.State == CollectionViewModelState.Failed ? 1 : 0;
     public string ReadOnlyProtectionStatus => "只读模式已启用";
+    public bool IsWorkspaceSelectionEnabled => CanSynchronizeCollectionSelection();
 
     private void OnWorkspacePropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
@@ -94,6 +100,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             {
                 Collection.SelectProject(Workspace.SelectedProject);
             }
+
+            _ = EvidenceCenter.SelectProjectAsync(Workspace?.SelectedProject);
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
@@ -102,9 +110,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
             if (CanSynchronizeCollectionSelection())
             {
                 Collection.ClearDeviceSelection();
+                _ = SynchronizeSelectedDeviceAsync();
             }
-
-            _ = SynchronizeSelectedDeviceAsync();
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.Devices))
@@ -160,6 +167,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (eventArgs.PropertyName == nameof(CollectionViewModel.State))
         {
             OnPropertyChanged(nameof(CollectionFailureCount));
+            OnPropertyChanged(nameof(IsWorkspaceSelectionEnabled));
+            if (Collection.State == CollectionViewModelState.AwaitingConfirmation
+                || Collection.State == CollectionViewModelState.Completed
+                || Collection.State == CollectionViewModelState.Stopped
+                || Collection.State == CollectionViewModelState.Failed)
+            {
+                _ = EvidenceCenter.RefreshAsync();
+            }
         }
     }
 
@@ -174,6 +189,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private sealed class EmptyEvidenceCenterService : IEvidenceCenterService
+    {
+        public Task<EvidenceCenterSnapshot> LoadAsync(
+            AssessmentTool.Core.Domain.ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(new EvidenceCenterSnapshot(
+                projectId,
+                Array.Empty<EvidenceCenterItem>()));
+        }
     }
 }
 

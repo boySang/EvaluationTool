@@ -269,6 +269,49 @@ jobs:
           Test-PackagedApplicationStartup 'First packaged startup'
           Test-PackagedApplicationStartup 'Second packaged startup with existing local data'
 
+      - name: Generate and verify Release integrity manifest
+        run: |
+          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          $buildInfoPath = Join-Path $releaseDirectory '版本与使用说明.txt'
+          $manifestPath = Join-Path $releaseDirectory 'SHA256SUMS.txt'
+          $buildInfo = @(
+            'EvaluationTool Windows x64 体验版',
+            "Git 提交：${{ github.sha }}",
+            "构建时间（UTC）：$([DateTimeOffset]::UtcNow.ToString('O'))",
+            '支持系统：Windows 10 / Windows 11 x64',
+            '运行方式：完整解压后运行 AssessmentTool.App.exe',
+            '安全边界：自动采集仅执行内置、已校验的只读命令。',
+            '首次 SSH 连接必须人工核对完整主机指纹。'
+          )
+          Set-Content -LiteralPath $buildInfoPath -Value $buildInfo -Encoding UTF8
+          Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
+
+          $files = Get-ChildItem -LiteralPath $releaseDirectory -File -Recurse |
+            Where-Object { $_.FullName -ne $manifestPath } |
+            Sort-Object FullName
+          $lines = foreach ($file in $files) {
+            $relativePath = [System.IO.Path]::GetRelativePath($releaseDirectory, $file.FullName).Replace('\', '/')
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $relativePath"
+          }
+          Set-Content -LiteralPath $manifestPath -Value $lines -Encoding ASCII
+
+          foreach ($line in Get-Content -LiteralPath $manifestPath) {
+            if ($line -notmatch '^(?<hash>[0-9a-f]{64})  (?<path>.+)$') {
+              throw "Invalid SHA-256 manifest line: $line"
+            }
+
+            $filePath = Join-Path $releaseDirectory $Matches.path
+            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+              throw "Manifest file is missing: $($Matches.path)"
+            }
+
+            $actual = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
+            if (-not [string]::Equals($actual, $Matches.hash, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "Manifest verification failed: $($Matches.path)"
+            }
+          }
+
       - name: Upload test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v6

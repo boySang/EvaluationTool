@@ -58,7 +58,8 @@ public partial class App : Application
                 componentCenter,
                 new DeviceConnectionViewModel(
                     new SshConnectionWorkflowService(repository, credentialVault)),
-                ToggleTheme);
+                ToggleTheme,
+                new EvidenceCenterViewModel(new EvidenceCenterService(repository)));
             var window = new MainWindow(mainViewModel);
             MainWindow = window;
             EventHandler? contentRenderedHandler = null;

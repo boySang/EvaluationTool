@@ -73,6 +73,23 @@ public sealed class MainWindowBindingTests
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Collection_page_exposes_detection_confirmation_and_completed_command_bindings()
+    {
+        var source = File.ReadAllText(FindMainWindowXaml());
+
+        Assert.Contains("Collection.DetectionCandidates", source);
+        Assert.Contains("Collection.ConfirmDetectionCommand", source);
+        Assert.Contains("CommandParameter=\"{Binding}\"", source);
+        Assert.Contains("Collection.CompletedCommands", source);
+        Assert.Contains("EvidenceCenter.Items", source);
+        Assert.Contains("EvidenceCenter.RefreshCommand", source);
+        Assert.Contains("ShaStatusText", source);
+        Assert.Contains("RawOutputPathText", source);
+        Assert.Contains("开始只读采集", source);
+        Assert.DoesNotContain("开始只读采集（尚未接通）", source);
+    }
+
     private static string FindMainWindowXaml()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
