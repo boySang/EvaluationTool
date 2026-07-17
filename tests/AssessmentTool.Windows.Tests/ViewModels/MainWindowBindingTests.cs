@@ -159,8 +159,7 @@ public sealed class MainWindowBindingTests
     {
         var source = File.ReadAllText(FindMainWindowXaml());
 
-        Assert.Contains("Value=\"AwaitingDatabaseConfirmation\"", source);
-        Assert.Contains("Value=\"ConfirmingDatabase\"", source);
+        Assert.Contains("Collection.IsDatabaseConfirmationVisible", source);
         Assert.Contains("Collection.DatabaseCandidates", source);
         Assert.Contains("Collection.ConfirmDatabaseCommand", source);
         Assert.Contains("Collection.SelectedDatabaseCandidate.Product", source);
@@ -174,6 +173,22 @@ public sealed class MainWindowBindingTests
         Assert.Contains("Binding=\"{Binding Collection.Error}\" Value=\"{x:Null}\"", source);
         Assert.DoesNotContain("Content=\"连接数据库\"", source);
         Assert.DoesNotContain("Content=\"执行 SQL\"", source);
+    }
+
+    [Fact]
+    public void Collection_page_exposes_recoverable_host_software_decisions_without_remote_actions()
+    {
+        var source = File.ReadAllText(FindMainWindowXaml());
+
+        Assert.Contains("Collection.IsHostSoftwareConfirmationVisible", source);
+        Assert.Contains("Collection.HostSoftwareCandidates", source);
+        Assert.Contains("Collection.ConfirmHostSoftwareCommand", source);
+        Assert.Contains("Collection.RejectHostSoftwareCommand", source);
+        Assert.Contains("Content=\"确认此实例\"", source);
+        Assert.Contains("Content=\"不是本次目标\"", source);
+        Assert.Contains("仅保存人工确认或排除决议，不执行 SQL、不连接实例，也不修改客户设备", source);
+        Assert.DoesNotContain("Content=\"连接实例\"", source);
+        Assert.DoesNotContain("Content=\"进入容器\"", source);
     }
 
     [Fact]

@@ -132,7 +132,7 @@ public sealed class HostSoftwareCandidateConfirmationService : IHostSoftwareCand
 
     private static string RequireAuditText(string? value, string parameterName, string message)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (value == null || string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException(message, parameterName);
         }
