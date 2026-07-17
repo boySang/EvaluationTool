@@ -680,6 +680,10 @@
                     <TextBlock Text="请根据实例名称、安装方式和发现依据选择正确结果。无法判断时不要确认，可保留当前记录后人工核查。"
                                Style="{StaticResource SecondaryTextStyle}"
                                TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Collection.ProgressMessage, Mode=OneWay}"
+                               Foreground="{DynamicResource Brush.Accent}"
+                               Margin="0,5,0,0"
+                               TextWrapping="Wrap" />
                   </StackPanel>
                   <Border Grid.Column="1"
                           Background="{DynamicResource Brush.WarningBackground}"

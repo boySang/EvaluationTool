@@ -279,6 +279,32 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Multiple_database_candidates_are_confirmed_and_persisted_one_at_a_time()
+    {
+        var postgresql = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
+        var mysql = CreateDatabaseCandidate("MySQL", string.Empty, "mysql.service");
+        var workflow = new FakeCollectionWorkflowService(
+            CollectionWorkflowResult.RequiresDatabaseConfirmation(new[] { postgresql, mysql }));
+        var confirmationService = new FakeDatabaseConfirmationService();
+        var viewModel = CreateReadyViewModel(workflow, confirmationService);
+        await viewModel.StartAsync();
+
+        await viewModel.ConfirmDatabaseAsync(postgresql);
+
+        Assert.Equal(CollectionViewModelState.AwaitingDatabaseConfirmation, viewModel.State);
+        Assert.Same(mysql, Assert.Single(viewModel.DatabaseCandidates));
+        Assert.Single(confirmationService.Confirmations);
+        Assert.Contains("仍有 1 个候选", viewModel.ProgressMessage);
+
+        await viewModel.ConfirmDatabaseAsync(mysql);
+
+        Assert.Equal(CollectionViewModelState.DatabaseConfirmed, viewModel.State);
+        Assert.Empty(viewModel.DatabaseCandidates);
+        Assert.Equal(2, confirmationService.Confirmations.Count);
+        Assert.Contains("均已完成", viewModel.ProgressMessage);
+    }
+
+    [Fact]
     public async Task Project_and_device_selection_are_frozen_while_collection_is_running()
     {
         var service = new BlockingCollectionWorkflowService();

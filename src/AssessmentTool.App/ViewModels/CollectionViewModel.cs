@@ -298,7 +298,24 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 CancellationToken.None);
             selectedDatabaseCandidate = candidate;
             OnPropertyChanged(nameof(SelectedDatabaseCandidate));
-            SetState(CollectionViewModelState.DatabaseConfirmed);
+            var remainingCandidates = DatabaseCandidates
+                .Where(item => !ReferenceEquals(item, candidate))
+                .ToArray();
+            SetDatabaseCandidates(remainingCandidates);
+            if (remainingCandidates.Length == 0)
+            {
+                progressMessage = "所有发现的数据库实例均已完成人工确认。";
+                OnPropertyChanged(nameof(ProgressMessage));
+                SetState(CollectionViewModelState.DatabaseConfirmed);
+            }
+            else
+            {
+                progressMessage = "已保存一个数据库实例的人工确认，仍有 "
+                    + remainingCandidates.Length
+                    + " 个候选需要处理。";
+                OnPropertyChanged(nameof(ProgressMessage));
+                SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+            }
         }
         catch (Exception exception)
         {
@@ -319,12 +336,15 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             && State != CollectionViewModelState.AwaitingConfirmation
             && State != CollectionViewModelState.AwaitingDatabaseConfirmation
             && State != CollectionViewModelState.ConfirmingDatabase
-            && selectedProject != null
-            && selectedDevice != null
-            && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)
-            && IsRequiredComponentAvailable
-            && selectedDevice.IsHostKeyTrusted;
+            && HasReadySelection;
     }
+
+    private bool HasReadySelection =>
+        selectedProject != null
+        && selectedDevice != null
+        && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)
+        && IsRequiredComponentAvailable
+        && selectedDevice.IsHostKeyTrusted;
 
     private bool CanConfirmDetection(DetectionCandidate? candidate)
     {
@@ -512,7 +532,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 ? CollectionViewModelState.RestoringIdentification
                 : pendingIdentificationBatchId.HasValue
                 ? CollectionViewModelState.AwaitingConfirmation
-                : CanStart()
+                : HasReadySelection
                     ? CollectionViewModelState.Ready
                     : CollectionViewModelState.Idle);
         }
