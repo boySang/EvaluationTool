@@ -301,7 +301,7 @@
               <Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
             </Style>
           </Grid.Style>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
           <Grid Grid.Row="0">
             <StackPanel>
               <TextBlock Text="设备管理" Style="{StaticResource PageTitleStyle}" />
@@ -324,7 +324,7 @@
                 <TextBlock Grid.Column="3" Text="连接方式" FontWeight="SemiBold" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="4" Text="安全连接状态" FontWeight="SemiBold" VerticalAlignment="Center" />
               </Grid>
-              <ListBox Grid.Row="2" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}" automation:AutomationProperties.Name="当前项目设备列表">
+              <ListBox Grid.Row="2" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" SelectionChanged="DeviceSelection_Changed" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}" automation:AutomationProperties.Name="当前项目设备列表">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <Grid>
@@ -343,6 +343,25 @@
                 <TextBlock Text="当前项目还没有设备" FontWeight="SemiBold" HorizontalAlignment="Center" />
                 <TextBlock Text="添加设备后，软件才会在授权范围内进行安全连接测试。" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,10" />
                 <Button Content="添加第一台设备" IsEnabled="{Binding HasSelectedProject}" Click="OpenDeviceWizard_Click" />
+              </StackPanel>
+            </Grid>
+          </Border>
+          <Border Grid.Row="4" Style="{StaticResource FluentCardStyle}" Padding="18" automation:AutomationProperties.Name="SSH 安全连接测试">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="18" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="SSH 安全连接" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="自动探测指纹 → 人工确认 → 无命令测试登录" Style="{StaticResource SecondaryTextStyle}" FontSize="12" />
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="{Binding DeviceConnection.StatusMessage}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding DeviceConnection.Algorithm, StringFormat=算法：{0}}" Style="{StaticResource SecondaryTextStyle}" FontSize="11" Margin="0,6,0,0" />
+                <TextBlock Text="{Binding DeviceConnection.Fingerprint, StringFormat=指纹：{0}}" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding DeviceConnection.TechnicalDetails, StringFormat=技术信息：{0}}" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
+              </StackPanel>
+              <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="探测主机指纹" Style="{StaticResource FluentSecondaryButtonStyle}" IsEnabled="{Binding DeviceConnection.CanProbe}" Click="ProbeHostKey_Click" />
+                <Button Content="确认并测试登录" IsEnabled="{Binding DeviceConnection.CanConfirm}" Click="ConfirmHostKeyAndTest_Click" />
               </StackPanel>
             </Grid>
           </Border>

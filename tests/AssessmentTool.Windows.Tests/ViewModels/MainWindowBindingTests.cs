@@ -53,6 +53,8 @@ public sealed class MainWindowBindingTests
         Assert.Contains("组件中心", text);
         Assert.Contains("自动识别（推荐）", text);
         Assert.Contains("SSH 用户名 *", text);
+        Assert.Contains("自动探测指纹 → 人工确认 → 无命令测试登录", text);
+        Assert.Contains("确认并测试登录", text);
         Assert.DoesNotContain("扫描内网", text);
         Assert.DoesNotContain("漏洞扫描", text);
     }

@@ -23,7 +23,7 @@ public enum SshConnectionTestOutcome
 
 public sealed class SshConnectionTestResult
 {
-    internal SshConnectionTestResult(
+    public SshConnectionTestResult(
         SshConnectionTestOutcome outcome,
         string userMessage,
         string? algorithm = null,

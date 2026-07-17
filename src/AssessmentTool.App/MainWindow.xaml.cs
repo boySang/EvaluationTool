@@ -82,6 +82,30 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void DeviceSelection_Changed(object sender, SelectionChangedEventArgs eventArgs)
+    {
+        await ViewModel.DeviceConnection.SelectDeviceAsync(
+            ((ListBox)sender).SelectedItem as DeviceRecord);
+    }
+
+    private async void ProbeHostKey_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        await ViewModel.DeviceConnection.ProbeAsync();
+    }
+
+    private async void ConfirmHostKeyAndTest_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        var result = MessageBox.Show(
+            "请先通过客户提供的信息、设备控制台或管理员核对完整 SSH 主机指纹。\n\n确认当前显示的指纹一致，并继续进行不发送命令的登录测试吗？",
+            "人工确认 SSH 主机指纹",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Yes)
+        {
+            await ViewModel.DeviceConnection.ConfirmAndTestAsync();
+        }
+    }
+
     private async void SaveDevice_Click(object sender, RoutedEventArgs eventArgs)
     {
         if (ViewModel.Workspace == null)

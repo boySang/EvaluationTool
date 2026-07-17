@@ -51,6 +51,8 @@ public partial class App : Application
                 workspace,
                 new CollectionViewModel(new UnavailableCollectionWorkflowService()),
                 componentCenter,
+                new DeviceConnectionViewModel(
+                    new SshConnectionWorkflowService(repository, credentialVault)),
                 ToggleTheme);
             var window = new MainWindow(mainViewModel);
             MainWindow = window;
