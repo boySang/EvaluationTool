@@ -62,6 +62,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ToggleThemeCommand => toggleThemeCommand;
     public string CurrentProjectName => Workspace?.SelectedProject?.ProjectName ?? "尚未选择项目";
     public string CurrentDeviceName => Workspace?.SelectedDevice?.DisplayName ?? "尚未选择设备";
+    public bool HasSelectedProject => Workspace?.SelectedProject != null;
     public int ProjectDeviceCount => Workspace?.Devices.Count ?? 0;
     public int SuccessfulConnectionTestCount => 0;
     public int PendingConnectionTestCount => ProjectDeviceCount;
@@ -73,6 +74,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedProject))
         {
             OnPropertyChanged(nameof(CurrentProjectName));
+            OnPropertyChanged(nameof(HasSelectedProject));
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))

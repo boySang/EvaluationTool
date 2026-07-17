@@ -111,14 +111,18 @@ public sealed class ProjectWorkspaceViewModelTests
         {
             DeviceDisplayName = "交换机",
             DeviceHost = "192.0.2.10",
-            DevicePortText = "22"
+            DevicePortText = "22",
+            DeviceUserName = "audit-reader",
+            DeviceCategory = TargetCategory.NetworkDevice
         };
         await viewModel.SelectProjectAsync(project);
         var password = "temporary-secret".ToCharArray();
 
         await viewModel.AddDeviceAsync(password);
 
-        Assert.Equal((project.Id, "交换机", "192.0.2.10", 22), service.AddArguments);
+        Assert.Equal(
+            (project.Id, "交换机", "192.0.2.10", 22, "audit-reader", TargetCategory.NetworkDevice),
+            service.AddArguments);
         Assert.Same(createdDevice, viewModel.SelectedDevice);
         Assert.All(password, value => Assert.Equal('\0', value));
     }
@@ -260,7 +264,7 @@ public sealed class ProjectWorkspaceViewModelTests
         public Action? AfterAdd { get; set; }
         public int CreateCallCount { get; private set; }
         public (string Customer, string Project, string Root) CreateArguments { get; private set; }
-        public (ProjectId Project, string Name, string Host, int Port) AddArguments { get; private set; }
+        public (ProjectId Project, string Name, string Host, int Port, string UserName, TargetCategory Category) AddArguments { get; private set; }
 
         public Task InitializeAsync(CancellationToken cancellationToken = default)
         {
@@ -293,7 +297,22 @@ public sealed class ProjectWorkspaceViewModelTests
         public async Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port,
             char[] password, CancellationToken cancellationToken = default)
         {
-            AddArguments = (projectId, displayName, host, port);
+            return await AddSshDeviceAsync(
+                projectId, displayName, host, port, "未设置", TargetCategory.Automatic,
+                password, cancellationToken);
+        }
+
+        public async Task<DeviceId> AddSshDeviceAsync(
+            ProjectId projectId,
+            string displayName,
+            string host,
+            int port,
+            string userName,
+            TargetCategory category,
+            char[] password,
+            CancellationToken cancellationToken = default)
+        {
+            AddArguments = (projectId, displayName, host, port, userName, category);
             var id = AddGate == null ? CreatedDeviceId : await AddGate;
             AfterAdd?.Invoke();
             return id;

@@ -65,11 +65,37 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
         char[] password,
         CancellationToken cancellationToken = default)
     {
+        return await AddSshDeviceAsync(
+            projectId,
+            displayName,
+            host,
+            port,
+            "未设置",
+            TargetCategory.Automatic,
+            password,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<DeviceId> AddSshDeviceAsync(
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        char[] password,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
             ValidateProjectId(projectId);
             ValidateSafeText(displayName, nameof(displayName), "设备名称", 128);
             ValidateSafeText(host, nameof(host), "设备地址", 255);
+            ValidateSafeText(userName, nameof(userName), "SSH 用户名", 128);
+            if (!Enum.IsDefined(typeof(TargetCategory), category))
+            {
+                throw new ArgumentOutOfRangeException(nameof(category), category, "请选择有效的设备类别后重试。");
+            }
             if (port < 1 || port > 65535)
             {
                 throw new ArgumentOutOfRangeException(
@@ -92,6 +118,9 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
                     displayName.Trim(),
                     endpoint.Host,
                     endpoint.Port,
+                    userName.Trim(),
+                    category,
+                    ConnectionProtocol.Ssh,
                     credentialReference,
                     cancellationToken).ConfigureAwait(false);
             }

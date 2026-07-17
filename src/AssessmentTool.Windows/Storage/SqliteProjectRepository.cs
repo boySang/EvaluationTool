@@ -19,7 +19,8 @@ public sealed class SqliteProjectRepository : IProjectRepository
 
     private static readonly Migration[] Migrations =
     {
-        new Migration(1, "AssessmentTool.Windows.Storage.Migrations.001_initial.sql")
+        new Migration(1, "AssessmentTool.Windows.Storage.Migrations.001_initial.sql"),
+        new Migration(2, "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -103,23 +104,50 @@ public sealed class SqliteProjectRepository : IProjectRepository
         CredentialReference credentialReference,
         CancellationToken cancellationToken = default)
     {
+        return AddDeviceAsync(
+            projectId,
+            displayName,
+            host,
+            port,
+            "未设置",
+            TargetCategory.Automatic,
+            ConnectionProtocol.Ssh,
+            credentialReference,
+            cancellationToken);
+    }
+
+    public Task<DeviceId> AddDeviceAsync(
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        ConnectionProtocol protocol,
+        CredentialReference credentialReference,
+        CancellationToken cancellationToken = default)
+    {
         return RunDatabaseOperationAsync(
             token =>
             {
                 var device = new DeviceRecord(
-                    DeviceId.New(), projectId, displayName, host, port, credentialReference, DateTimeOffset.UtcNow);
+                    DeviceId.New(), projectId, displayName, host, port, userName, category, protocol,
+                    credentialReference, DateTimeOffset.UtcNow);
                 using (var connection = OpenConnection())
                 using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
                 using (var command = connection.CreateCommand())
                 {
                     token.ThrowIfCancellationRequested();
                     command.Transaction = transaction;
-                    command.CommandText = "INSERT INTO devices(id, project_id, display_name, host, port, credential_reference, created_at_utc) VALUES(@id, @projectId, @displayName, @host, @port, @credentialReference, @createdAtUtc);";
+                    command.CommandText = "INSERT INTO devices(id, project_id, display_name, host, port, user_name, target_category, connection_protocol, credential_reference, created_at_utc) VALUES(@id, @projectId, @displayName, @host, @port, @userName, @targetCategory, @connectionProtocol, @credentialReference, @createdAtUtc);";
                     command.Parameters.AddWithValue("@id", device.Id.ToString());
                     command.Parameters.AddWithValue("@projectId", device.ProjectId.ToString());
                     command.Parameters.AddWithValue("@displayName", device.DisplayName);
                     command.Parameters.AddWithValue("@host", device.Host);
                     command.Parameters.AddWithValue("@port", device.Port);
+                    command.Parameters.AddWithValue("@userName", device.UserName);
+                    command.Parameters.AddWithValue("@targetCategory", (int)device.Category);
+                    command.Parameters.AddWithValue("@connectionProtocol", (int)device.Protocol);
                     command.Parameters.AddWithValue("@credentialReference", device.CredentialReference.ToString());
                     command.Parameters.AddWithValue("@createdAtUtc", FormatUtc(device.CreatedAt));
                     command.ExecuteNonQuery();
@@ -202,7 +230,7 @@ public sealed class SqliteProjectRepository : IProjectRepository
                 using (var connection = OpenConnection())
                 using (var command = connection.CreateCommand())
                 {
-                    command.CommandText = "SELECT id, project_id, display_name, host, port, credential_reference, created_at_utc FROM devices WHERE project_id = @projectId ORDER BY created_at_utc, id;";
+                    command.CommandText = "SELECT id, project_id, display_name, host, port, user_name, target_category, connection_protocol, credential_reference, created_at_utc FROM devices WHERE project_id = @projectId ORDER BY created_at_utc, id;";
                     command.Parameters.AddWithValue("@projectId", projectId.ToString());
                     using (var reader = command.ExecuteReader())
                     {
@@ -215,8 +243,11 @@ public sealed class SqliteProjectRepository : IProjectRepository
                                 reader.GetString(2),
                                 reader.GetString(3),
                                 reader.GetInt32(4),
-                                CredentialReference.Parse(reader.GetString(5)),
-                                ParseUtc(reader.GetString(6))));
+                                reader.GetString(5),
+                                ReadEnum<TargetCategory>(reader.GetInt32(6), "target category"),
+                                ReadEnum<ConnectionProtocol>(reader.GetInt32(7), "connection protocol"),
+                                CredentialReference.Parse(reader.GetString(8)),
+                                ParseUtc(reader.GetString(9))));
                         }
                     }
                 }

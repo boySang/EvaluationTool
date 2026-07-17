@@ -2,6 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        xmlns:core="clr-namespace:AssessmentTool.Core.Domain;assembly=AssessmentTool.Core"
+        xmlns:viewModels="clr-namespace:AssessmentTool.App.ViewModels"
         Title="等级保护测评辅助工具"
         Width="1440"
         Height="900"
@@ -118,7 +120,7 @@
                   SelectedIndex="{Binding SelectedIndex, ElementName=ShellNavigation, Mode=OneWay}"
                   automation:AutomationProperties.Name="页面内容">
       <TabItem Header="首页">
-        <Grid Margin="24">
+        <Grid x:Name="HomeDashboardPanel" Margin="24">
           <Grid.RowDefinitions>
             <RowDefinition Height="146" />
             <RowDefinition Height="16" />
@@ -291,110 +293,152 @@
       </TabItem>
 
       <TabItem Header="设备">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-          <Grid Margin="28">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="*" MinWidth="360" />
-              <ColumnDefinition Width="16" />
-              <ColumnDefinition Width="*" MinWidth="360" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-              <TextBlock Text="设备与连接" Style="{StaticResource PageTitleStyle}" />
-              <Border Style="{StaticResource CardStyle}">
-                <StackPanel>
-                  <TextBlock Text="基础信息" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="设备名称" />
-                  <TextBox Text="{Binding Workspace.DeviceDisplayName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="设备名称" />
-                  <TextBlock Text="主机地址" />
-                  <TextBox Text="{Binding Workspace.DeviceHost, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="主机地址" />
-                  <TextBlock Text="SSH 端口" />
-                  <TextBox Text="{Binding Workspace.DevicePortText, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 端口" />
-                  <TextBlock Text="连接密码" />
-                  <PasswordBox x:Name="DevicePasswordBox" automation:AutomationProperties.Name="连接密码" />
-                  <Button Content="加密保存设备" Click="SaveDevice_Click" automation:AutomationProperties.Name="使用 DPAPI 加密保存设备" />
-                  <TextBlock Text="密码由当前 Windows 用户的 DPAPI 加密，SQLite 只保存不可逆的凭据引用。" Style="{StaticResource SecondaryTextStyle}" />
-                </StackPanel>
-              </Border>
-              <Border Style="{StaticResource CardStyle}">
-                <StackPanel>
-                  <TextBlock Text="当前项目设备" Style="{StaticResource SectionTitleStyle}" />
-                  <ListBox ItemsSource="{Binding Workspace.Devices}"
-                           SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}"
-                           MinHeight="120"
-                           automation:AutomationProperties.Name="当前项目设备列表">
-                    <ListBox.ItemTemplate>
-                      <DataTemplate>
-                        <StackPanel Margin="4">
-                          <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                          <TextBlock Text="{Binding Host, StringFormat={}{0}}" Style="{StaticResource SecondaryTextStyle}" />
-                        </StackPanel>
-                      </DataTemplate>
-                    </ListBox.ItemTemplate>
-                  </ListBox>
-                </StackPanel>
-              </Border>
-              <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
-                <TextBlock Text="首次连接必须核对主机指纹；指纹变化会阻止自动连接。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
-              </Border>
+        <Grid x:Name="DeviceListPanel" Margin="24">
+          <Grid.Style>
+            <Style TargetType="Grid">
+              <Setter Property="Visibility" Value="Visible" />
+              <Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsOpen}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+            </Style>
+          </Grid.Style>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <Grid Grid.Row="0">
+            <StackPanel>
+              <TextBlock Text="设备管理" Style="{StaticResource PageTitleStyle}" />
+              <TextBlock Text="管理当前项目中的授权设备和安全连接资料。" Style="{StaticResource SecondaryTextStyle}" />
             </StackPanel>
-
-            <StackPanel Grid.Column="2">
-              <TextBlock Text="识别与人工确认" Style="{StaticResource PageTitleStyle}" />
-              <Border Style="{StaticResource CardStyle}">
-                <StackPanel>
-                  <TextBlock Text="设备识别候选" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="低可信、冲突或未知结果不会自动执行完整命令包。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,10" />
-                  <ItemsControl ItemsSource="{Binding Collection.DetectionCandidates}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate>
-                        <Border Style="{StaticResource CardStyle}">
-                          <StackPanel>
-                            <TextBlock Text="{Binding ProductFamily, TargetNullValue=未知产品}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Version, StringFormat=版本：{0}, TargetNullValue=版本未知}" />
-                            <TextBlock Text="{Binding Confidence, StringFormat=可信度：{0:P0}}" />
-                            <TextBlock Text="{Binding Evidence}" Style="{StaticResource SecondaryTextStyle}" />
-                            <Button Content="确认此识别结果"
-                                    Command="{Binding DataContext.Collection.ConfirmDetectionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                    CommandParameter="{Binding}" />
-                          </StackPanel>
-                        </Border>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </Border>
-
-              <Border Style="{StaticResource CardStyle}">
-                <StackPanel>
-                  <TextBlock Text="发现的数据库实例" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="确认仅保存发现结果；Phase 1 不建立数据库直连，也不执行 SQL。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,10" />
-                  <ItemsControl ItemsSource="{Binding Collection.DatabaseCandidates}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate>
-                        <Border Style="{StaticResource CardStyle}">
-                          <StackPanel>
-                            <TextBlock Text="{Binding Product}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Version, StringFormat=版本：{0}, TargetNullValue=版本未知，需要人工确认}" />
-                            <TextBlock Text="{Binding InstallationType, StringFormat=安装方式：{0}}" />
-                            <TextBlock Text="{Binding InstanceName, StringFormat=实例：{0}}" />
-                            <TextBlock Text="{Binding PortEvidence, StringFormat=端口依据：{0}, TargetNullValue=未发现端口依据}" />
-                            <TextBlock Text="{Binding Confidence, StringFormat=可信度：{0:P0}}" />
-                            <Expander Header="查看识别依据">
-                              <TextBox Text="{Binding Evidence, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" />
-                            </Expander>
-                            <Button Content="确认此数据库实例"
-                                    Command="{Binding DataContext.Collection.ConfirmDatabaseCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                    CommandParameter="{Binding}" />
-                          </StackPanel>
-                        </Border>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </Border>
-            </StackPanel>
+            <Button Content="＋  添加设备" HorizontalAlignment="Right" VerticalAlignment="Center" IsEnabled="{Binding HasSelectedProject}" Click="OpenDeviceWizard_Click" automation:AutomationProperties.Name="打开添加设备向导" />
           </Grid>
-        </ScrollViewer>
+          <Border Grid.Row="2" Style="{StaticResource FluentCardStyle}" Padding="0">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="52" /><RowDefinition Height="42" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+              <Grid Grid.Row="0" Margin="16,0">
+                <TextBlock Text="当前项目设备" Style="{StaticResource SectionTitleStyle}" Margin="0" VerticalAlignment="Center" />
+                <TextBlock Text="选择设备后可进行指纹确认和连接测试" Style="{StaticResource SecondaryTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+              </Grid>
+              <Grid Grid.Row="1" Background="{DynamicResource Brush.SurfaceSubtle}" Margin="1,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.5*" /><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="0.8*" /><ColumnDefinition Width="1.1*" /></Grid.ColumnDefinitions>
+                <TextBlock Text="设备名称" FontWeight="SemiBold" Margin="14,0" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="主机地址" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2" Text="设备类别" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="3" Text="连接方式" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="4" Text="安全连接状态" FontWeight="SemiBold" VerticalAlignment="Center" />
+              </Grid>
+              <ListBox Grid.Row="2" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}" automation:AutomationProperties.Name="当前项目设备列表">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <Grid>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="1.5*" /><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="0.8*" /><ColumnDefinition Width="1.1*" /></Grid.ColumnDefinitions>
+                      <StackPanel><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" /><TextBlock Text="{Binding UserName, StringFormat=账户：{0}}" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Host}" FontFamily="Consolas" /><TextBlock Text="{Binding Port, StringFormat=端口 {0}}" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel>
+                      <TextBlock Grid.Column="2" Text="{Binding Category, Converter={StaticResource DeviceMetadataConverter}}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="3" Text="{Binding Protocol, Converter={StaticResource DeviceMetadataConverter}}" VerticalAlignment="Center" />
+                      <Border Grid.Column="4" Background="{DynamicResource Brush.WarningBackground}" CornerRadius="10" Padding="8,3" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock Text="待连接测试" Foreground="{DynamicResource Brush.WarningText}" FontSize="11" /></Border>
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding ProjectDeviceCount}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                <TextBlock Text="当前项目还没有设备" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="添加设备后，软件才会在授权范围内进行安全连接测试。" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,10" />
+                <Button Content="添加第一台设备" IsEnabled="{Binding HasSelectedProject}" Click="OpenDeviceWizard_Click" />
+              </StackPanel>
+            </Grid>
+          </Border>
+        </Grid>
+
+        <Grid x:Name="DeviceWizardPanel" Margin="24">
+          <Grid.Style>
+            <Style TargetType="Grid">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsOpen}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+            </Style>
+          </Grid.Style>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="78" /><RowDefinition Height="*" /><RowDefinition Height="64" /></Grid.RowDefinitions>
+          <StackPanel Grid.Row="0">
+            <TextBlock Text="设备管理  ›  添加设备" Style="{StaticResource SecondaryTextStyle}" FontSize="12" />
+            <TextBlock Text="添加设备" Style="{StaticResource PageTitleStyle}" />
+          </StackPanel>
+
+          <Grid Grid.Row="1" MaxWidth="760" HorizontalAlignment="Center">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource Brush.Accent}"><TextBlock Text="1" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="基本信息" FontWeight="SemiBold" Margin="10,5,0,0" /></StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource Brush.SurfaceMuted}"><TextBlock Text="2" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="连接配置" FontWeight="SemiBold" Margin="10,5,0,0" /></StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="15" Background="{DynamicResource Brush.SurfaceMuted}"><TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="保存与测试" FontWeight="SemiBold" Margin="10,5,0,0" /></StackPanel>
+          </Grid>
+
+          <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Style="{StaticResource FluentCardStyle}" Padding="24">
+              <Grid>
+                <StackPanel>
+                  <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.BasicInformation}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                  <TextBlock Text="01  基本信息" Style="{StaticResource SectionTitleStyle}" />
+                  <TextBlock Text="录入用户明确授权的设备，不会自动扫描客户网络。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,18" />
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="设备名称 *" /><TextBox Text="{Binding DeviceEditor.DisplayName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="设备名称" /></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="主机地址或 IP *" /><TextBox Text="{Binding DeviceEditor.Host, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="主机地址或 IP" /></StackPanel></Grid>
+                  <TextBlock Text="设备类别" />
+                  <ComboBox SelectedValue="{Binding DeviceEditor.Category, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,12">
+                    <ComboBoxItem Content="自动识别（推荐）" Tag="{x:Static core:TargetCategory.Automatic}" />
+                    <ComboBoxItem Content="网络设备" Tag="{x:Static core:TargetCategory.NetworkDevice}" />
+                    <ComboBoxItem Content="服务器" Tag="{x:Static core:TargetCategory.Server}" />
+                    <ComboBoxItem Content="数据库" Tag="{x:Static core:TargetCategory.Database}" />
+                    <ComboBoxItem Content="中间件" Tag="{x:Static core:TargetCategory.Middleware}" />
+                    <ComboBoxItem Content="安全设备" Tag="{x:Static core:TargetCategory.SecurityDevice}" />
+                  </ComboBox>
+                </StackPanel>
+
+                <StackPanel>
+                  <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.ConnectionConfiguration}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                  <TextBlock Text="02  连接配置" Style="{StaticResource SectionTitleStyle}" />
+                  <TextBlock Text="首版先接通 SSH；其他方式后续按插件启用，不会影响核心软件启动。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,18" />
+                  <Border Background="{DynamicResource Brush.AccentSoft}" BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1" CornerRadius="7" Padding="14" Margin="0,0,0,16"><StackPanel Orientation="Horizontal"><TextBlock Text="&gt;_" FontWeight="Bold" FontSize="18" Width="42" /><StackPanel><TextBlock Text="SSH" FontWeight="SemiBold" /><TextBlock Text="加密连接 · 首次必须确认主机指纹" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel></StackPanel></Border>
+                  <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="SSH 用户名 *" /><TextBox Text="{Binding DeviceEditor.UserName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 用户名" /></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="端口 *" /><TextBox Text="{Binding DeviceEditor.PortText, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 端口" /></StackPanel></Grid>
+                  <TextBlock Text="登录密码 *" />
+                  <PasswordBox x:Name="DevicePasswordBox" automation:AutomationProperties.Name="连接密码" />
+                  <TextBlock Text="密码仅在保存时复制到安全缓冲区，随后使用当前 Windows 用户的 DPAPI 加密。" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
+                </StackPanel>
+
+                <StackPanel>
+                  <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.SaveAndTest}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                  <TextBlock Text="03  保存与连接测试" Style="{StaticResource SectionTitleStyle}" />
+                  <TextBlock Text="请确认设备资料。保存后，下一阶段先探测 SSH 主机指纹，不会直接使用密码登录。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
+                  <Border Background="{DynamicResource Brush.SurfaceSubtle}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="7" Padding="18">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><TextBlock Text="设备名称" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Grid.Column="1" Text="{Binding DeviceEditor.DisplayName}" FontWeight="SemiBold" /><TextBlock Grid.Row="1" Text="主机地址" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeviceEditor.Host}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Text="SSH 账户" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceEditor.UserName}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Text="设备类别" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DeviceEditor.Category, Converter={StaticResource DeviceMetadataConverter}}" Margin="0,10,0,0" /></Grid>
+                  </Border>
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <Border Grid.Column="2" Style="{StaticResource FluentCardStyle}" Background="{DynamicResource Brush.SurfaceSubtle}">
+              <StackPanel>
+                <TextBlock Text="安全说明" Foreground="{DynamicResource Brush.Accent}" FontWeight="SemiBold" FontSize="17" />
+                <TextBlock Text="✓ 仅操作手动添加并获授权的设备" TextWrapping="Wrap" Margin="0,18,0,0" />
+                <TextBlock Text="✓ 自动采集只能执行已校验只读命令" TextWrapping="Wrap" Margin="0,14,0,0" />
+                <TextBlock Text="✓ 首次 SSH 连接必须人工确认指纹" TextWrapping="Wrap" Margin="0,14,0,0" />
+                <TextBlock Text="✓ 建议使用只读或最小权限测评账户" TextWrapping="Wrap" Margin="0,14,0,0" />
+                <Border Background="{DynamicResource Brush.InfoBackground}" CornerRadius="7" Padding="14" Margin="0,20,0,0"><TextBlock Text="保存设备不会自动执行任何客户设备命令。" TextWrapping="Wrap" /></Border>
+              </StackPanel>
+            </Border>
+          </Grid>
+
+          <Border Grid.Row="3" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="0,1,0,0" Padding="0,12,0,0">
+            <Grid>
+              <TextBlock Text="{Binding DeviceEditor.ValidationMessage}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" />
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="取消" Style="{StaticResource FluentSecondaryButtonStyle}" Click="CancelDeviceWizard_Click" />
+                <Button Content="上一步" Click="DeviceWizardBack_Click">
+                  <Button.Style><Style TargetType="Button" BasedOn="{StaticResource FluentSecondaryButtonStyle}"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.BasicInformation}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                </Button>
+                <Button Content="下一步" IsEnabled="{Binding DeviceEditor.CanContinue}" Click="DeviceWizardNext_Click">
+                  <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.SaveAndTest}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                </Button>
+                <Button Content="保存设备" IsEnabled="{Binding DeviceEditor.CanContinue}" Click="SaveDevice_Click" automation:AutomationProperties.Name="使用 DPAPI 加密保存设备">
+                  <Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.SaveAndTest}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Button.Style>
+                </Button>
+              </StackPanel>
+            </Grid>
+          </Border>
+        </Grid>
       </TabItem>
 
       <TabItem Header="采集任务">

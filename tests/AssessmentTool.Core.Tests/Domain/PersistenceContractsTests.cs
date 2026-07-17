@@ -61,6 +61,29 @@ public sealed class PersistenceContractsTests
     }
 
     [Fact]
+    public void Device_record_preserves_connection_identity_without_storing_a_secret()
+    {
+        var record = new DeviceRecord(
+            DeviceId.New(),
+            ProjectId.New(),
+            "核心交换机",
+            "192.0.2.10",
+            22,
+            "audit-reader",
+            TargetCategory.NetworkDevice,
+            ConnectionProtocol.Ssh,
+            CredentialReference.New(),
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal("audit-reader", record.UserName);
+        Assert.Equal(TargetCategory.NetworkDevice, record.Category);
+        Assert.Equal(ConnectionProtocol.Ssh, record.Protocol);
+        Assert.Throws<ArgumentException>(() => new DeviceRecord(
+            DeviceId.New(), ProjectId.New(), "设备", "192.0.2.11", 22, " ",
+            TargetCategory.Automatic, ConnectionProtocol.Ssh, CredentialReference.New(), DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
     public void Evidence_file_record_validates_ids_kind_hash_ordinal_and_basic_relative_path()
     {
         var projectId = ProjectId.New();

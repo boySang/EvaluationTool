@@ -88,12 +88,17 @@ public sealed class SqliteProjectRepositoryTests
     [Fact]
     public void Repository_add_device_contract_cannot_accept_a_plain_string_secret()
     {
-        var method = typeof(IProjectRepository).GetMethod(nameof(IProjectRepository.AddDeviceAsync));
+        var methods = typeof(IProjectRepository).GetMethods()
+            .Where(method => method.Name == nameof(IProjectRepository.AddDeviceAsync))
+            .ToArray();
 
-        Assert.NotNull(method);
-        Assert.Equal(typeof(CredentialReference), method!.GetParameters()[4].ParameterType);
-        Assert.DoesNotContain(method.GetParameters(), parameter => parameter.ParameterType == typeof(string)
-            && string.Equals(parameter.Name, "credentialReference", StringComparison.Ordinal));
+        Assert.NotEmpty(methods);
+        Assert.All(methods, method =>
+        {
+            var credential = Assert.Single(method.GetParameters(), parameter =>
+                string.Equals(parameter.Name, "credentialReference", StringComparison.Ordinal));
+            Assert.Equal(typeof(CredentialReference), credential.ParameterType);
+        });
     }
 
     [Fact]
@@ -108,9 +113,36 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(1, version));
-            Assert.Equal(1, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(2, version));
+            Assert.Equal(2, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
+        }
+    }
+
+    [Fact]
+    public async Task Device_connection_identity_round_trips_through_schema_migration_two()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "项目", @"C:\Evidence");
+
+            await repository.AddDeviceAsync(
+                projectId,
+                "核心交换机",
+                "192.0.2.10",
+                22,
+                "audit-reader",
+                TargetCategory.NetworkDevice,
+                ConnectionProtocol.Ssh,
+                CredentialReference.New());
+
+            var device = Assert.Single(await repository.GetDevicesAsync(projectId));
+            Assert.Equal("audit-reader", device.UserName);
+            Assert.Equal(TargetCategory.NetworkDevice, device.Category);
+            Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
+            Assert.Equal(2, await repository.GetSchemaVersionAsync());
         }
     }
 

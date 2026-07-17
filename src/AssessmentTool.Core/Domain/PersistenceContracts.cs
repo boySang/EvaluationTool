@@ -251,6 +251,31 @@ public sealed class DeviceRecord
         int port,
         CredentialReference credentialReference,
         DateTimeOffset createdAt)
+        : this(
+            id,
+            projectId,
+            displayName,
+            host,
+            port,
+            "未设置",
+            TargetCategory.Automatic,
+            ConnectionProtocol.Ssh,
+            credentialReference,
+            createdAt)
+    {
+    }
+
+    public DeviceRecord(
+        DeviceId id,
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        ConnectionProtocol protocol,
+        CredentialReference credentialReference,
+        DateTimeOffset createdAt)
     {
         if (!id.IsValid)
         {
@@ -277,6 +302,19 @@ public sealed class DeviceRecord
         }
 
         Port = port;
+        UserName = ValidateRequiredText(userName, nameof(userName));
+        if (!Enum.IsDefined(typeof(TargetCategory), category))
+        {
+            throw new ArgumentOutOfRangeException(nameof(category), category, "Target category is invalid.");
+        }
+
+        if (!Enum.IsDefined(typeof(ConnectionProtocol), protocol))
+        {
+            throw new ArgumentOutOfRangeException(nameof(protocol), protocol, "Connection protocol is invalid.");
+        }
+
+        Category = category;
+        Protocol = protocol;
         CredentialReference = credentialReference;
         CreatedAt = createdAt.ToUniversalTime();
     }
@@ -286,6 +324,9 @@ public sealed class DeviceRecord
     public string DisplayName { get; }
     public string Host { get; }
     public int Port { get; }
+    public string UserName { get; }
+    public TargetCategory Category { get; }
+    public ConnectionProtocol Protocol { get; }
     public CredentialReference CredentialReference { get; }
     public DateTimeOffset CreatedAt { get; }
 

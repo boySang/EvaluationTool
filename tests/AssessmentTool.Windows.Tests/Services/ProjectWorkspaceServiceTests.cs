@@ -107,6 +107,21 @@ public sealed class ProjectWorkspaceServiceTests
     }
 
     [Fact]
+    public async Task Add_ssh_device_preserves_username_category_and_protocol_without_exposing_secret()
+    {
+        var repository = new FakeProjectRepository();
+        var service = new ProjectWorkspaceService(repository, new FakeCredentialVault());
+
+        await service.AddSshDeviceAsync(
+            ProjectId.New(), "核心交换机", "192.0.2.10", 22, " audit-reader ",
+            TargetCategory.NetworkDevice, "temporary-secret".ToCharArray());
+
+        Assert.Equal("audit-reader", repository.UserName);
+        Assert.Equal(TargetCategory.NetworkDevice, repository.Category);
+        Assert.Equal(ConnectionProtocol.Ssh, repository.Protocol);
+    }
+
+    [Fact]
     public async Task Add_device_deletes_stored_credential_when_repository_write_fails()
     {
         var calls = new List<string>();
@@ -371,6 +386,9 @@ public sealed class ProjectWorkspaceServiceTests
         public string? ProjectName { get; private set; }
         public string? EvidenceRoot { get; private set; }
         public CredentialReference? CredentialReference { get; private set; }
+        public string? UserName { get; private set; }
+        public TargetCategory? Category { get; private set; }
+        public ConnectionProtocol? Protocol { get; private set; }
         public Exception? AddDeviceError { get; set; }
         public Exception? GetDevicesError { get; set; }
         public bool PersistDeviceBeforeThrow { get; set; }
@@ -401,8 +419,27 @@ public sealed class ProjectWorkspaceServiceTests
             CredentialReference credentialReference,
             CancellationToken cancellationToken = default)
         {
+            return AddDeviceAsync(
+                projectId, displayName, host, port, "未设置", TargetCategory.Automatic,
+                ConnectionProtocol.Ssh, credentialReference, cancellationToken);
+        }
+
+        public Task<DeviceId> AddDeviceAsync(
+            ProjectId projectId,
+            string displayName,
+            string host,
+            int port,
+            string userName,
+            TargetCategory category,
+            ConnectionProtocol protocol,
+            CredentialReference credentialReference,
+            CancellationToken cancellationToken = default)
+        {
             calls?.Add("repository.add");
             CredentialReference = credentialReference;
+            UserName = userName;
+            Category = category;
+            Protocol = protocol;
             if (PersistDeviceBeforeThrow)
             {
                 Devices = new[]
@@ -413,6 +450,9 @@ public sealed class ProjectWorkspaceServiceTests
                         displayName,
                         host,
                         port,
+                        userName,
+                        category,
+                        protocol,
                         credentialReference,
                         DateTimeOffset.UtcNow)
                 };

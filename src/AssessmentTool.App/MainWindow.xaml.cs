@@ -33,6 +33,39 @@ public partial class MainWindow : Window
         ShellNavigation.SelectedIndex = 6;
     }
 
+    private void OpenDeviceWizard_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        DevicePasswordBox.Clear();
+        ViewModel.DeviceEditor.Start();
+    }
+
+    private void CancelDeviceWizard_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        DevicePasswordBox.Clear();
+        ViewModel.DeviceEditor.Close();
+    }
+
+    private void DeviceWizardNext_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        if (ViewModel.DeviceEditor.Step == DeviceEditorStep.ConnectionConfiguration
+            && DevicePasswordBox.SecurePassword.Length == 0)
+        {
+            MessageBox.Show(
+                "请输入登录密码后继续。密码只会在保存时进入安全缓冲区。",
+                "连接资料未完成",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        ViewModel.DeviceEditor.Next();
+    }
+
+    private void DeviceWizardBack_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        ViewModel.DeviceEditor.Back();
+    }
+
     private async void CreateProject_Click(object sender, RoutedEventArgs eventArgs)
     {
         if (ViewModel.Workspace != null)
@@ -56,10 +89,29 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (DevicePasswordBox.SecurePassword.Length == 0)
+        {
+            MessageBox.Show(
+                "登录密码为空，设备尚未保存。请返回连接配置并填写密码。",
+                "连接资料未完成",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        ViewModel.Workspace.DeviceDisplayName = ViewModel.DeviceEditor.DisplayName;
+        ViewModel.Workspace.DeviceHost = ViewModel.DeviceEditor.Host;
+        ViewModel.Workspace.DevicePortText = ViewModel.DeviceEditor.PortText;
+        ViewModel.Workspace.DeviceUserName = ViewModel.DeviceEditor.UserName;
+        ViewModel.Workspace.DeviceCategory = ViewModel.DeviceEditor.Category;
         var password = CopyPassword(DevicePasswordBox.SecurePassword);
         try
         {
             await ViewModel.Workspace.AddDeviceAsync(password);
+            if (ViewModel.Workspace.State == ProjectWorkspaceState.Ready)
+            {
+                ViewModel.DeviceEditor.Close();
+            }
         }
         finally
         {

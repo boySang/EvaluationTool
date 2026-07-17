@@ -149,6 +149,9 @@ public sealed class MainViewModelTests
             Task.FromResult<IReadOnlyList<DeviceRecord>>(new[] { device });
         public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port,
             char[] password, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DeviceId> AddSshDeviceAsync(ProjectId projectId, string displayName, string host, int port,
+            string userName, TargetCategory category, char[] password,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeCollectionWorkflowService : ICollectionWorkflowService

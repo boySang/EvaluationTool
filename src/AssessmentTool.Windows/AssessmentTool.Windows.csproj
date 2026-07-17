@@ -13,5 +13,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Storage/Migrations/001_initial.sql" />
+    <EmbeddedResource Include="Storage/Migrations/002_device_connection_identity.sql" />
   </ItemGroup>
 </Project>

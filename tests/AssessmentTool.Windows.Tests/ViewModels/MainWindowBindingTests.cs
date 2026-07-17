@@ -47,8 +47,12 @@ public sealed class MainWindowBindingTests
         Assert.Contains("ShellNavigation", names);
         Assert.Contains("ReadOnlyStatusBadge", names);
         Assert.Contains("DashboardDeviceCount", names);
+        Assert.Contains("DeviceListPanel", names);
+        Assert.Contains("DeviceWizardPanel", names);
         Assert.Contains("命令库", text);
         Assert.Contains("组件中心", text);
+        Assert.Contains("自动识别（推荐）", text);
+        Assert.Contains("SSH 用户名 *", text);
         Assert.DoesNotContain("扫描内网", text);
         Assert.DoesNotContain("漏洞扫描", text);
     }

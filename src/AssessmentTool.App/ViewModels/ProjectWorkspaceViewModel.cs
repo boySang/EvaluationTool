@@ -36,6 +36,8 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
     private string deviceDisplayName = string.Empty;
     private string deviceHost = string.Empty;
     private string devicePortText = "22";
+    private string deviceUserName = string.Empty;
+    private TargetCategory deviceCategory = TargetCategory.Automatic;
     private string whatHappened = string.Empty;
     private string possibleCause = string.Empty;
     private string howToFix = string.Empty;
@@ -80,6 +82,21 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
     public string DeviceDisplayName { get => deviceDisplayName; set => SetText(ref deviceDisplayName, value); }
     public string DeviceHost { get => deviceHost; set => SetText(ref deviceHost, value); }
     public string DevicePortText { get => devicePortText; set => SetText(ref devicePortText, value); }
+    public string DeviceUserName { get => deviceUserName; set => SetText(ref deviceUserName, value); }
+    public TargetCategory DeviceCategory
+    {
+        get => deviceCategory;
+        set
+        {
+            if (deviceCategory == value)
+            {
+                return;
+            }
+
+            deviceCategory = value;
+            OnPropertyChanged();
+        }
+    }
     public string WhatHappened => whatHappened;
     public string PossibleCause => possibleCause;
     public string HowToFix => howToFix;
@@ -165,11 +182,13 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
                 throw new ArgumentException("请输入 1 到 65535 之间的连接端口。", nameof(DevicePortText));
             }
 
-            var createdId = await service.AddDeviceAsync(
+            var createdId = await service.AddSshDeviceAsync(
                 selectedProject.Id,
                 DeviceDisplayName,
                 DeviceHost,
                 port,
+                DeviceUserName,
+                DeviceCategory,
                 password);
             var refreshed = await service.GetDevicesAsync(selectedProject.Id);
             SetDevices(refreshed);
