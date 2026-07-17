@@ -6,12 +6,15 @@ namespace AssessmentTool.Core.Security;
 
 public sealed class CommandSafetyPolicy
 {
+    private const string DockerInventoryCommand = "docker ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'";
+    private const string PodmanInventoryCommand = "podman ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'";
+
     private static readonly Regex RecognizedReadOnlyRoot = new Regex(
         @"^(?:(?:show|display)\b|uname\b|hostname\b|cat\b|ps\b|systemctl\s+list-units\b|(?:docker|podman)\s+ps\b|Get-ComputerInfo$|(?:select|with)\b)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex AllowedReadOnlyShape = new Regex(
-        @"^(?:(?:show|display)\s+(?!clock(?:\s|$))(?:(?:[A-Za-z0-9_-]+\s+){0,3})version(?:\s+[A-Za-z0-9_.-]+)*|(?:show|display)\s+clock|uname(?:\s+-[A-Za-z]+)?|hostname|cat\s+(?:/etc/os-release|/etc/lsb-release|/etc/redhat-release|/etc/debian_version|/etc/login\.defs|/proc/version|/proc/cpuinfo|/proc/meminfo)|ps(?:\s+(?:-[A-Za-z]+|[aux]+))*|ps\s+-eo\s+pid,comm|systemctl\s+list-units|systemctl\s+list-units\s+--type=service\s+--state=running\s+--no-pager|(?:docker|podman)\s+ps(?:\s+(?:-a|--all|--no-trunc|--quiet|--size))*|(?:docker|podman)\s+ps\s+--no-trunc\s+--format\s+'\{""Image"":\{\{json\s+\.Image\}\},""Names"":\{\{json\s+\.Names\}\},""Ports"":\{\{json\s+\.Ports\}\}\}'|Get-ComputerInfo)$",
+        @"^(?:(?:show|display)\s+(?!clock(?:\s|$))(?:(?:[A-Za-z0-9_-]+\s+){0,3})version(?:\s+[A-Za-z0-9_.-]+)*|(?:show|display)\s+clock|uname(?:\s+-[A-Za-z]+)?|hostname|cat\s+(?:/etc/os-release|/etc/lsb-release|/etc/redhat-release|/etc/debian_version|/etc/login\.defs|/proc/version|/proc/cpuinfo|/proc/meminfo)|ps(?:\s+(?:-[A-Za-z]+|[aux]+))*|ps\s+-eo\s+pid,comm|systemctl\s+list-units|systemctl\s+list-units\s+--type=service\s+--state=running\s+--no-pager|(?:docker|podman)\s+ps(?:\s+(?:-a|--all|--no-trunc|--quiet|--size))*|Get-ComputerInfo)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex AllowedSqlMetadataTemplate = new Regex(
@@ -42,12 +45,20 @@ public sealed class CommandSafetyPolicy
 
         if (string.IsNullOrEmpty(commandText) ||
             !RecognizedReadOnlyRoot.IsMatch(commandText) ||
-            (!AllowedReadOnlyShape.IsMatch(commandText) && !AllowedSqlMetadataTemplate.IsMatch(commandText)))
+            (!AllowedReadOnlyShape.IsMatch(commandText)
+                && !AllowedSqlMetadataTemplate.IsMatch(commandText)
+                && !IsAllowedContainerInventory(commandText)))
         {
             return SafetyDecision.Reject("unsupported-command-shape", "命令不属于允许自动执行的只读命令形状。");
         }
 
         return SafetyDecision.Allow();
+    }
+
+    private static bool IsAllowedContainerInventory(string commandText)
+    {
+        return string.Equals(commandText, DockerInventoryCommand, StringComparison.Ordinal)
+            || string.Equals(commandText, PodmanInventoryCommand, StringComparison.Ordinal);
     }
 }
 

@@ -438,7 +438,7 @@ public sealed class CollectionViewModelTests
         var timestamp = DateTimeOffset.UtcNow;
         var output = new CommandOutput(
             "database-host-discovery-linux-processes",
-            " 100 " + processName + " /fixture/" + instanceName,
+            "100 " + processName,
             string.Empty,
             0,
             RemoteExecutionOutcome.Succeeded,
