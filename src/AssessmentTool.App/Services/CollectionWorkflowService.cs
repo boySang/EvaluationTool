@@ -113,6 +113,17 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return UnsupportedTarget();
         }
 
+        if (!IsAdapterCompatible(device.Category, request.AdapterId))
+        {
+            return CollectionWorkflowResult.Failed(new CollectionError(
+                "采集适配器与设备类别不匹配",
+                "当前设备类别不能使用所选厂商或系统适配器",
+                device.Category == TargetCategory.NetworkDevice
+                    ? "请在采集页明确选择与实际厂商一致且已经验证的网络设备适配器"
+                    : "请改用通用 Linux 服务器适配器，或返回设备页修正设备类别",
+                "CollectionAdapterTargetMismatch"));
+        }
+
         if (!request.DeviceSelection.IsRequiredComponentAvailable)
         {
             return CollectionWorkflowResult.Failed(new CollectionError(
@@ -132,7 +143,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "HostKeyTrustNotEligible"));
         }
 
-        var isHuaweiVrpWorkflow = device.Category == TargetCategory.NetworkDevice;
+        var isHuaweiVrpWorkflow = request.AdapterId == CollectionAdapterId.HuaweiVrp;
         var workflowStage = isHuaweiVrpWorkflow ? "加载华为 VRP 命令包" : "加载通用 Linux 命令包";
         WorkflowExecutionObserver? executionObserver = null;
         try
@@ -300,6 +311,22 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "连接、命令包或证据保存未完成",
                 "检查设备连接、组件中心和证据目录后重试",
                 BuildTechnicalDetails(workflowStage, exception)));
+        }
+    }
+
+    private static bool IsAdapterCompatible(
+        TargetCategory category,
+        CollectionAdapterId adapterId)
+    {
+        switch (adapterId)
+        {
+            case CollectionAdapterId.GenericLinux:
+                return category == TargetCategory.Automatic
+                    || category == TargetCategory.Server;
+            case CollectionAdapterId.HuaweiVrp:
+                return category == TargetCategory.NetworkDevice;
+            default:
+                return false;
         }
     }
 

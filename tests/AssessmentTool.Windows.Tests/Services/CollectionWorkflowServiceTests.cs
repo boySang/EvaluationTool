@@ -282,6 +282,35 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Network_device_without_matching_adapter_is_rejected_before_session_creation()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.NetworkDevice, "192.0.2.62", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var sessionCreated = false;
+        var service = new CollectionWorkflowService(
+            new BuiltinCommandPackCatalog(),
+            _ =>
+            {
+                sessionCreated = true;
+                throw new InvalidOperationException("不应创建连接会话");
+            },
+            new RecordingEvidenceService());
+
+        var result = await service.RunAsync(
+            new CollectionWorkflowRequest(
+                project,
+                new CollectionDeviceSelection(device, true, trust),
+                CollectionAdapterId.GenericLinux),
+            new CountingProgress(),
+            CancellationToken.None);
+
+        Assert.Equal(CollectionWorkflowOutcome.Failed, result.Outcome);
+        Assert.Equal("CollectionAdapterTargetMismatch", result.Error!.TechnicalDetails);
+        Assert.False(sessionCreated);
+    }
+
+    [Fact]
     public async Task Non_huawei_network_device_stops_after_version_probe_without_aaa_collection_or_pending_batch()
     {
         var project = CreateProject();
@@ -660,6 +689,9 @@ public sealed class CollectionWorkflowServiceTests
                 device,
                 isRequiredComponentAvailable: true,
                 hostKeyTrust: trust),
+            device.Category == TargetCategory.NetworkDevice
+                ? CollectionAdapterId.HuaweiVrp
+                : CollectionAdapterId.GenericLinux,
             confirmedCandidate,
             pendingIdentificationBatchId);
     }

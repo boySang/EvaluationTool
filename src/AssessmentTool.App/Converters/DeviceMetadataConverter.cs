@@ -16,7 +16,7 @@ public sealed class DeviceMetadataConverter : IValueConverter
                 case TargetCategory.Automatic:
                     return "自动识别";
                 case TargetCategory.NetworkDevice:
-                    return "华为 VRP 网络设备";
+                    return "网络设备";
                 case TargetCategory.Server:
                     return "服务器";
                 case TargetCategory.Database:

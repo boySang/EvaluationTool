@@ -20,6 +20,33 @@ public interface ICollectionWorkflowService
         CancellationToken cancellationToken);
 }
 
+public enum CollectionAdapterId
+{
+    GenericLinux = 1,
+    HuaweiVrp = 2
+}
+
+public sealed class CollectionAdapterOption
+{
+    public CollectionAdapterOption(
+        CollectionAdapterId id,
+        string displayName,
+        string scopeNotice)
+    {
+        Id = id;
+        DisplayName = string.IsNullOrWhiteSpace(displayName)
+            ? throw new ArgumentException("适配器名称不能为空。", nameof(displayName))
+            : displayName;
+        ScopeNotice = string.IsNullOrWhiteSpace(scopeNotice)
+            ? throw new ArgumentException("适配器范围说明不能为空。", nameof(scopeNotice))
+            : scopeNotice;
+    }
+
+    public CollectionAdapterId Id { get; }
+    public string DisplayName { get; }
+    public string ScopeNotice { get; }
+}
+
 public sealed class CollectionDeviceSelection
 {
     public CollectionDeviceSelection(
@@ -52,6 +79,21 @@ public sealed class CollectionWorkflowRequest
         CollectionDeviceSelection deviceSelection,
         DetectionCandidate? confirmedCandidate = null,
         Guid? pendingIdentificationBatchId = null)
+        : this(
+            project,
+            deviceSelection,
+            CollectionAdapterId.GenericLinux,
+            confirmedCandidate,
+            pendingIdentificationBatchId)
+    {
+    }
+
+    public CollectionWorkflowRequest(
+        ProjectRecord project,
+        CollectionDeviceSelection deviceSelection,
+        CollectionAdapterId adapterId,
+        DetectionCandidate? confirmedCandidate = null,
+        Guid? pendingIdentificationBatchId = null)
     {
         Project = project ?? throw new ArgumentNullException(nameof(project));
         DeviceSelection = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
@@ -73,10 +115,12 @@ public sealed class CollectionWorkflowRequest
 
         ConfirmedCandidate = confirmedCandidate;
         PendingIdentificationBatchId = pendingIdentificationBatchId;
+        AdapterId = adapterId;
     }
 
     public ProjectRecord Project { get; }
     public CollectionDeviceSelection DeviceSelection { get; }
+    public CollectionAdapterId AdapterId { get; }
     public DetectionCandidate? ConfirmedCandidate { get; }
     public Guid? PendingIdentificationBatchId { get; }
 }

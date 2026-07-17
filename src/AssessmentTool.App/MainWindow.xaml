@@ -435,7 +435,7 @@
                   <TextBlock Text="设备类别" />
                   <ComboBox SelectedValue="{Binding DeviceEditor.Category, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,12">
                     <ComboBoxItem Content="自动识别（推荐）" Tag="{x:Static core:TargetCategory.Automatic}" />
-                    <ComboBoxItem Content="华为 VRP 网络设备（当前支持）" Tag="{x:Static core:TargetCategory.NetworkDevice}" />
+                    <ComboBoxItem Content="网络设备" Tag="{x:Static core:TargetCategory.NetworkDevice}" />
                     <ComboBoxItem Content="服务器" Tag="{x:Static core:TargetCategory.Server}" />
                     <ComboBoxItem Content="数据库" Tag="{x:Static core:TargetCategory.Database}" />
                     <ComboBoxItem Content="中间件" Tag="{x:Static core:TargetCategory.Middleware}" />
@@ -452,7 +452,7 @@
                         </Style.Triggers>
                       </Style>
                     </Border.Style>
-                    <TextBlock Text="当前网络设备适配器仅用于华为 VRP。首次只执行 display version 查询并要求人工确认；请勿为 H3C、Cisco、锐捷等其他厂商选择此项。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
+                    <TextBlock Text="设备类别不会决定厂商命令。保存后必须在采集页明确选择已验证的厂商适配器；未选择时不会连接或执行命令。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
                   </Border>
                 </StackPanel>
 
@@ -604,6 +604,27 @@
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>
                 <TextBlock Text="{Binding Collection.State, StringFormat=当前状态：{0}}" Style="{StaticResource SectionTitleStyle}" />
+                <StackPanel Margin="0,10,0,6">
+                  <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                      <Setter Property="Visibility" Value="Collapsed" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding Collection.IsAdapterSelectionVisible}" Value="True">
+                          <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </StackPanel.Style>
+                  <TextBlock Text="网络设备采集适配器 *" FontWeight="SemiBold" />
+                  <ComboBox ItemsSource="{Binding Collection.AdapterOptions}"
+                            SelectedItem="{Binding Collection.SelectedAdapterOption, Mode=TwoWay}"
+                            DisplayMemberPath="DisplayName"
+                            automation:AutomationProperties.Name="网络设备采集适配器"
+                            Margin="0,5,0,6" />
+                  <TextBlock Text="{Binding Collection.AdapterScopeNotice, Mode=OneWay}"
+                             Style="{StaticResource SecondaryTextStyle}"
+                             TextWrapping="Wrap" />
+                </StackPanel>
                 <TextBlock Text="{Binding Collection.ProgressMessage, TargetNullValue=等待开始}" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding Collection.CurrentCommand, StringFormat=当前命令编号：{0}, TargetNullValue=尚未执行命令}" Style="{StaticResource SecondaryTextStyle}" Margin="0,6" />
                 <ProgressBar Height="8"

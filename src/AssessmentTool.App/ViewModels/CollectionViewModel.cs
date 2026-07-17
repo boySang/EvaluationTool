@@ -33,6 +33,14 @@ public enum CollectionViewModelState
 
 public sealed class CollectionViewModel : INotifyPropertyChanged
 {
+    private static readonly CollectionAdapterOption GenericLinuxAdapter = new CollectionAdapterOption(
+        CollectionAdapterId.GenericLinux,
+        "通用 Linux 服务器",
+        "仅适用于 SSH Linux 服务器；执行固定系统识别、基线查询和只读数据库/中间件发现命令。");
+    private static readonly CollectionAdapterOption HuaweiVrpAdapter = new CollectionAdapterOption(
+        CollectionAdapterId.HuaweiVrp,
+        "华为 VRP 网络设备",
+        "仅适用于已确认的华为 VRP 设备；当前执行版本识别和 AAA 配置概要只读查询，不适用于 H3C、Cisco、锐捷等厂商。");
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
@@ -54,6 +62,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private IReadOnlyList<HostSoftwareDiscoveryCandidateRecord> hostSoftwareCandidates =
         Array.Empty<HostSoftwareDiscoveryCandidateRecord>();
     private IReadOnlyList<CompletedCollectionCommand> completedCommands = Array.Empty<CompletedCollectionCommand>();
+    private IReadOnlyList<CollectionAdapterOption> adapterOptions = Array.Empty<CollectionAdapterOption>();
+    private CollectionAdapterOption? selectedAdapterOption;
     private DatabaseInstanceCandidate? selectedDatabaseCandidate;
     private CollectionState? progressState;
     private string progressMessage = string.Empty;
@@ -114,6 +124,34 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public IReadOnlyList<DatabaseInstanceCandidate> DatabaseCandidates => databaseCandidates;
     public IReadOnlyList<HostSoftwareDiscoveryCandidateRecord> HostSoftwareCandidates => hostSoftwareCandidates;
     public IReadOnlyList<CompletedCollectionCommand> CompletedCommands => completedCommands;
+    public IReadOnlyList<CollectionAdapterOption> AdapterOptions => adapterOptions;
+    public CollectionAdapterOption? SelectedAdapterOption
+    {
+        get => selectedAdapterOption;
+        set
+        {
+            EnsureSelectionCanChange();
+            var selected = value == null
+                ? null
+                : adapterOptions.FirstOrDefault(option => option.Id == value.Id)
+                    ?? throw new ArgumentException("所选采集适配器不适用于当前设备。", nameof(value));
+            if (ReferenceEquals(selectedAdapterOption, selected))
+            {
+                return;
+            }
+
+            selectedAdapterOption = selected;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(AdapterScopeNotice));
+            RefreshReadiness();
+        }
+    }
+    public bool IsAdapterSelectionVisible =>
+        selectedDevice?.Device.Category == TargetCategory.NetworkDevice;
+    public string AdapterScopeNotice => selectedAdapterOption?.ScopeNotice
+        ?? (IsAdapterSelectionVisible
+            ? "必须明确选择与实际厂商一致的已验证适配器，未选择时不会连接或执行命令。"
+            : string.Empty);
     public DatabaseInstanceCandidate? SelectedDatabaseCandidate => selectedDatabaseCandidate;
     public CollectionState? ProgressState => progressState;
     public string ProgressMessage => progressMessage;
@@ -141,6 +179,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         if (selectedProject == null || !selectedProject.Id.Equals(nextProject.Id))
         {
             selectedDevice = null;
+            ConfigureAdapterSelection(null);
             ClearPendingIdentification();
             ClearDeviceTransientState();
             OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
@@ -154,14 +193,21 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         EnsureSelectionCanChange();
         var nextSelection = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
-        if (selectedDevice != null
-            && !selectedDevice.Device.Id.Equals(nextSelection.Device.Id))
+        var deviceChanged = selectedDevice == null
+            || !selectedDevice.Device.Id.Equals(nextSelection.Device.Id);
+        if (selectedDevice != null && deviceChanged)
         {
             ClearPendingIdentification();
             ClearDeviceTransientState();
         }
 
+        if (deviceChanged)
+        {
+            selectedAdapterOption = null;
+        }
+
         selectedDevice = nextSelection;
+        ConfigureAdapterSelection(nextSelection.Device.Category);
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         if (pendingIdentificationBatchId.HasValue
             && pendingIdentificationDeviceId.Equals(selectedDevice.Device.Id))
@@ -183,6 +229,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         EnsureSelectionCanChange();
         selectedDevice = null;
+        ConfigureAdapterSelection(null);
         ClearPendingIdentification();
         ClearDeviceTransientState();
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
@@ -251,6 +298,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             isRecoveredIdentification = true;
             OnPropertyChanged(nameof(IsRecoveredIdentification));
             SetDetectionCandidates(restored.Candidates);
+            SelectAdapterForRestoredCandidates(device.Category, restored.Candidates);
             progressMessage = "已恢复上次待确认的设备识别候选；确认后会重新执行低风险识别，不会直接使用旧结果采集。";
             OnPropertyChanged(nameof(ProgressMessage));
             SetState(CollectionViewModelState.AwaitingConfirmation);
@@ -521,6 +569,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private bool HasReadySelection =>
         selectedProject != null
         && selectedDevice != null
+        && selectedAdapterOption != null
         && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)
         && IsRequiredComponentAvailable
         && selectedDevice.IsHostKeyTrusted;
@@ -535,6 +584,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             && selectedDevice != null
             && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)
             && selectedDevice.Device.Id.Equals(pendingIdentificationDeviceId)
+            && selectedAdapterOption != null
             && IsRequiredComponentAvailable
             && selectedDevice.IsHostKeyTrusted;
     }
@@ -587,6 +637,8 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 var request = new CollectionWorkflowRequest(
                     selectedProject,
                     selectedDevice,
+                    selectedAdapterOption?.Id
+                        ?? throw new InvalidOperationException("尚未选择采集适配器。"),
                     confirmedCandidate,
                     confirmationBatchId);
                 var progress = new ContextProgress<CollectionProgress>(value =>
@@ -741,6 +793,54 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         }
 
         RaiseCommandStates();
+    }
+
+    private void ConfigureAdapterSelection(TargetCategory? category)
+    {
+        IReadOnlyList<CollectionAdapterOption> nextOptions;
+        CollectionAdapterOption? nextSelection;
+        switch (category)
+        {
+            case TargetCategory.Automatic:
+            case TargetCategory.Server:
+                nextOptions = new[] { GenericLinuxAdapter };
+                nextSelection = GenericLinuxAdapter;
+                break;
+            case TargetCategory.NetworkDevice:
+                nextOptions = new[] { HuaweiVrpAdapter };
+                nextSelection = selectedAdapterOption?.Id == CollectionAdapterId.HuaweiVrp
+                    ? HuaweiVrpAdapter
+                    : null;
+                break;
+            default:
+                nextOptions = Array.Empty<CollectionAdapterOption>();
+                nextSelection = null;
+                break;
+        }
+
+        adapterOptions = nextOptions;
+        selectedAdapterOption = nextSelection;
+        OnPropertyChanged(nameof(AdapterOptions));
+        OnPropertyChanged(nameof(SelectedAdapterOption));
+        OnPropertyChanged(nameof(IsAdapterSelectionVisible));
+        OnPropertyChanged(nameof(AdapterScopeNotice));
+    }
+
+    private void SelectAdapterForRestoredCandidates(
+        TargetCategory category,
+        IReadOnlyList<DetectionCandidate> candidates)
+    {
+        if (category != TargetCategory.NetworkDevice
+            || selectedAdapterOption != null
+            || !candidates.Any(candidate =>
+                string.Equals(candidate.Vendor, "Huawei", StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        selectedAdapterOption = HuaweiVrpAdapter;
+        OnPropertyChanged(nameof(SelectedAdapterOption));
+        OnPropertyChanged(nameof(AdapterScopeNotice));
     }
 
     private void EnsureSelectionCanChange()

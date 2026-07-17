@@ -38,6 +38,56 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Network_device_requires_explicit_adapter_selection_before_collection()
+    {
+        var service = new FakeCollectionWorkflowService();
+        var project = CreateProject();
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
+        viewModel.SelectProject(project);
+        var device = CreateDevice(project, TargetCategory.NetworkDevice);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        Assert.True(viewModel.IsAdapterSelectionVisible);
+        var option = Assert.Single(viewModel.AdapterOptions);
+        Assert.Equal(CollectionAdapterId.HuaweiVrp, option.Id);
+        Assert.Null(viewModel.SelectedAdapterOption);
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+
+        viewModel.SelectedAdapterOption = option;
+        await viewModel.StartAsync();
+
+        Assert.Equal(CollectionAdapterId.HuaweiVrp, Assert.Single(service.Requests).AdapterId);
+    }
+
+    [Fact]
+    public void Switching_network_device_clears_previous_adapter_confirmation()
+    {
+        var project = CreateProject();
+        var viewModel = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService());
+        viewModel.SelectProject(project);
+        var firstDevice = CreateDevice(project, TargetCategory.NetworkDevice);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            firstDevice,
+            true,
+            CreateHostKeyTrust(firstDevice.Host, firstDevice.Port, HostKeyTrustState.Verified)));
+        viewModel.SelectedAdapterOption = Assert.Single(viewModel.AdapterOptions);
+
+        var secondDevice = CreateDevice(project, TargetCategory.NetworkDevice);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            secondDevice,
+            true,
+            CreateHostKeyTrust(secondDevice.Host, secondDevice.Port, HostKeyTrustState.Verified)));
+
+        Assert.Null(viewModel.SelectedAdapterOption);
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+    }
+
+    [Fact]
     public void Required_component_override_controls_start_and_navigation_suggestion()
     {
         var service = new FakeCollectionWorkflowService();
@@ -750,12 +800,20 @@ public sealed class CollectionViewModelTests
 
     private static DeviceRecord CreateDevice(ProjectRecord project)
     {
+        return CreateDevice(project, TargetCategory.Automatic);
+    }
+
+    private static DeviceRecord CreateDevice(ProjectRecord project, TargetCategory category)
+    {
         return new DeviceRecord(
             DeviceId.New(),
             project.Id,
             "设备",
             "192.0.2.10",
             22,
+            "audit-user",
+            category,
+            ConnectionProtocol.Ssh,
             CredentialReference.New(),
             DateTimeOffset.UtcNow);
     }
