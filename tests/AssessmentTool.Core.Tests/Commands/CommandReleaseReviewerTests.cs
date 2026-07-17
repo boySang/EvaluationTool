@@ -29,7 +29,7 @@ public sealed class CommandReleaseReviewerTests
             + "\"checkItem\":\"IDENTIFY\",\"modelRange\":\"EX-*\","
             + "\"accountRequirement\":\"只读审计账户\",\"riskLevel\":\"Low\","
             + "\"timeoutSeconds\":30,\"pagingBehavior\":\"DisablePaging\","
-            + "\"resultDescription\":\"设备版本信息\",\"verificationDate\":\"2026-07-18\","
+            + "\"resultDescription\":\"设备版本信息\",\"verificationDate\":\"2025-01-01\","
             + "\"officialSource\":\"https://vendor.example/docs/show-version\",\"optional\":false"
             + "}]}";
         var draft = new CommandDraftImporter().Import(
