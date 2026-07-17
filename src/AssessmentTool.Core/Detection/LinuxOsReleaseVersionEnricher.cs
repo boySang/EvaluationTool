@@ -46,7 +46,7 @@ internal sealed class LinuxOsReleaseVersionEnricher
                 candidate.ProductFamily,
                 candidate.Model,
                 version,
-                candidate.Evidence + "\nVERSION_ID=" + version,
+                candidate.Evidence + "; VERSION_ID=" + version,
                 candidate.Confidence);
         }).ToArray();
 
