@@ -23,6 +23,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     private readonly IDeviceIdentificationRepository? identificationRepository;
     private readonly IPendingDeviceIdentificationRepository? pendingIdentificationRepository;
     private readonly ICollectionTaskRepository? collectionTaskRepository;
+    private readonly ICommandPackReleaseService? commandPackReleaseService;
 
     public CollectionWorkflowService(
         ICredentialVault credentialVault,
@@ -40,12 +41,23 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         ICredentialVault credentialVault,
         ICollectionEvidenceService evidenceService,
         IDeviceIdentificationRepository identificationRepository)
+        : this(credentialVault, evidenceService, identificationRepository, null)
+    {
+    }
+
+    public CollectionWorkflowService(
+        ICredentialVault credentialVault,
+        ICollectionEvidenceService evidenceService,
+        IDeviceIdentificationRepository identificationRepository,
+        ICommandPackReleaseService? commandPackReleaseService)
         : this(
             new BuiltinCommandPackCatalog(),
             new SshReadOnlySessionFactory(
                 credentialVault ?? throw new ArgumentNullException(nameof(credentialVault))).Create,
             evidenceService,
-            identificationRepository ?? throw new ArgumentNullException(nameof(identificationRepository)))
+            identificationRepository ?? throw new ArgumentNullException(nameof(identificationRepository)),
+            null,
+            commandPackReleaseService)
     {
     }
 
@@ -62,7 +74,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         Func<ConnectionProfile, IRemoteSession> createSession,
         ICollectionEvidenceService evidenceService,
         IDeviceIdentificationRepository? identificationRepository,
-        IReadOnlyList<IdentificationRule>? identificationRules = null)
+        IReadOnlyList<IdentificationRule>? identificationRules = null,
+        ICommandPackReleaseService? commandPackReleaseService = null)
     {
         this.commandCatalog = commandCatalog ?? throw new ArgumentNullException(nameof(commandCatalog));
         this.createSession = createSession ?? throw new ArgumentNullException(nameof(createSession));
@@ -70,6 +83,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         this.identificationRepository = identificationRepository;
         pendingIdentificationRepository = identificationRepository as IPendingDeviceIdentificationRepository;
         collectionTaskRepository = identificationRepository as ICollectionTaskRepository;
+        this.commandPackReleaseService = commandPackReleaseService;
         this.identificationRules = identificationRules ?? new[] { BuiltInIdentificationRules.LinuxOsReleaseId };
     }
 
@@ -120,13 +134,17 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         try
         {
             var fullPack = commandCatalog.LoadGenericLinux();
-            var collectionPack = commandCatalog.CreateGenericLinuxCollectionPack(fullPack);
+            var collectionPack = await LoadProjectCollectionPackAsync(
+                request.Project.Id,
+                fullPack,
+                cancellationToken).ConfigureAwait(false);
             workflowStage = "加载数据库发现命令包";
             var databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
             executionObserver = new WorkflowExecutionObserver(
                 this,
                 request,
                 fullPack,
+                collectionPack,
                 databaseDiscoveryPack,
                 collectionTaskRepository,
                 evidenceService);
@@ -215,6 +233,45 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "检查设备连接、组件中心和证据目录后重试",
                 BuildTechnicalDetails(workflowStage, exception)));
         }
+    }
+
+    private async Task<CommandPack> LoadProjectCollectionPackAsync(
+        ProjectId projectId,
+        CommandPack builtinFullPack,
+        CancellationToken cancellationToken)
+    {
+        if (commandPackReleaseService == null)
+        {
+            return commandCatalog.CreateGenericLinuxCollectionPack(builtinFullPack);
+        }
+
+        var selected = await commandPackReleaseService.LoadCurrentProjectPackAsync(
+            projectId,
+            builtinFullPack.Id,
+            cancellationToken).ConfigureAwait(false);
+        if (selected == null)
+        {
+            return commandCatalog.CreateGenericLinuxCollectionPack(builtinFullPack);
+        }
+
+        var fixedIdentificationIds = new HashSet<string>(
+            commandCatalog.GenericLinuxIdentificationCommandIds,
+            StringComparer.Ordinal);
+        var collectionIds = selected.Commands
+            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
+            .Select(command => command.Id)
+            .ToArray();
+        if (collectionIds.Length == 0)
+        {
+            throw new CommandPackException("项目锁定命令包不包含可执行的采集命令。");
+        }
+
+        if (collectionIds.Any(fixedIdentificationIds.Contains))
+        {
+            throw new CommandPackException("项目锁定命令包与固定识别命令标识冲突，已阻止执行。");
+        }
+
+        return selected.SelectCommands(collectionIds);
     }
 
     private async Task<IdentificationPersistenceResult> SaveIdentificationStateAsync(
@@ -308,11 +365,13 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     {
         private readonly CollectionWorkflowService owner;
         private readonly CollectionWorkflowRequest request;
-        private readonly CommandPack genericLinuxPack;
+        private readonly CommandPack identificationPack;
+        private readonly CommandPack collectionPack;
         private readonly CommandPack databaseDiscoveryPack;
         private readonly ICollectionTaskRepository? taskRepository;
         private readonly ICollectionEvidenceService evidenceService;
-        private readonly Dictionary<string, CommandDefinition> genericCommands;
+        private readonly Dictionary<string, CommandDefinition> identificationCommands;
+        private readonly Dictionary<string, CommandDefinition> collectionCommands;
         private readonly Dictionary<string, CommandDefinition> databaseCommands;
         private readonly List<string> completedBeforeTask = new List<string>();
         private readonly Dictionary<string, int> taskOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -324,19 +383,35 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         public WorkflowExecutionObserver(
             CollectionWorkflowService owner,
             CollectionWorkflowRequest request,
-            CommandPack genericLinuxPack,
+            CommandPack identificationPack,
+            CommandPack collectionPack,
             CommandPack databaseDiscoveryPack,
             ICollectionTaskRepository? taskRepository,
             ICollectionEvidenceService evidenceService)
         {
             this.owner = owner;
             this.request = request;
-            this.genericLinuxPack = genericLinuxPack;
+            this.identificationPack = identificationPack;
+            this.collectionPack = collectionPack;
             this.databaseDiscoveryPack = databaseDiscoveryPack;
             this.taskRepository = taskRepository;
             this.evidenceService = evidenceService;
-            genericCommands = genericLinuxPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+            identificationCommands = identificationPack.Commands
+                .Where(command => string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
+                .ToDictionary(command => command.Id, StringComparer.Ordinal);
+            collectionCommands = collectionPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
             databaseCommands = databaseDiscoveryPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+            var duplicateIds = identificationCommands.Keys
+                .Concat(collectionCommands.Keys)
+                .Concat(databaseCommands.Keys)
+                .GroupBy(value => value, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToArray();
+            if (duplicateIds.Length != 0)
+            {
+                throw new CommandPackException("采集计划中的命令标识跨命令包重复，已阻止执行。");
+            }
         }
 
         public bool HasTask => hasTask;
@@ -367,15 +442,9 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 throw new InvalidOperationException("设备身份尚未形成最终审计记录，已阻止创建采集任务。");
             }
 
-            var selectedGenericIds = new HashSet<string>(
-                genericLinuxPack.Commands
-                    .Where(command => string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
-                    .Select(command => command.Id)
-                    .Concat(commands.Select(command => command.Id)),
-                StringComparer.Ordinal);
-            var selectedCommands = genericLinuxPack.Commands
-                .Where(command => selectedGenericIds.Contains(command.Id))
-                .Select(command => new PackCommand(genericLinuxPack, command))
+            var selectedCommands = identificationCommands.Values
+                .Select(command => new PackCommand(identificationPack, command))
+                .Concat(commands.Select(command => new PackCommand(collectionPack, command)))
                 .Concat(databaseDiscoveryPack.Commands.Select(command =>
                     new PackCommand(databaseDiscoveryPack, command)))
                 .ToArray();
@@ -449,9 +518,13 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             CancellationToken cancellationToken)
         {
             CommandPack pack;
-            if (genericCommands.ContainsKey(command.Id))
+            if (identificationCommands.ContainsKey(command.Id))
             {
-                pack = genericLinuxPack;
+                pack = identificationPack;
+            }
+            else if (collectionCommands.ContainsKey(command.Id))
+            {
+                pack = collectionPack;
             }
             else if (databaseCommands.ContainsKey(command.Id))
             {

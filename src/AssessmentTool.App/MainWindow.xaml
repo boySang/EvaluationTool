@@ -1078,8 +1078,8 @@
             <Grid Margin="0,0,0,18">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <StackPanel>
-                <TextBlock Text="命令库草稿" Style="{StaticResource PageTitleStyle}" />
-                <TextBlock Text="导入用户已有命令进行离线检查。所有导入内容强制处于待校验状态，不能发布或执行。" Style="{StaticResource SecondaryTextStyle}" />
+                <TextBlock Text="命令库审核与版本锁定" Style="{StaticResource PageTitleStyle}" />
+                <TextBlock Text="导入内容先隔离为草稿；通过逐条只读复核后生成不可变版本，再由当前项目明确锁定。" Style="{StaticResource SecondaryTextStyle}" />
               </StackPanel>
               <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button Content="导入 JSON 草稿" Command="{Binding CommandLibrary.ImportCommand}" Margin="0,0,8,0" automation:AutomationProperties.Name="导入待校验命令草稿" />
@@ -1091,13 +1091,16 @@
               <StackPanel>
                 <TextBlock Text="安全隔离已启用" Style="{StaticResource SectionTitleStyle}" Foreground="{DynamicResource Brush.WarningText}" />
                 <TextBlock Text="导入过程不会连接客户设备、不会建立 SSH 或数据库会话、不会执行任何命令。文件中自称“已验证”或“只读”的字段不会被信任。" TextWrapping="Wrap" />
-                <TextBlock Text="当前版本仅支持导入、保存和查看风险，不提供发布按钮。单个 JSON 文件最大 1 MB。" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="草稿不能直接执行。发布时会忽略文件自称的可信状态，重新验证官方来源、版本范围、风险、分页方式和命令结构；单个 JSON 文件最大 1 MB。" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>
                 <TextBlock Text="{Binding CommandLibrary.StatusMessage, Mode=OneWay}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding CommandLibrary.SelectedProjectText, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}" Margin="0,5,0,0" />
+                <TextBlock Text="审核人（姓名或工号）" Margin="0,12,0,4" />
+                <TextBox Text="{Binding CommandLibrary.ReviewerName, UpdateSourceTrigger=PropertyChanged}" MaxLength="120" automation:AutomationProperties.Name="命令包审核人" />
               </StackPanel>
             </Border>
 
@@ -1122,6 +1125,12 @@
                         <TextBlock Grid.Column="1" Text="{Binding BlockerCount, StringFormat=阻断项：{0}}" Foreground="{DynamicResource Brush.Error}" />
                         <TextBlock Grid.Column="2" Text="{Binding RawSha256, StringFormat=原始 SHA-256：{0}}" FontFamily="Consolas" TextTrimming="CharacterEllipsis" ToolTip="{Binding RawSha256}" />
                       </Grid>
+                      <Button Content="安全审核并发布不可变版本"
+                              Command="{Binding DataContext.CommandLibrary.PublishCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                              CommandParameter="{Binding}"
+                              HorizontalAlignment="Left"
+                              Margin="0,4,0,8"
+                              automation:AutomationProperties.Name="安全审核并发布命令包" />
                       <ItemsControl ItemsSource="{Binding Findings}">
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>
@@ -1135,6 +1144,37 @@
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>
                     </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Text="已发布命令包" Style="{StaticResource SectionTitleStyle}" Margin="0,20,0,4" />
+            <TextBlock Text="已发布版本不可修改或删除。切换和回滚都通过追加项目锁定记录完成，不覆盖历史。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,10" />
+            <ItemsControl ItemsSource="{Binding CommandLibrary.PublishedPacks}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Style="{StaticResource CardStyle}">
+                    <Grid>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                      <StackPanel>
+                        <TextBlock Text="{Binding PackName}" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Text="{Binding PackId, StringFormat=包标识：{0}}" Style="{StaticResource SecondaryTextStyle}" />
+                        <TextBlock Text="{Binding Version, StringFormat=版本：{0}}" />
+                        <TextBlock Text="{Binding ReviewedBy, StringFormat=审核人：{0}}" />
+                        <TextBlock Text="{Binding PublishedAtText, StringFormat=发布时间：{0}}" Style="{StaticResource SecondaryTextStyle}" />
+                        <TextBlock Text="{Binding OfficialSource, StringFormat=官方来源：{0}}" TextTrimming="CharacterEllipsis" ToolTip="{Binding OfficialSource}" />
+                        <TextBlock Text="{Binding RawSha256, StringFormat=SHA-256：{0}}" FontFamily="Consolas" TextTrimming="CharacterEllipsis" ToolTip="{Binding RawSha256}" />
+                        <TextBlock Text="{Binding ProjectLockStatusText}" Foreground="{DynamicResource Brush.Accent}" Margin="0,7,0,0" />
+                      </StackPanel>
+                      <Button Grid.Column="1"
+                              Content="{Binding ProjectLockActionText}"
+                              Command="{Binding DataContext.CommandLibrary.LockCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                              CommandParameter="{Binding}"
+                              VerticalAlignment="Top"
+                              Margin="16,0,0,0"
+                              automation:AutomationProperties.Name="锁定命令包版本到当前项目" />
+                    </Grid>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

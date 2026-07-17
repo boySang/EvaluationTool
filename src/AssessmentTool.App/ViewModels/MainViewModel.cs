@@ -112,6 +112,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
             _ = EvidenceCenter.SelectProjectAsync(Workspace?.SelectedProject);
             _ = TaskHistory.SelectProjectAsync(Workspace?.SelectedProject);
+            _ = CommandLibrary.SelectProjectAsync(Workspace?.SelectedProject);
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))

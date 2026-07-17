@@ -162,6 +162,44 @@ public interface ICommandDraftRepository
         CancellationToken cancellationToken = default);
 }
 
+public interface ICommandPackPublishingRepository
+{
+    Task<PublishedCommandPackRecord> PublishCommandPackAsync(
+        PublishedCommandPackRecord record,
+        CancellationToken cancellationToken = default);
+
+    Task<PublishedCommandPackRecord?> GetPublishedCommandPackAsync(
+        string packId,
+        string version,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<PublishedCommandPackRecord>> GetPublishedCommandPacksAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<ProjectCommandPackLockRecord> AppendProjectCommandPackLockAsync(
+        ProjectId projectId,
+        string packId,
+        string version,
+        long expectedRevision,
+        string lockSource,
+        DateTimeOffset lockedAt,
+        CancellationToken cancellationToken = default);
+
+    Task<ProjectCommandPackLockRecord?> GetCurrentProjectCommandPackLockAsync(
+        ProjectId projectId,
+        string packId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectCommandPackLockRecord>> GetCurrentProjectCommandPackLocksAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectCommandPackLockRecord>> GetProjectCommandPackLockHistoryAsync(
+        ProjectId projectId,
+        string packId,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class CommandDraftArchiveRecord
 {
     public CommandDraftArchiveRecord(

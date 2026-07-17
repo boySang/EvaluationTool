@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -115,8 +116,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(9, version));
-            Assert.Equal(9, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(10, version));
+            Assert.Equal(10, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -144,7 +145,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(9, await repository.GetSchemaVersionAsync());
+            Assert.Equal(10, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -204,7 +205,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(deviceId, device.Id);
             Assert.Equal(SshAuthenticationMethod.Password, device.AuthenticationMethod);
             Assert.Null(device.PrivateKeyReference);
-            Assert.Equal(9, await repository.GetSchemaVersionAsync());
+            Assert.Equal(10, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -782,14 +783,274 @@ public sealed class SqliteProjectRepositoryTests
     }
 
     [Fact]
+    public async Task Published_command_pack_round_trips_source_hash_and_original_json()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var draftId = await SaveDraftAsync(repository);
+            var rawJson = CreateValidPublishedJson("linux-baseline", "Linux 基线", "1.0.0");
+            var publishedAt = new DateTimeOffset(2026, 7, 18, 2, 30, 0, TimeSpan.Zero);
+            var record = new PublishedCommandPackRecord(
+                "linux-baseline",
+                "Linux 基线",
+                "1.0.0",
+                "https://vendor.example/commands/linux-baseline",
+                ComputeSha256(rawJson),
+                rawJson,
+                draftId,
+                ComputeSha256(CreateSourceDraftJson()),
+                "reviewer-a",
+                publishedAt.AddMinutes(-1),
+                publishedAt);
+
+            var saved = await repository.PublishCommandPackAsync(record);
+            var loaded = await repository.GetPublishedCommandPackAsync("linux-baseline", "1.0.0");
+            var all = await repository.GetPublishedCommandPacksAsync();
+
+            AssertPublishedCommandPack(record, saved);
+            AssertPublishedCommandPack(record, Assert.IsType<PublishedCommandPackRecord>(loaded));
+            AssertPublishedCommandPack(record, Assert.Single(all));
+            Assert.Equal(10, await repository.GetSchemaVersionAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Project_command_pack_rollback_appends_revision_and_preserves_history()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "锁定项目", @"C:\Evidence\Locks");
+            var draftId = await SaveDraftAsync(repository);
+            await PublishAsync(repository, draftId, "server-linux", "1.0.0");
+            await PublishAsync(repository, draftId, "server-linux", "2.0.0");
+            var firstAt = new DateTimeOffset(2026, 7, 18, 3, 0, 0, TimeSpan.Zero);
+
+            var first = await repository.AppendProjectCommandPackLockAsync(
+                projectId, "server-linux", "1.0.0", 0, "首次锁定", firstAt);
+            var upgrade = await repository.AppendProjectCommandPackLockAsync(
+                projectId, "server-linux", "2.0.0", 1, "版本升级", firstAt.AddMinutes(1));
+            var rollback = await repository.AppendProjectCommandPackLockAsync(
+                projectId, "server-linux", "1.0.0", 2, "回滚到已验证版本", firstAt.AddMinutes(2));
+
+            var current = Assert.IsType<ProjectCommandPackLockRecord>(
+                await repository.GetCurrentProjectCommandPackLockAsync(projectId, "server-linux"));
+            var currentLocks = await repository.GetCurrentProjectCommandPackLocksAsync(projectId);
+            var history = await repository.GetProjectCommandPackLockHistoryAsync(projectId, "server-linux");
+
+            Assert.Equal(1, first.Revision);
+            Assert.Null(first.PreviousLockId);
+            Assert.Equal(first.Id, upgrade.PreviousLockId);
+            Assert.Equal(upgrade.Id, rollback.PreviousLockId);
+            Assert.Equal(3, current.Revision);
+            Assert.Equal("1.0.0", current.Version);
+            Assert.Equal("回滚到已验证版本", current.LockSource);
+            Assert.Equal(rollback.Id, Assert.Single(currentLocks).Id);
+            Assert.Equal(new[] { "1.0.0", "2.0.0", "1.0.0" }, history.Select(item => item.Version));
+            Assert.Equal(new long[] { 1, 2, 3 }, history.Select(item => item.Revision));
+        }
+    }
+
+    [Fact]
+    public async Task Published_packs_and_project_locks_reject_update_and_delete_at_database_level()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "不可变项目", @"C:\Evidence\Immutable");
+            var draftId = await SaveDraftAsync(repository);
+            await PublishAsync(repository, draftId, "immutable-pack", "1.0.0");
+            await repository.AppendProjectCommandPackLockAsync(
+                projectId, "immutable-pack", "1.0.0", 0, "人工锁定", DateTimeOffset.UtcNow);
+
+            AssertSqliteWriteRejected(database,
+                "UPDATE published_command_packs SET raw_json = '{}' WHERE pack_id = 'immutable-pack';");
+            AssertSqliteWriteRejected(database,
+                "DELETE FROM published_command_packs WHERE pack_id = 'immutable-pack';");
+            AssertSqliteWriteRejected(database,
+                "UPDATE project_command_pack_locks SET lock_source = 'changed';");
+            AssertSqliteWriteRejected(database,
+                "DELETE FROM project_command_pack_locks;");
+        }
+    }
+
+    [Fact]
+    public async Task Command_pack_publication_and_locking_enforce_hash_uniqueness_and_foreign_keys()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var firstRepository = new SqliteProjectRepository(database.ConnectionString);
+            var secondRepository = new SqliteProjectRepository(database.ConnectionString);
+            await firstRepository.InitializeAsync();
+            var projectId = await firstRepository.CreateProjectAsync("客户", "并发项目", @"C:\Evidence\Concurrent");
+            var draftId = await SaveDraftAsync(firstRepository);
+            var rawJson = CreateValidPublishedJson("concurrent-pack", "并发包", "1.0.0");
+            var record = new PublishedCommandPackRecord(
+                "concurrent-pack", "并发包", "1.0.0", "https://vendor.example/commands/concurrent-pack",
+                ComputeSha256(rawJson), rawJson, draftId, ComputeSha256(CreateSourceDraftJson()),
+                "reviewer", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => firstRepository.PublishCommandPackAsync(
+                new PublishedCommandPackRecord(
+                    "concurrent-pack", "并发包", "1.0.0", "https://vendor.example/commands/concurrent-pack",
+                    Hash, rawJson, draftId, ComputeSha256(CreateSourceDraftJson()),
+                    "reviewer", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
+            var missingDraftJson = CreateValidPublishedJson("missing-draft", "缺少草稿", "1.0.0");
+            await Assert.ThrowsAnyAsync<Exception>(() => firstRepository.PublishCommandPackAsync(
+                new PublishedCommandPackRecord(
+                    "missing-draft", "缺少草稿", "1.0.0", "https://vendor.example/commands/missing-draft",
+                    ComputeSha256(missingDraftJson), missingDraftJson, Guid.NewGuid(), ComputeSha256(CreateSourceDraftJson()),
+                    "reviewer", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)));
+
+            var publishAttempts = new[] { firstRepository, secondRepository }
+                .Select(async repository =>
+                {
+                    try
+                    {
+                        await repository.PublishCommandPackAsync(record);
+                        return true;
+                    }
+                    catch (SQLiteException)
+                    {
+                        return false;
+                    }
+                });
+            var publishResults = await Task.WhenAll(publishAttempts);
+            Assert.Equal(1, publishResults.Count(result => result));
+            Assert.Equal(1, publishResults.Count(result => !result));
+
+            await Assert.ThrowsAnyAsync<Exception>(() => firstRepository.AppendProjectCommandPackLockAsync(
+                ProjectId.New(), "concurrent-pack", "1.0.0", 0, "未知项目", DateTimeOffset.UtcNow));
+            await Assert.ThrowsAnyAsync<Exception>(() => firstRepository.AppendProjectCommandPackLockAsync(
+                projectId, "concurrent-pack", "9.9.9", 0, "未知版本", DateTimeOffset.UtcNow));
+
+            var lockAttempts = new[] { firstRepository, secondRepository }
+                .Select(async repository =>
+                {
+                    try
+                    {
+                        await repository.AppendProjectCommandPackLockAsync(
+                            projectId, "concurrent-pack", "1.0.0", 0, "并发锁定", DateTimeOffset.UtcNow);
+                        return true;
+                    }
+                    catch (DBConcurrencyException)
+                    {
+                        return false;
+                    }
+                });
+            var lockResults = await Task.WhenAll(lockAttempts);
+            Assert.Equal(1, lockResults.Count(result => result));
+            Assert.Equal(1, lockResults.Count(result => !result));
+            Assert.Equal(0, SqliteProjectRepository.PublishedCommandPackWriteLockCount);
+            Assert.Equal(0, SqliteProjectRepository.ProjectCommandPackLockWriteLockCount);
+        }
+    }
+
+    [Fact]
     public void Built_in_migration_versions_must_be_unique_and_contiguous_from_one()
     {
-        MigrationSequence.Validate(new[] { 1, 2, 3, 4, 5, 6 });
+        MigrationSequence.Validate(Enumerable.Range(1, 10).ToArray());
 
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(Array.Empty<int>()));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 2 }));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 1, 1 }));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 1, 3 }));
+    }
+
+    private static async Task<Guid> SaveDraftAsync(SqliteProjectRepository repository)
+    {
+        var json = CreateSourceDraftJson();
+        var draft = new CommandDraftImporter().Import(
+            Encoding.UTF8.GetBytes(json),
+            @"C:\imports\source-draft.json",
+            new DateTimeOffset(2026, 7, 18, 2, 0, 0, TimeSpan.Zero));
+        return await repository.SaveCommandDraftAsync(draft);
+    }
+
+    private static async Task<PublishedCommandPackRecord> PublishAsync(
+        SqliteProjectRepository repository,
+        Guid draftId,
+        string packId,
+        string version)
+    {
+        var rawJson = CreateValidPublishedJson(packId, "测试命令包", version);
+        return await repository.PublishCommandPackAsync(new PublishedCommandPackRecord(
+            packId,
+            "测试命令包",
+            version,
+            "https://vendor.example/commands/" + packId,
+            ComputeSha256(rawJson),
+            rawJson,
+            draftId,
+            ComputeSha256(CreateSourceDraftJson()),
+            "storage-test-reviewer",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow));
+    }
+
+    private static string ComputeSha256(string value)
+    {
+        using (var algorithm = SHA256.Create())
+        {
+            var hash = algorithm.ComputeHash(Encoding.UTF8.GetBytes(value));
+            var builder = new StringBuilder(hash.Length * 2);
+            foreach (var item in hash)
+            {
+                builder.Append(item.ToString("x2"));
+            }
+
+            return builder.ToString();
+        }
+    }
+
+    private static string CreateSourceDraftJson()
+    {
+        return "{\"id\":\"source-draft\",\"name\":\"待审查\",\"version\":\"0.1.0\",\"commands\":[]}";
+    }
+
+    private static string CreateValidPublishedJson(string packId, string packName, string version)
+    {
+        return "{"
+            + "\"id\":\"" + packId + "\",\"name\":\"" + packName + "\",\"version\":\"" + version + "\","
+            + "\"officialSource\":\"https://vendor.example/commands/" + packId + "\",\"commands\":[{"
+            + "\"id\":\"" + packId + "-hostname\",\"title\":\"读取主机名\",\"targetCategory\":\"Server\","
+            + "\"commandText\":\"hostname\",\"verificationStatus\":\"Verified\",\"isReadOnly\":true,"
+            + "\"vendor\":null,\"productFamily\":null,\"minimumVersion\":\"1.0\",\"maximumVersion\":\"99.0\","
+            + "\"checkItem\":\"SYSTEM_IDENTITY\",\"modelRange\":\"*\",\"accountRequirement\":\"只读账户\","
+            + "\"riskLevel\":\"Low\",\"timeoutSeconds\":30,\"pagingBehavior\":\"NotApplicable\","
+            + "\"resultDescription\":\"主机名\",\"verificationDate\":\"2025-01-01\","
+            + "\"officialSource\":\"https://vendor.example/hostname\",\"optional\":false}]}";
+    }
+
+    private static void AssertPublishedCommandPack(
+        PublishedCommandPackRecord expected,
+        PublishedCommandPackRecord actual)
+    {
+        Assert.Equal(expected.PackId, actual.PackId);
+        Assert.Equal(expected.PackName, actual.PackName);
+        Assert.Equal(expected.Version, actual.Version);
+        Assert.Equal(expected.OfficialSource, actual.OfficialSource);
+        Assert.Equal(expected.RawSha256, actual.RawSha256);
+        Assert.Equal(expected.RawJson, actual.RawJson);
+        Assert.Equal(expected.SourceDraftId, actual.SourceDraftId);
+        Assert.Equal(expected.SourceDraftSha256, actual.SourceDraftSha256);
+        Assert.Equal(expected.ReviewedBy, actual.ReviewedBy);
+        Assert.Equal(expected.ReviewedAt, actual.ReviewedAt);
+        Assert.Equal(expected.PublishedAt, actual.PublishedAt);
+    }
+
+    private static void AssertSqliteWriteRejected(TemporaryDatabase database, string sql)
+    {
+        using (var connection = database.OpenConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = sql;
+            Assert.Throws<SQLiteException>(() => command.ExecuteNonQuery());
+        }
     }
 
     private static DatabaseConfirmationRecord CreateDatabaseConfirmation(

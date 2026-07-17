@@ -15,14 +15,15 @@ using AssessmentTool.Core.Commands;
 
 namespace AssessmentTool.Windows.Storage;
 
-public sealed class SqliteProjectRepository :
+public sealed partial class SqliteProjectRepository :
     IProjectRepository,
     ISshHostKeyTrustRepository,
     IDatabaseConfirmationRepository,
     IDeviceIdentificationRepository,
     IPendingDeviceIdentificationRepository,
     ICollectionTaskRepository,
-    ICommandDraftRepository
+    ICommandDraftRepository,
+    ICommandPackPublishingRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
     private const string DeviceIdentificationSelect =
@@ -38,7 +39,8 @@ public sealed class SqliteProjectRepository :
         new Migration(6, "AssessmentTool.Windows.Storage.Migrations.006_device_ssh_authentication.sql"),
         new Migration(7, "AssessmentTool.Windows.Storage.Migrations.007_device_identifications.sql"),
         new Migration(8, "AssessmentTool.Windows.Storage.Migrations.008_pending_device_identification_batches.sql"),
-        new Migration(9, "AssessmentTool.Windows.Storage.Migrations.009_collection_task_ledger.sql")
+        new Migration(9, "AssessmentTool.Windows.Storage.Migrations.009_collection_task_ledger.sql"),
+        new Migration(10, "AssessmentTool.Windows.Storage.Migrations.010_published_command_packs.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =

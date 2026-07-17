@@ -191,7 +191,7 @@ public sealed class MainWindowBindingTests
     }
 
     [Fact]
-    public void Command_library_only_imports_non_executable_drafts()
+    public void Command_library_separates_drafts_publication_and_project_version_locks()
     {
         var document = XDocument.Load(FindMainWindowXaml());
         var commandLibrary = Assert.Single(document.Descendants(), element =>
@@ -201,11 +201,15 @@ public sealed class MainWindowBindingTests
 
         Assert.Contains("CommandLibrary.ImportCommand", source);
         Assert.Contains("CommandLibrary.RefreshCommand", source);
+        Assert.Contains("CommandLibrary.PublishCommand", source);
+        Assert.Contains("CommandLibrary.LockCommand", source);
+        Assert.Contains("CommandLibrary.ReviewerName", source);
         Assert.Contains("待校验", source);
-        Assert.Contains("不能发布或执行", source);
+        Assert.Contains("草稿不能直接执行", source);
+        Assert.Contains("不可变版本", source);
+        Assert.Contains("不覆盖历史", source);
         Assert.Contains("不会连接客户设备", source);
         Assert.Contains("单个 JSON 文件最大 1 MB", source);
-        Assert.DoesNotContain("Content=\"发布", source);
         Assert.DoesNotContain("Content=\"执行", source);
     }
 

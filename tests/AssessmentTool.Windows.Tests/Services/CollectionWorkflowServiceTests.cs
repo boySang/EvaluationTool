@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
@@ -174,6 +176,58 @@ public sealed class CollectionWorkflowServiceTests
                 },
                 result.CompletedCommands.Select(command => command.CommandId));
             Assert.True(session.Disposed);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Current_project_lock_replaces_only_the_collection_pack_and_is_snapshotted_in_the_task()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.49", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var customPack = LoadCustomGenericLinuxPack();
+        var session = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["generic-linux-uname-a"] = Success("generic-linux-uname-a", "Linux audit-host 6.8.0 x86_64 GNU/Linux"),
+            ["generic-linux-os-release"] = Success("generic-linux-os-release", "ID=ubuntu\nVERSION_ID=24.04"),
+            ["custom-linux-hostname"] = Success("custom-linux-hostname", "audit-host"),
+            ["database-host-discovery-linux-processes"] = Success("database-host-discovery-linux-processes", string.Empty),
+            ["database-host-discovery-linux-services"] = Success("database-host-discovery-linux-services", string.Empty),
+            ["database-host-discovery-linux-docker-containers"] = MissingOptional("database-host-discovery-linux-docker-containers"),
+            ["database-host-discovery-linux-podman-containers"] = MissingOptional("database-host-discovery-linux-podman-containers")
+        });
+        var evidence = new RecordingEvidenceService();
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.LockedPack", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => session,
+                evidence,
+                identifications,
+                null,
+                new FixedCommandPackReleaseService(customPack));
+
+            var result = await service.RunAsync(
+                CreateRequest(project, device, trust),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, result.Outcome);
+            Assert.Contains("custom-linux-hostname", session.ExecutedIds);
+            Assert.DoesNotContain("generic-linux-hostname", session.ExecutedIds);
+            Assert.DoesNotContain("generic-linux-login-defs", session.ExecutedIds);
+            var task = Assert.Single(identifications.Tasks);
+            var snapshot = Assert.Single(task.Commands, item => item.CommandId == "custom-linux-hostname");
+            Assert.Equal(customPack.Id, snapshot.CommandPackId);
+            Assert.Equal(customPack.Version, snapshot.CommandPackVersion);
+            Assert.Equal(customPack.Sha256, snapshot.CommandPackSha256);
         }
         finally
         {
@@ -563,6 +617,26 @@ public sealed class CollectionWorkflowServiceTests
         throw new DirectoryNotFoundException("Unable to locate repository root.");
     }
 
+    private static CommandPack LoadCustomGenericLinuxPack()
+    {
+        var json = "{"
+            + "\"id\":\"generic-linux\",\"name\":\"项目 Linux 命令\",\"version\":\"2.0.0\","
+            + "\"officialSource\":\"https://vendor.example/linux\",\"commands\":[{"
+            + "\"id\":\"custom-linux-hostname\",\"title\":\"读取主机名\",\"targetCategory\":\"Server\","
+            + "\"commandText\":\"hostname\",\"verificationStatus\":\"Verified\",\"isReadOnly\":true,"
+            + "\"vendor\":null,\"productFamily\":null,\"minimumVersion\":\"1.0\",\"maximumVersion\":\"99.0\","
+            + "\"checkItem\":\"SYSTEM_IDENTITY\",\"modelRange\":\"*\",\"accountRequirement\":\"只读账户\","
+            + "\"riskLevel\":\"Low\",\"timeoutSeconds\":30,\"pagingBehavior\":\"NotApplicable\","
+            + "\"resultDescription\":\"主机名\",\"verificationDate\":\"2025-01-01\","
+            + "\"officialSource\":\"https://vendor.example/hostname\",\"optional\":false}]}";
+        var bytes = Encoding.UTF8.GetBytes(json);
+        using (var algorithm = SHA256.Create())
+        {
+            var hash = string.Concat(algorithm.ComputeHash(bytes).Select(value => value.ToString("x2")));
+            return new CommandPackLoader().Load(bytes, hash);
+        }
+    }
+
     private sealed class WorkflowFixture
     {
         public WorkflowFixture(
@@ -584,6 +658,52 @@ public sealed class CollectionWorkflowServiceTests
         public GuardCredentialVault Vault { get; }
         public GuardEvidenceService Evidence { get; }
         public CountingProgress Progress { get; }
+    }
+
+    private sealed class FixedCommandPackReleaseService : ICommandPackReleaseService
+    {
+        private readonly CommandPack pack;
+
+        public FixedCommandPackReleaseService(CommandPack pack)
+        {
+            this.pack = pack;
+        }
+
+        public Task<CommandPackReleaseSnapshot> LoadAsync(
+            ProjectId? projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CommandPackReleaseSnapshot(
+                Array.Empty<PublishedCommandPackRecord>(),
+                Array.Empty<ProjectCommandPackLockRecord>()));
+        }
+
+        public Task<PublishedCommandPackRecord> ReviewAndPublishAsync(
+            Guid draftId,
+            string reviewedBy,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ProjectCommandPackLockRecord> LockToProjectAsync(
+            ProjectId projectId,
+            string packId,
+            string version,
+            string source,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<CommandPack?> LoadCurrentProjectPackAsync(
+            ProjectId projectId,
+            string packId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<CommandPack?>(
+                string.Equals(pack.Id, packId, StringComparison.Ordinal) ? pack : null);
+        }
     }
 
     private sealed class GuardCredentialVault : ICredentialVault

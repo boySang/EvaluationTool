@@ -53,10 +53,13 @@ public partial class App : Application
             var componentCenter = new ComponentCenterViewModel(new ComponentStatusService());
             await componentCenter.RefreshAsync();
             startupStage = "加载本地命令草稿";
+            var commandPackReleaseService = new CommandPackReleaseService(repository, repository);
             var commandLibrary = new CommandLibraryViewModel(
                 new CommandDraftService(repository),
-                new JsonCommandDraftFilePicker());
+                new JsonCommandDraftFilePicker(),
+                commandPackReleaseService);
             await commandLibrary.InitializeAsync();
+            await commandLibrary.SelectProjectAsync(workspace.SelectedProject);
             startupStage = "加载软件主界面";
             var mainViewModel = new MainViewModel(
                 workspace,
@@ -64,7 +67,8 @@ public partial class App : Application
                     new CollectionWorkflowService(
                         credentialVault,
                         new CollectionEvidenceService(repository),
-                        repository),
+                        repository,
+                        commandPackReleaseService),
                     new DatabaseConfirmationService(repository),
                     repository),
                 componentCenter,

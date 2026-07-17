@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using AssessmentTool.App.Services;
 using AssessmentTool.App.ViewModels;
 using AssessmentTool.Core.Commands;
+using AssessmentTool.Core.Domain;
 using AssessmentTool.Windows.Storage;
 using Xunit;
 
@@ -30,7 +31,7 @@ public sealed class CommandLibraryViewModelTests
         Assert.Equal(1, item.BlockerCount);
         Assert.False(item.Record.IsExecutable);
         Assert.Equal(1, service.ImportCount);
-        Assert.Contains("不能发布或执行", viewModel.StatusMessage);
+        Assert.Contains("草稿不能直接执行", viewModel.StatusMessage);
     }
 
     [Fact]
@@ -44,6 +45,41 @@ public sealed class CommandLibraryViewModelTests
 
         Assert.Equal(CommandLibraryState.Empty, viewModel.State);
         Assert.Equal(0, service.ImportCount);
+    }
+
+    [Fact]
+    public async Task Publish_and_project_lock_refresh_visible_immutable_version_state()
+    {
+        var draft = CreatePublishableRecord();
+        var draftService = new FakeCommandDraftService(draft);
+        var releaseService = new FakeCommandPackReleaseService(draft.Id);
+        var viewModel = new CommandLibraryViewModel(
+            draftService,
+            new FakeFilePicker(@"C:\imports\safe.json"),
+            releaseService)
+        {
+            ReviewerName = "reviewer-01"
+        };
+        await viewModel.InitializeAsync();
+        await viewModel.PickAndImportAsync();
+        var project = new ProjectRecord(
+            ProjectId.New(),
+            "客户",
+            "项目 A",
+            @"C:\Evidence",
+            DateTimeOffset.UtcNow);
+        await viewModel.SelectProjectAsync(project);
+
+        await viewModel.ReviewAndPublishAsync(Assert.Single(viewModel.Drafts));
+        var published = Assert.Single(viewModel.PublishedPacks);
+        await viewModel.LockToProjectAsync(published);
+
+        Assert.Equal(CommandLibraryState.Ready, viewModel.State);
+        var locked = Assert.Single(viewModel.PublishedPacks);
+        Assert.True(locked.IsCurrentProjectLock);
+        Assert.Equal("当前项目已锁定", locked.ProjectLockActionText);
+        Assert.Equal(1, releaseService.PublishCount);
+        Assert.Equal(1, releaseService.LockCount);
     }
 
     private static CommandDraftArchiveRecord CreateRecord()
@@ -66,6 +102,18 @@ public sealed class CommandLibraryViewModelTests
                     "检测到明显修改语句。",
                     0)
             });
+    }
+
+    private static CommandDraftArchiveRecord CreatePublishableRecord()
+    {
+        return new CommandDraftArchiveRecord(
+            Guid.NewGuid(),
+            "safe.json",
+            new string('b', 64),
+            "{}",
+            DateTimeOffset.UtcNow,
+            new[] { new CommandDraftItem(0, "safe", "安全样例", "hostname", "Server", "Low") },
+            Array.Empty<CommandDraftFinding>());
     }
 
     private sealed class FakeFilePicker : ICommandDraftFilePicker
@@ -111,6 +159,80 @@ public sealed class CommandLibraryViewModelTests
             ImportCount++;
             imported = true;
             return Task.FromResult(importedRecord);
+        }
+    }
+
+    private sealed class FakeCommandPackReleaseService : ICommandPackReleaseService
+    {
+        private readonly Guid draftId;
+        private PublishedCommandPackRecord? published;
+        private ProjectCommandPackLockRecord? currentLock;
+
+        public FakeCommandPackReleaseService(Guid draftId)
+        {
+            this.draftId = draftId;
+        }
+
+        public int PublishCount { get; private set; }
+        public int LockCount { get; private set; }
+
+        public Task<CommandPackReleaseSnapshot> LoadAsync(
+            ProjectId? projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new CommandPackReleaseSnapshot(
+                published == null ? Array.Empty<PublishedCommandPackRecord>() : new[] { published },
+                currentLock == null ? Array.Empty<ProjectCommandPackLockRecord>() : new[] { currentLock }));
+        }
+
+        public Task<PublishedCommandPackRecord> ReviewAndPublishAsync(
+            Guid selectedDraftId,
+            string reviewedBy,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(draftId, selectedDraftId);
+            PublishCount++;
+            published = new PublishedCommandPackRecord(
+                "generic-linux",
+                "Linux 安全命令",
+                "1.0.0",
+                "https://vendor.example/linux",
+                new string('c', 64),
+                "{}",
+                draftId,
+                new string('b', 64),
+                reviewedBy,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow);
+            return Task.FromResult(published);
+        }
+
+        public Task<ProjectCommandPackLockRecord> LockToProjectAsync(
+            ProjectId projectId,
+            string packId,
+            string version,
+            string source,
+            CancellationToken cancellationToken = default)
+        {
+            LockCount++;
+            currentLock = new ProjectCommandPackLockRecord(
+                Guid.NewGuid(),
+                projectId,
+                packId,
+                version,
+                1,
+                null,
+                source,
+                DateTimeOffset.UtcNow);
+            return Task.FromResult(currentLock);
+        }
+
+        public Task<CommandPack?> LoadCurrentProjectPackAsync(
+            ProjectId projectId,
+            string packId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<CommandPack?>(null);
         }
     }
 }
