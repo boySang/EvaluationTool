@@ -29,6 +29,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
     private string algorithm = string.Empty;
     private string fingerprint = string.Empty;
     private string technicalDetails = string.Empty;
+    private HostKeyTrust? currentTrust;
 
     public DeviceConnectionViewModel(ISshConnectionWorkflowService? service)
     {
@@ -43,6 +44,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
     public string Algorithm => algorithm;
     public string Fingerprint => fingerprint;
     public string TechnicalDetails => technicalDetails;
+    public HostKeyTrust? CurrentTrust => currentTrust;
     public bool CanProbe => service != null && device != null
         && state != DeviceConnectionViewModelState.Probing
         && state != DeviceConnectionViewModelState.TestingLogin;
@@ -55,6 +57,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
         algorithm = string.Empty;
         fingerprint = string.Empty;
         technicalDetails = string.Empty;
+        currentTrust = null;
         if (device == null)
         {
             SetState(DeviceConnectionViewModelState.NoDevice, "请选择设备后进行安全连接测试。");
@@ -119,6 +122,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
 
     private void ApplyResult(SshConnectionWorkflowResult result)
     {
+        currentTrust = result.TrustRecord.Trust;
         algorithm = result.TrustRecord.Trust.ObservedAlgorithm
             ?? result.TrustRecord.Trust.Algorithm
             ?? result.ConnectionResult.Algorithm
@@ -154,6 +158,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
 
     private void ApplyTrust(HostKeyTrust trust)
     {
+        currentTrust = trust;
         algorithm = trust.ObservedAlgorithm ?? trust.Algorithm ?? string.Empty;
         fingerprint = trust.ObservedFingerprint ?? trust.Fingerprint ?? string.Empty;
         if (trust.State == HostKeyTrustState.AwaitingConfirmation)
@@ -195,6 +200,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Algorithm));
         OnPropertyChanged(nameof(Fingerprint));
         OnPropertyChanged(nameof(TechnicalDetails));
+        OnPropertyChanged(nameof(CurrentTrust));
         OnPropertyChanged(nameof(CanProbe));
         OnPropertyChanged(nameof(CanConfirm));
     }

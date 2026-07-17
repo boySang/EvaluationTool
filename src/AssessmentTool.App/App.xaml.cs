@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Windows;
 using AssessmentTool.App.Services;
+using AssessmentTool.App.Startup;
 using AssessmentTool.App.ViewModels;
 using AssessmentTool.Windows.Credentials;
 using AssessmentTool.Windows.Storage;
@@ -17,10 +18,12 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs eventArgs)
     {
-        base.OnStartup(eventArgs);
+        var startupSuccessMarker = new StartupSuccessMarker();
+        startupSuccessMarker.BeginStartup();
         var startupStage = "确定本地数据目录";
         try
         {
+            base.OnStartup(eventArgs);
             var paths = ApplicationStoragePaths.ForCurrentUser();
             startupStage = "创建本地项目数据库";
             var repository = new SqliteProjectRepository(paths.SqliteConnectionString);
@@ -49,13 +52,22 @@ public partial class App : Application
             startupStage = "加载软件主界面";
             var mainViewModel = new MainViewModel(
                 workspace,
-                new CollectionViewModel(new UnavailableCollectionWorkflowService()),
+                new CollectionViewModel(new CollectionWorkflowService(
+                    credentialVault,
+                    new CollectionEvidenceService(repository))),
                 componentCenter,
                 new DeviceConnectionViewModel(
                     new SshConnectionWorkflowService(repository, credentialVault)),
                 ToggleTheme);
             var window = new MainWindow(mainViewModel);
             MainWindow = window;
+            EventHandler? contentRenderedHandler = null;
+            contentRenderedHandler = (sender, args) =>
+            {
+                window.ContentRendered -= contentRenderedHandler;
+                startupSuccessMarker.TryMarkMainWindowDisplayed();
+            };
+            window.ContentRendered += contentRenderedHandler;
             window.Show();
         }
         catch (Exception exception)

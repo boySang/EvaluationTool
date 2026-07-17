@@ -324,7 +324,7 @@
                 <TextBlock Grid.Column="3" Text="连接方式" FontWeight="SemiBold" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="4" Text="安全连接状态" FontWeight="SemiBold" VerticalAlignment="Center" />
               </Grid>
-              <ListBox Grid.Row="2" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" SelectionChanged="DeviceSelection_Changed" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}" automation:AutomationProperties.Name="当前项目设备列表">
+              <ListBox Grid.Row="2" ItemsSource="{Binding Workspace.Devices}" SelectedItem="{Binding Workspace.SelectedDevice, Mode=TwoWay}" BorderThickness="0" ItemContainerStyle="{StaticResource DashboardListItemStyle}" automation:AutomationProperties.Name="当前项目设备列表">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <Grid>
@@ -468,7 +468,7 @@
             <TextBlock Text="只读采集任务" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="自动采集区不提供自由命令输入，只执行已验证命令包。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
             <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
-              <TextBlock Text="当前版本尚未接通真实设备连接；本页仅用于验证只读采集状态、确认和停止流程。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
+              <TextBlock Text="首个真实采集闭环支持已完成主机指纹确认和无命令登录测试的 SSH Linux 服务器；其他类型会被安全阻止。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
             </Border>
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>
@@ -482,7 +482,7 @@
                              Margin="0,10" />
                 <TextBlock Text="{Binding Collection.CompletedCommandCount, StringFormat=已完成 {0} 条}" />
                 <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                  <Button Content="开始只读采集（尚未接通）" Command="{Binding Collection.StartCommand}" automation:AutomationProperties.Name="开始只读采集，当前尚未接通" />
+                  <Button Content="开始只读采集" Command="{Binding Collection.StartCommand}" automation:AutomationProperties.Name="开始已验证只读采集" />
                   <Button Content="安全停止" Command="{Binding Collection.StopCommand}" automation:AutomationProperties.Name="安全停止采集" />
                 </StackPanel>
               </StackPanel>

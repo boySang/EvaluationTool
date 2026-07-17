@@ -82,12 +82,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void DeviceSelection_Changed(object sender, SelectionChangedEventArgs eventArgs)
-    {
-        await ViewModel.DeviceConnection.SelectDeviceAsync(
-            ((ListBox)sender).SelectedItem as DeviceRecord);
-    }
-
     private async void ProbeHostKey_Click(object sender, RoutedEventArgs eventArgs)
     {
         await ViewModel.DeviceConnection.ProbeAsync();

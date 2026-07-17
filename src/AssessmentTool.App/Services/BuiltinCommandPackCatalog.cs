@@ -76,6 +76,12 @@ public sealed class BuiltinCommandPackCatalog
         return SelectCommands(pack, CollectionIds);
     }
 
+    public CommandPack CreateGenericLinuxCollectionPack(CommandPack pack)
+    {
+        EnsureGenericLinuxLayout(pack);
+        return pack.SelectCommands(CollectionIds);
+    }
+
     private byte[] LoadGenericLinuxBytes()
     {
         var releasePath = Path.Combine(

@@ -31,6 +31,36 @@ public sealed class CommandPack
     public string OfficialSource { get; }
     public string Sha256 { get; }
     public IReadOnlyList<CommandDefinition> Commands { get; }
+
+    public CommandPack SelectCommands(IEnumerable<string> commandIds)
+    {
+        if (commandIds == null)
+        {
+            throw new ArgumentNullException(nameof(commandIds));
+        }
+
+        var requested = commandIds.ToArray();
+        if (requested.Length == 0
+            || requested.Any(string.IsNullOrWhiteSpace)
+            || requested.Distinct(StringComparer.Ordinal).Count() != requested.Length)
+        {
+            throw new ArgumentException("命令子集必须包含不重复的有效命令标识。", nameof(commandIds));
+        }
+
+        var byId = Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+        if (requested.Any(commandId => !byId.ContainsKey(commandId)))
+        {
+            throw new ArgumentException("命令子集包含不属于当前命令包的标识。", nameof(commandIds));
+        }
+
+        return new CommandPack(
+            Id,
+            Name,
+            Version,
+            OfficialSource,
+            Sha256,
+            requested.Select(commandId => byId[commandId]));
+    }
 }
 
 public sealed class CommandPackException : Exception

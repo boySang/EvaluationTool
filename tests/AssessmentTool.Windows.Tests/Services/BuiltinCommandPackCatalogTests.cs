@@ -22,6 +22,7 @@ public sealed class BuiltinCommandPackCatalogTests
             var pack = catalog.LoadGenericLinux();
             var identification = catalog.SelectGenericLinuxIdentificationCommands(pack);
             var collection = catalog.SelectGenericLinuxCollectionCommands(pack);
+            var collectionPack = catalog.CreateGenericLinuxCollectionPack(pack);
 
             Assert.Equal("generic-linux", pack.Id);
             Assert.Equal(
@@ -34,6 +35,7 @@ public sealed class BuiltinCommandPackCatalogTests
                 pack.Commands.Select(command => command.Id).OrderBy(id => id),
                 identification.Concat(collection).Select(command => command.Id).OrderBy(id => id));
             Assert.All(pack.Commands, command => Assert.True(command.IsEligibleForAutomaticExecution));
+            Assert.Equal(new[] { "generic-linux-hostname" }, collectionPack.Commands.Select(command => command.Id));
         }
         finally
         {

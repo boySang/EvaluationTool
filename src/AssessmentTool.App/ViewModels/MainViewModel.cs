@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using System.Windows.Input;
+using AssessmentTool.App.Services;
 
 namespace AssessmentTool.App.ViewModels;
 
@@ -57,6 +59,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Collection.SetRequiredComponentAvailability(ComponentCenter.IsSshAvailable);
         Collection.PropertyChanged += OnCollectionPropertyChanged;
         ComponentCenter.PropertyChanged += OnComponentCenterPropertyChanged;
+        DeviceConnection.PropertyChanged += OnDeviceConnectionPropertyChanged;
         if (Workspace != null)
         {
             Workspace.PropertyChanged += OnWorkspacePropertyChanged;
@@ -87,11 +90,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             OnPropertyChanged(nameof(CurrentProjectName));
             OnPropertyChanged(nameof(HasSelectedProject));
+            if (Workspace?.SelectedProject != null && CanSynchronizeCollectionSelection())
+            {
+                Collection.SelectProject(Workspace.SelectedProject);
+            }
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedDevice))
         {
             OnPropertyChanged(nameof(CurrentDeviceName));
+            if (CanSynchronizeCollectionSelection())
+            {
+                Collection.ClearDeviceSelection();
+            }
+
+            _ = SynchronizeSelectedDeviceAsync();
         }
 
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.Devices))
@@ -99,6 +112,47 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(ProjectDeviceCount));
             OnPropertyChanged(nameof(PendingConnectionTestCount));
         }
+    }
+
+    private void OnDeviceConnectionPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if ((eventArgs.PropertyName == nameof(DeviceConnectionViewModel.CurrentTrust)
+                || eventArgs.PropertyName == nameof(DeviceConnectionViewModel.State))
+            && Workspace?.SelectedDevice != null
+            && DeviceConnection.CurrentTrust != null
+            && DeviceConnection.State == DeviceConnectionViewModelState.Succeeded
+            && CanSynchronizeCollectionSelection())
+        {
+            Collection.SelectDevice(new CollectionDeviceSelection(
+                Workspace.SelectedDevice,
+                ComponentCenter.IsSshAvailable,
+                DeviceConnection.CurrentTrust));
+        }
+    }
+
+    private async Task SynchronizeSelectedDeviceAsync()
+    {
+        var selectedDevice = Workspace?.SelectedDevice;
+        await DeviceConnection.SelectDeviceAsync(selectedDevice);
+        if (selectedDevice == null
+            || !ReferenceEquals(selectedDevice, Workspace?.SelectedDevice)
+            || DeviceConnection.State != DeviceConnectionViewModelState.Succeeded
+            || DeviceConnection.CurrentTrust == null
+            || !CanSynchronizeCollectionSelection())
+        {
+            return;
+        }
+
+        Collection.SelectDevice(new CollectionDeviceSelection(
+            selectedDevice,
+            ComponentCenter.IsSshAvailable,
+            DeviceConnection.CurrentTrust));
+    }
+
+    private bool CanSynchronizeCollectionSelection()
+    {
+        return Collection.State != CollectionViewModelState.Running
+            && Collection.State != CollectionViewModelState.Stopping;
     }
 
     private void OnCollectionPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)

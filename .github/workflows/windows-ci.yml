@@ -206,15 +206,41 @@ jobs:
 
           function Test-PackagedApplicationStartup([string] $description) {
             $startedAt = Get-Date
+            $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup-success.json'
+            Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
             $process = Start-Process `
               -FilePath $appPath `
               -WorkingDirectory $releaseDirectory `
               -PassThru `
               -ErrorAction Stop
             try {
-              if ($process.WaitForExit(10000)) {
-                $exitCode = $process.ExitCode
-                Start-Sleep -Seconds 2
+              $deadline = (Get-Date).AddSeconds(15)
+              $marker = $null
+              while ((Get-Date) -lt $deadline) {
+                $process.Refresh()
+                if ($process.HasExited) {
+                  throw "$description exited during startup with code $($process.ExitCode)."
+                }
+
+                if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+                  try {
+                    $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+                    if ($marker.status -eq 'main-window-displayed' -and
+                        [int]$marker.processId -eq $process.Id) {
+                      break
+                    }
+                  }
+                  catch {
+                    $marker = $null
+                  }
+                }
+
+                Start-Sleep -Milliseconds 250
+              }
+
+              if ($null -eq $marker -or
+                  $marker.status -ne 'main-window-displayed' -or
+                  [int]$marker.processId -ne $process.Id) {
                 Get-WinEvent -FilterHashtable @{
                   LogName = 'Application'
                   StartTime = $startedAt.AddSeconds(-1)
@@ -222,10 +248,10 @@ jobs:
                   Where-Object { $_.ProviderName -in @('.NET Runtime', 'Application Error', 'Windows Error Reporting') } |
                   Select-Object -First 10 TimeCreated, ProviderName, Id, LevelDisplayName, Message |
                   Format-List
-                throw "$description exited during startup with code $exitCode."
+                throw "$description did not report a displayed main window within 15 seconds."
               }
 
-              Write-Host "$description remained running for 10 seconds."
+              Write-Host "$description displayed the main window successfully."
             }
             finally {
               $process.Refresh()
@@ -236,6 +262,7 @@ jobs:
                 }
               }
               $process.Dispose()
+              Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
             }
           }
 

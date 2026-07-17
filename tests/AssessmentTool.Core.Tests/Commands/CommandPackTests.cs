@@ -211,6 +211,59 @@ public sealed class CommandPackTests
         Assert.Same(original, Assert.Single(pack.Commands));
     }
 
+    [Fact]
+    public void Command_pack_subset_preserves_requested_order_and_metadata()
+    {
+        var first = Assert.Single(LoadJson(PackJson(commandId: "cmd-1")).Commands);
+        var second = Assert.Single(LoadJson(PackJson(commandId: "cmd-2")).Commands);
+        var pack = new CommandPack(
+            "pack",
+            "Pack",
+            "1.0.0",
+            "https://example.com/commands",
+            "hash",
+            new[] { first, second });
+
+        var subset = pack.SelectCommands(new[] { "cmd-2", "cmd-1" });
+
+        Assert.Equal(new[] { "cmd-2", "cmd-1" }, subset.Commands.Select(command => command.Id));
+        Assert.Equal(pack.Id, subset.Id);
+        Assert.Equal(pack.Version, subset.Version);
+        Assert.Equal(pack.Sha256, subset.Sha256);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("")]
+    public void Command_pack_subset_rejects_unknown_or_blank_ids(string commandId)
+    {
+        var command = Assert.Single(LoadJson(PackJson(commandId: "cmd-1")).Commands);
+        var pack = new CommandPack(
+            "pack",
+            "Pack",
+            "1.0.0",
+            "https://example.com/commands",
+            "hash",
+            new[] { command });
+
+        Assert.Throws<ArgumentException>(() => pack.SelectCommands(new[] { commandId }));
+    }
+
+    [Fact]
+    public void Command_pack_subset_rejects_duplicate_ids()
+    {
+        var command = Assert.Single(LoadJson(PackJson(commandId: "cmd-1")).Commands);
+        var pack = new CommandPack(
+            "pack",
+            "Pack",
+            "1.0.0",
+            "https://example.com/commands",
+            "hash",
+            new[] { command });
+
+        Assert.Throws<ArgumentException>(() => pack.SelectCommands(new[] { "cmd-1", "cmd-1" }));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("http://example.com/commands")]

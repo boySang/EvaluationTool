@@ -93,7 +93,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     public void SelectProject(ProjectRecord project)
     {
         EnsureSelectionCanChange();
-        selectedProject = project ?? throw new ArgumentNullException(nameof(project));
+        var nextProject = project ?? throw new ArgumentNullException(nameof(project));
+        if (selectedProject == null || !selectedProject.Id.Equals(nextProject.Id))
+        {
+            selectedDevice = null;
+            OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
+        }
+
+        selectedProject = nextProject;
         RefreshReadiness();
     }
 
@@ -101,6 +108,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     {
         EnsureSelectionCanChange();
         selectedDevice = deviceSelection ?? throw new ArgumentNullException(nameof(deviceSelection));
+        OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
+        RefreshReadiness();
+    }
+
+    public void ClearDeviceSelection()
+    {
+        EnsureSelectionCanChange();
+        selectedDevice = null;
         OnPropertyChanged(nameof(IsComponentCenterNavigationSuggested));
         RefreshReadiness();
     }

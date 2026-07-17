@@ -63,6 +63,27 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public void Clearing_device_or_switching_project_removes_previous_collection_readiness()
+    {
+        var service = new FakeCollectionWorkflowService();
+        var firstProject = CreateProject();
+        var secondProject = CreateProject();
+        var viewModel = new CollectionViewModel(service);
+        viewModel.SelectProject(firstProject);
+        viewModel.SelectDevice(CreateSelection(firstProject, componentAvailable: true, HostKeyTrustState.Verified));
+        Assert.True(viewModel.StartCommand.CanExecute(null));
+
+        viewModel.ClearDeviceSelection();
+
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+
+        viewModel.SelectDevice(CreateSelection(firstProject, componentAvailable: true, HostKeyTrustState.Verified));
+        viewModel.SelectProject(secondProject);
+
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+    }
+
+    [Fact]
     public void Device_selection_rejects_host_key_trust_for_another_endpoint()
     {
         var project = CreateProject();
@@ -164,6 +185,7 @@ public sealed class CollectionViewModelTests
         Assert.Throws<InvalidOperationException>(() => viewModel.SelectProject(CreateProject()));
         Assert.Throws<InvalidOperationException>(() =>
             viewModel.SelectDevice(CreateSelection(CreateProject(), true, HostKeyTrustState.Verified)));
+        Assert.Throws<InvalidOperationException>(() => viewModel.ClearDeviceSelection());
 
         viewModel.Stop();
         await AwaitWithTimeout(running);
