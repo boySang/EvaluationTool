@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using AssessmentTool.Core.Domain;
 using AssessmentTool.Core.Security;
 using AssessmentTool.Windows.Components;
 using Microsoft.Win32.SafeHandles;
