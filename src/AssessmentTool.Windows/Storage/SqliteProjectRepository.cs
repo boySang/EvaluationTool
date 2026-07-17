@@ -879,6 +879,101 @@ public sealed class SqliteProjectRepository :
         }
     }
 
+    public async Task<DeviceIdentificationRecord> CompletePendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        Guid batchId,
+        DetectionCandidate confirmedCandidate,
+        string confirmationSource,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (batchId == Guid.Empty)
+        {
+            throw new ArgumentException("待确认识别批次标识不能为空。", nameof(batchId));
+        }
+
+        if (confirmedCandidate == null)
+        {
+            throw new ArgumentNullException(nameof(confirmedCandidate));
+        }
+
+        var lockKey = databasePath + "\0" + deviceId;
+        using (var lease = await DeviceIdentificationWriteLock
+            .AcquireAsync(lockKey, cancellationToken)
+            .ConfigureAwait(false))
+        {
+            return await RunDatabaseOperationAsync(
+                token =>
+                {
+                    using (var connection = OpenConnection())
+                    using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "SELECT COUNT(*) FROM pending_device_identification_candidates c INNER JOIN pending_device_identification_batches b ON b.batch_id = c.batch_id LEFT JOIN pending_device_identification_resolutions r ON r.batch_id = b.batch_id WHERE b.batch_id = @batchId AND b.device_id = @deviceId AND r.batch_id IS NULL AND c.target_category = @targetCategory AND c.vendor IS @vendor AND c.product_family IS @productFamily AND c.model IS @model AND c.version IS @version AND c.detection_evidence = @evidence AND c.confidence = @confidence;";
+                            command.Parameters.AddWithValue("@batchId", batchId.ToString("D"));
+                            command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                            command.Parameters.AddWithValue("@targetCategory", (int)confirmedCandidate.Category);
+                            command.Parameters.AddWithValue("@vendor", (object?)confirmedCandidate.Vendor ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@productFamily", (object?)confirmedCandidate.ProductFamily ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@model", (object?)confirmedCandidate.Model ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@version", (object?)confirmedCandidate.Version ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@evidence", confirmedCandidate.Evidence);
+                            command.Parameters.AddWithValue("@confidence", confirmedCandidate.Confidence);
+                            if (Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 1L)
+                            {
+                                throw new InvalidOperationException("当前识别结果与待确认候选批次不一致，已阻止提交。");
+                            }
+                        }
+
+                        long revision;
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "SELECT COALESCE(MAX(revision), 0) FROM device_identifications WHERE device_id = @deviceId;";
+                            command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                            revision = checked(Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) + 1L);
+                        }
+
+                        var record = new DeviceIdentificationRecord(
+                            deviceId,
+                            revision,
+                            confirmedCandidate.Category,
+                            confirmedCandidate.Vendor,
+                            confirmedCandidate.ProductFamily,
+                            confirmedCandidate.Model,
+                            confirmedCandidate.Version,
+                            confirmedCandidate.Evidence,
+                            confirmedCandidate.Confidence,
+                            true,
+                            confirmationSource,
+                            recordedAt);
+                        InsertPendingIdentificationResolution(
+                            connection,
+                            transaction,
+                            deviceId,
+                            batchId,
+                            PendingIdentificationResolution.RevalidatedAndCompleted,
+                            recordedAt);
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO device_identifications(device_id, revision, target_category, vendor, product_family, model, version, detection_evidence, confidence, was_user_confirmed, confirmation_source, recorded_at_utc) VALUES(@deviceId, @revision, @targetCategory, @vendor, @productFamily, @model, @version, @evidence, @confidence, @wasUserConfirmed, @confirmationSource, @recordedAtUtc);";
+                            AddDeviceIdentificationParameters(command, record);
+                            command.ExecuteNonQuery();
+                        }
+
+                        token.ThrowIfCancellationRequested();
+                        transaction.Commit();
+                        return record;
+                    }
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public Task<Guid> SaveCommandDraftAsync(
         CommandDraftImportResult draft,
         CancellationToken cancellationToken = default)

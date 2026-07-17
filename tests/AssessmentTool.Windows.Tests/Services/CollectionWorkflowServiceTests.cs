@@ -690,5 +690,23 @@ public sealed class CollectionWorkflowServiceTests
             Resolutions.Add((batchId, resolution));
             return Task.CompletedTask;
         }
+
+        public Task<DeviceIdentificationRecord> CompletePendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            Guid batchId,
+            DetectionCandidate confirmedCandidate,
+            string confirmationSource,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            Resolutions.Add((batchId, PendingIdentificationResolution.RevalidatedAndCompleted));
+            return AppendDeviceIdentificationAsync(
+                deviceId,
+                confirmedCandidate,
+                true,
+                confirmationSource,
+                recordedAt,
+                cancellationToken);
+        }
     }
 }

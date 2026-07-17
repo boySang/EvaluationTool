@@ -629,6 +629,17 @@ public sealed class CollectionViewModelTests
         {
             throw new NotSupportedException();
         }
+
+        public Task<DeviceIdentificationRecord> CompletePendingDeviceIdentificationAsync(
+            DeviceId deviceId,
+            Guid batchId,
+            DetectionCandidate confirmedCandidate,
+            string confirmationSource,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class BlockingCollectionWorkflowService : ICollectionWorkflowService

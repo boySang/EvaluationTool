@@ -125,6 +125,28 @@ public sealed class CollectionRunnerTests
     }
 
     [Fact]
+    public async Task Restored_candidate_is_revalidated_even_when_current_detection_is_high_confidence()
+    {
+        var staleCandidate = new DetectionCandidate(
+            TargetCategory.NetworkDevice,
+            "VendorA",
+            "Network OS",
+            "X999",
+            "7.2",
+            "VendorA Network OS 7.2 Model X999",
+            0.95);
+        var session = new FakeSession("VendorA Network OS 7.2 Model X100");
+
+        var result = await Runner(session, confidence: 0.95).RunAsync(
+            RequestWithConfirmation(staleCandidate, CollectionCommand("collect-version", "show version")),
+            new ProgressRecorder(),
+            CancellationToken.None);
+
+        Assert.Equal(CollectionOutcome.NeedsUserConfirmation, result.Outcome);
+        Assert.DoesNotContain(session.Commands, command => command.Id.StartsWith("collect-", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Confirmed_candidate_preserves_original_confidence_and_allows_matching()
     {
         var first = await Runner(

@@ -111,19 +111,8 @@ public sealed class CollectionRunner
                 ? new DetectionResult(Array.Empty<DetectionCandidate>())
                 : detectionEngine.Detect(transcript, identificationRules);
 
-            if (detection.RequiresUserConfirmation)
+            if (request.ConfirmedCandidate != null)
             {
-                if (request.ConfirmedCandidate == null)
-                {
-                    Report(progress, CollectionState.AwaitingConfirmation, "识别结果不确定，需要人工选择后才能执行采集命令。");
-                    return new CollectionResult(
-                        CollectionOutcome.NeedsUserConfirmation,
-                        detection,
-                        identificationOutputs,
-                        commandOutputs,
-                        "识别结果不确定，未执行任何采集命令。");
-                }
-
                 try
                 {
                     detection = detection.Confirm(request.ConfirmedCandidate);
@@ -138,6 +127,16 @@ public sealed class CollectionRunner
                         commandOutputs,
                         "人工确认结果无效，未执行任何采集命令，请重新选择当前候选项。");
                 }
+            }
+            else if (detection.RequiresUserConfirmation)
+            {
+                Report(progress, CollectionState.AwaitingConfirmation, "识别结果不确定，需要人工选择后才能执行采集命令。");
+                return new CollectionResult(
+                    CollectionOutcome.NeedsUserConfirmation,
+                    detection,
+                    identificationOutputs,
+                    commandOutputs,
+                    "识别结果不确定，未执行任何采集命令。");
             }
 
             Report(progress, CollectionState.PreparingCommands, "正在匹配已验证的只读命令包。");

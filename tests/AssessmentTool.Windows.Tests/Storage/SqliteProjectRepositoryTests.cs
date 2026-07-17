@@ -350,6 +350,58 @@ public sealed class SqliteProjectRepositoryTests
     }
 
     [Fact]
+    public async Task Completing_pending_identification_is_atomic_and_rejects_a_stale_batch()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync(
+                "客户", "识别原子提交项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "Linux服务器", "192.0.2.33", 22, CredentialReference.New());
+            var candidate = new DetectionCandidate(
+                TargetCategory.Server, "ubuntu", "Linux", null, "24.04", "ID=ubuntu", 0.95);
+            var pending = await repository.AppendPendingDeviceIdentificationAsync(
+                deviceId, new[] { candidate }, null, DateTimeOffset.UtcNow);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.CompletePendingDeviceIdentificationAsync(
+                    deviceId,
+                    Guid.NewGuid(),
+                    candidate,
+                    "测试人工确认",
+                    DateTimeOffset.UtcNow.AddMinutes(1)));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.CompletePendingDeviceIdentificationAsync(
+                    deviceId,
+                    pending.BatchId,
+                    new DetectionCandidate(
+                        TargetCategory.Server, "kylin", "Linux", null, "V10", "ID=kylin", 0.95),
+                    "测试人工确认",
+                    DateTimeOffset.UtcNow.AddMinutes(1)));
+
+            Assert.Empty(await repository.GetDeviceIdentificationHistoryAsync(deviceId));
+            Assert.Equal(
+                pending.BatchId,
+                (await repository.GetLatestPendingDeviceIdentificationAsync(deviceId))!.BatchId);
+
+            var completed = await repository.CompletePendingDeviceIdentificationAsync(
+                deviceId,
+                pending.BatchId,
+                candidate,
+                "测试人工确认",
+                DateTimeOffset.UtcNow.AddMinutes(2));
+
+            Assert.True(completed.WasUserConfirmed);
+            Assert.Equal("测试人工确认", completed.ConfirmationSource);
+            Assert.Equal(completed.Revision,
+                Assert.Single(await repository.GetDeviceIdentificationHistoryAsync(deviceId)).Revision);
+            Assert.Null(await repository.GetLatestPendingDeviceIdentificationAsync(deviceId));
+        }
+    }
+
+    [Fact]
     public async Task Device_identification_rejects_unknown_device_and_invalid_confirmation_metadata()
     {
         using (var database = new TemporaryDatabase())

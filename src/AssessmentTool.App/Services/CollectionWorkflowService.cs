@@ -215,6 +215,28 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return null;
         }
 
+        if (previousPendingBatchId.HasValue)
+        {
+            if (!detection.WasUserConfirmed)
+            {
+                throw new InvalidOperationException("待确认识别候选未通过当前结果重新校验，已阻止提交。");
+            }
+
+            if (pendingIdentificationRepository == null)
+            {
+                throw new InvalidOperationException("待确认识别候选处理服务不可用，已阻止继续。");
+            }
+
+            await pendingIdentificationRepository.CompletePendingDeviceIdentificationAsync(
+                device.Id,
+                previousPendingBatchId.Value,
+                detection.Candidates[0],
+                "测评人员在设备识别候选界面人工确认",
+                DateTimeOffset.UtcNow,
+                cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+
         if (identificationRepository != null)
         {
             await identificationRepository.AppendDeviceIdentificationAsync(
@@ -222,21 +244,6 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 detection.Candidates[0],
                 detection.WasUserConfirmed,
                 detection.WasUserConfirmed ? "测评人员在设备识别候选界面人工确认" : null,
-                DateTimeOffset.UtcNow,
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        if (previousPendingBatchId.HasValue)
-        {
-            if (pendingIdentificationRepository == null)
-            {
-                throw new InvalidOperationException("待确认识别候选处理服务不可用，已阻止继续。");
-            }
-
-            await pendingIdentificationRepository.ResolvePendingDeviceIdentificationAsync(
-                device.Id,
-                previousPendingBatchId.Value,
-                PendingIdentificationResolution.RevalidatedAndCompleted,
                 DateTimeOffset.UtcNow,
                 cancellationToken).ConfigureAwait(false);
         }

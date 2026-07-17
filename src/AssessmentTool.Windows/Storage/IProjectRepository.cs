@@ -103,6 +103,14 @@ public interface IPendingDeviceIdentificationRepository
         PendingIdentificationResolution resolution,
         DateTimeOffset resolvedAt,
         CancellationToken cancellationToken = default);
+
+    Task<DeviceIdentificationRecord> CompletePendingDeviceIdentificationAsync(
+        DeviceId deviceId,
+        Guid batchId,
+        DetectionCandidate confirmedCandidate,
+        string confirmationSource,
+        DateTimeOffset recordedAt,
+        CancellationToken cancellationToken = default);
 }
 
 public interface ISshHostKeyTrustRepository
