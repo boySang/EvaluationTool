@@ -32,12 +32,12 @@ public sealed class MainWindowBindingTests
     {
         var document = XDocument.Load(FindMainWindowXaml());
         var window = document.Root ?? throw new InvalidOperationException("Main window root is missing.");
-        var names = document.DescendantsAndSelf()
+        var names = window.DescendantsAndSelf()
             .SelectMany(element => element.Attributes()
                 .Where(attribute => attribute.Name.LocalName == "Name")
                 .Select(attribute => attribute.Value))
             .ToArray();
-        var text = string.Join(" ", document.DescendantsAndSelf()
+        var text = string.Join(" ", window.DescendantsAndSelf()
             .SelectMany(element => element.Attributes())
             .Where(attribute => attribute.Name.LocalName == "Text" || attribute.Name.LocalName == "Content")
             .Select(attribute => attribute.Value));
