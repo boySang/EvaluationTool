@@ -10,10 +10,14 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.Core.Domain;
+using AssessmentTool.Core.Detection;
 
 namespace AssessmentTool.Windows.Storage;
 
-public sealed class SqliteProjectRepository : IProjectRepository, ISshHostKeyTrustRepository
+public sealed class SqliteProjectRepository :
+    IProjectRepository,
+    ISshHostKeyTrustRepository,
+    IDatabaseConfirmationRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
 
@@ -21,7 +25,8 @@ public sealed class SqliteProjectRepository : IProjectRepository, ISshHostKeyTru
     {
         new Migration(1, "AssessmentTool.Windows.Storage.Migrations.001_initial.sql"),
         new Migration(2, "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql"),
-        new Migration(3, "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql")
+        new Migration(3, "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql"),
+        new Migration(4, "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -414,6 +419,85 @@ public sealed class SqliteProjectRepository : IProjectRepository, ISshHostKeyTru
                 }
 
                 return evidenceFiles.AsReadOnly();
+            },
+            cancellationToken);
+    }
+
+    public Task SaveDatabaseConfirmationAsync(
+        DatabaseConfirmationRecord record,
+        CancellationToken cancellationToken = default)
+    {
+        if (record == null)
+        {
+            throw new ArgumentNullException(nameof(record));
+        }
+
+        return RunDatabaseOperationAsync(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                using (var command = connection.CreateCommand())
+                {
+                    token.ThrowIfCancellationRequested();
+                    GetEvidenceRootForDevice(connection, transaction, record.ProjectId, record.DeviceId);
+                    command.Transaction = transaction;
+                    command.CommandText = "INSERT INTO database_confirmations(id, project_id, device_id, product, version, installation_type, instance_name, port_evidence, detection_evidence, confidence, confirmed_at_utc, confirmation_source) VALUES(@id, @projectId, @deviceId, @product, @version, @installationType, @instanceName, @portEvidence, @detectionEvidence, @confidence, @confirmedAtUtc, @confirmationSource);";
+                    command.Parameters.AddWithValue("@id", Guid.NewGuid().ToString("D"));
+                    command.Parameters.AddWithValue("@projectId", record.ProjectId.ToString());
+                    command.Parameters.AddWithValue("@deviceId", record.DeviceId.ToString());
+                    command.Parameters.AddWithValue("@product", record.Product);
+                    command.Parameters.AddWithValue("@version", (object?)record.Version ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@installationType", (int)record.InstallationType);
+                    command.Parameters.AddWithValue("@instanceName", record.InstanceName);
+                    command.Parameters.AddWithValue("@portEvidence", (object?)record.PortEvidence ?? DBNull.Value);
+                    command.Parameters.AddWithValue("@detectionEvidence", record.DetectionEvidence);
+                    command.Parameters.AddWithValue("@confidence", record.Confidence);
+                    command.Parameters.AddWithValue("@confirmedAtUtc", FormatUtc(record.ConfirmedAt));
+                    command.Parameters.AddWithValue("@confirmationSource", record.ConfirmationSource);
+                    command.ExecuteNonQuery();
+                    token.ThrowIfCancellationRequested();
+                    transaction.Commit();
+                }
+            },
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<DatabaseConfirmationRecord>> GetDatabaseConfirmationsAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return RunDatabaseOperationAsync<IReadOnlyList<DatabaseConfirmationRecord>>(
+            token =>
+            {
+                var records = new List<DatabaseConfirmationRecord>();
+                using (var connection = OpenConnection())
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT project_id, device_id, product, version, installation_type, instance_name, port_evidence, detection_evidence, confidence, confirmed_at_utc, confirmation_source FROM database_confirmations WHERE project_id = @projectId ORDER BY confirmed_at_utc, id;";
+                    command.Parameters.AddWithValue("@projectId", projectId.ToString());
+                    using (var reader = command.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            token.ThrowIfCancellationRequested();
+                            records.Add(new DatabaseConfirmationRecord(
+                                ProjectId.Parse(reader.GetString(0)),
+                                DeviceId.Parse(reader.GetString(1)),
+                                reader.GetString(2),
+                                ReadNullableString(reader, 3),
+                                ReadEnum<DatabaseInstallationType>(reader.GetInt32(4), "database installation type"),
+                                reader.GetString(5),
+                                ReadNullableString(reader, 6),
+                                reader.GetString(7),
+                                reader.GetDouble(8),
+                                ParseUtc(reader.GetString(9)),
+                                reader.GetString(10)));
+                        }
+                    }
+                }
+
+                return records.AsReadOnly();
             },
             cancellationToken);
     }

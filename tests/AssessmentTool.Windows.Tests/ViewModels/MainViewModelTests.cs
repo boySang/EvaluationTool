@@ -22,7 +22,9 @@ public sealed class MainViewModelTests
             CredentialReference.New(), DateTimeOffset.UtcNow);
         var service = new FakeWorkspaceService(device);
         var workspace = new ProjectWorkspaceViewModel(service);
-        var collection = new CollectionViewModel(new FakeCollectionWorkflowService());
+        var collection = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService());
         var componentCenter = new ComponentCenterViewModel(
             new ComponentCenterViewModelTests.FakeComponentStatusService(
                 ComponentCenterViewModelTests.UnavailableStatus(
@@ -56,7 +58,9 @@ public sealed class MainViewModelTests
     [Fact]
     public async Task Dashboard_failure_count_tracks_collection_state()
     {
-        var collection = new CollectionViewModel(new ThrowingCollectionWorkflowService());
+        var collection = new CollectionViewModel(
+            new ThrowingCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService());
         var componentCenter = new ComponentCenterViewModel(
             new ComponentCenterViewModelTests.FakeComponentStatusService(
                 ComponentCenterViewModelTests.AvailableStatus()));
@@ -79,7 +83,9 @@ public sealed class MainViewModelTests
         var project = new ProjectRecord(ProjectId.New(), "客户", "等保项目", @"C:\Evidence", DateTimeOffset.UtcNow);
         var device = new DeviceRecord(DeviceId.New(), project.Id, "核心交换机", "192.0.2.10", 22,
             CredentialReference.New(), DateTimeOffset.UtcNow);
-        var collection = new CollectionViewModel(new FakeCollectionWorkflowService());
+        var collection = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService());
         collection.SelectProject(project);
         collection.SelectDevice(new CollectionDeviceSelection(device, true, CreateVerifiedHostKeyTrust(device)));
         var componentCenter = new ComponentCenterViewModel(
@@ -173,6 +179,18 @@ public sealed class MainViewModelTests
             CancellationToken cancellationToken)
         {
             throw new InvalidOperationException("fixture");
+        }
+    }
+
+    private sealed class FakeDatabaseConfirmationService : IDatabaseConfirmationService
+    {
+        public Task<DatabaseConfirmationRecord> ConfirmAsync(
+            ProjectRecord project,
+            DeviceRecord device,
+            DatabaseInstanceCandidate candidate,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 }

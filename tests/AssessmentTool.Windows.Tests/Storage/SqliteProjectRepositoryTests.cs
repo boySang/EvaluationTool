@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Windows.Storage;
 using Xunit;
@@ -113,8 +114,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(3, version));
-            Assert.Equal(3, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(4, version));
+            Assert.Equal(4, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -142,7 +143,7 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(3, await repository.GetSchemaVersionAsync());
+            Assert.Equal(4, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -325,14 +326,82 @@ public sealed class SqliteProjectRepositoryTests
     }
 
     [Fact]
+    public async Task Database_confirmation_is_append_only_and_round_trips_audit_evidence()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "项目", @"C:\Evidence");
+            var deviceId = await repository.AddDeviceAsync(
+                projectId, "Linux服务器", "192.0.2.20", 22, CredentialReference.New());
+            var first = CreateDatabaseConfirmation(projectId, deviceId, "PostgreSQL", "16.2", 0.92);
+            var second = CreateDatabaseConfirmation(projectId, deviceId, "PostgreSQL", "16.3", 0.95);
+
+            await repository.SaveDatabaseConfirmationAsync(first);
+            await repository.SaveDatabaseConfirmationAsync(second);
+
+            var stored = await repository.GetDatabaseConfirmationsAsync(projectId);
+            Assert.Equal(2, stored.Count);
+            Assert.Equal("16.2", stored[0].Version);
+            Assert.Equal("16.3", stored[1].Version);
+            Assert.Equal(first.DetectionEvidence, stored[0].DetectionEvidence);
+            Assert.Equal(first.ConfirmationSource, stored[0].ConfirmationSource);
+            Assert.Equal(first.ConfirmedAt, stored[0].ConfirmedAt);
+            Assert.Equal(first.Confidence, stored[0].Confidence);
+        }
+    }
+
+    [Fact]
+    public async Task Database_confirmation_rejects_device_from_another_project()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var firstProject = await repository.CreateProjectAsync("客户", "项目A", @"C:\Evidence\A");
+            var secondProject = await repository.CreateProjectAsync("客户", "项目B", @"C:\Evidence\B");
+            var deviceId = await repository.AddDeviceAsync(
+                firstProject, "Linux服务器", "192.0.2.20", 22, CredentialReference.New());
+            var mismatched = CreateDatabaseConfirmation(secondProject, deviceId, "MySQL", "8.0", 0.9);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.SaveDatabaseConfirmationAsync(mismatched));
+
+            Assert.Empty(await repository.GetDatabaseConfirmationsAsync(secondProject));
+        }
+    }
+
+    [Fact]
     public void Built_in_migration_versions_must_be_unique_and_contiguous_from_one()
     {
-        MigrationSequence.Validate(new[] { 1, 2, 3 });
+        MigrationSequence.Validate(new[] { 1, 2, 3, 4 });
 
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(Array.Empty<int>()));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 2 }));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 1, 1 }));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 1, 3 }));
+    }
+
+    private static DatabaseConfirmationRecord CreateDatabaseConfirmation(
+        ProjectId projectId,
+        DeviceId deviceId,
+        string product,
+        string version,
+        double confidence)
+    {
+        return new DatabaseConfirmationRecord(
+            projectId,
+            deviceId,
+            product,
+            version,
+            DatabaseInstallationType.LocalService,
+            "postgresql.service",
+            "127.0.0.1:5432",
+            "只读进程与服务元数据",
+            confidence,
+            new DateTimeOffset(2026, 7, 17, 6, (int)(confidence * 10), 0, TimeSpan.Zero),
+            "测评人员人工确认");
     }
 
     private static void AssertHostKeyTrust(

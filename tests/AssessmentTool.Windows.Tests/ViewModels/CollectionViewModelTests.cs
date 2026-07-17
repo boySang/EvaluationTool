@@ -19,7 +19,7 @@ public sealed class CollectionViewModelTests
     public void Start_is_disabled_until_project_device_component_and_host_key_are_ready()
     {
         var service = new FakeCollectionWorkflowService();
-        var viewModel = new CollectionViewModel(service);
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         var project = CreateProject();
 
         Assert.False(viewModel.StartCommand.CanExecute(null));
@@ -41,7 +41,7 @@ public sealed class CollectionViewModelTests
     {
         var service = new FakeCollectionWorkflowService();
         var project = CreateProject();
-        var viewModel = new CollectionViewModel(service);
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         viewModel.SelectProject(project);
         viewModel.SelectDevice(CreateSelection(project, componentAvailable: true, HostKeyTrustState.Verified));
 
@@ -68,7 +68,7 @@ public sealed class CollectionViewModelTests
         var service = new FakeCollectionWorkflowService();
         var firstProject = CreateProject();
         var secondProject = CreateProject();
-        var viewModel = new CollectionViewModel(service);
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         viewModel.SelectProject(firstProject);
         viewModel.SelectDevice(CreateSelection(firstProject, componentAvailable: true, HostKeyTrustState.Verified));
         Assert.True(viewModel.StartCommand.CanExecute(null));
@@ -102,7 +102,8 @@ public sealed class CollectionViewModelTests
         var candidate = CreateCandidate("A", 0.70);
         var service = new FakeCollectionWorkflowService(
             CollectionWorkflowResult.RequiresConfirmation(new[] { candidate }));
-        var viewModel = CreateReadyViewModel(service);
+        var confirmationService = new FakeDatabaseConfirmationService();
+        var viewModel = CreateReadyViewModel(service, confirmationService);
 
         await viewModel.StartAsync();
 
@@ -157,7 +158,8 @@ public sealed class CollectionViewModelTests
         var candidate = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
         var service = new FakeCollectionWorkflowService(
             CollectionWorkflowResult.RequiresDatabaseConfirmation(new[] { candidate }));
-        var viewModel = CreateReadyViewModel(service);
+        var confirmationService = new FakeDatabaseConfirmationService();
+        var viewModel = CreateReadyViewModel(service, confirmationService);
 
         await viewModel.StartAsync();
 
@@ -166,12 +168,13 @@ public sealed class CollectionViewModelTests
         Assert.Same(candidate, Assert.Single(viewModel.DatabaseCandidates));
         Assert.False(viewModel.StartCommand.CanExecute(null));
 
-        viewModel.ConfirmDatabase(candidate);
+        await viewModel.ConfirmDatabaseAsync(candidate);
 
         Assert.Equal(CollectionViewModelState.DatabaseConfirmed, viewModel.State);
         Assert.False(viewModel.IsDatabaseConfirmationVisible);
         Assert.Same(candidate, viewModel.SelectedDatabaseCandidate);
         Assert.Single(service.Requests);
+        Assert.Single(confirmationService.Confirmations);
     }
 
     [Fact]
@@ -201,12 +204,32 @@ public sealed class CollectionViewModelTests
         var viewModel = CreateReadyViewModel(service);
         await viewModel.StartAsync();
 
-        var error = Assert.Throws<InvalidOperationException>(() => viewModel.ConfirmDatabase(other));
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => viewModel.ConfirmDatabaseAsync(other));
 
         Assert.Equal("只能确认当前数据库候选项。", error.Message);
         Assert.Null(viewModel.SelectedDatabaseCandidate);
         Assert.Equal(CollectionViewModelState.AwaitingDatabaseConfirmation, viewModel.State);
         Assert.Single(service.Requests);
+    }
+
+    [Fact]
+    public async Task Database_confirmation_stays_pending_when_audit_persistence_fails()
+    {
+        var candidate = CreateDatabaseCandidate("PostgreSQL", string.Empty, "postgresql.service");
+        var workflow = new FakeCollectionWorkflowService(
+            CollectionWorkflowResult.RequiresDatabaseConfirmation(new[] { candidate }));
+        var confirmationService = new FakeDatabaseConfirmationService(
+            new InvalidOperationException("fixture persistence failure"));
+        var viewModel = CreateReadyViewModel(workflow, confirmationService);
+        await viewModel.StartAsync();
+
+        await viewModel.ConfirmDatabaseAsync(candidate);
+
+        Assert.Equal(CollectionViewModelState.AwaitingDatabaseConfirmation, viewModel.State);
+        Assert.Null(viewModel.SelectedDatabaseCandidate);
+        Assert.NotNull(viewModel.Error);
+        Assert.Equal("数据库确认记录保存失败", viewModel.Error!.WhatHappened);
+        Assert.Equal("InvalidOperationException", viewModel.Error.TechnicalDetails);
     }
 
     [Fact]
@@ -331,13 +354,57 @@ public sealed class CollectionViewModelTests
             || property.Name.IndexOf("RemoteCommand", StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
-    private static CollectionViewModel CreateReadyViewModel(ICollectionWorkflowService service)
+    private static CollectionViewModel CreateReadyViewModel(
+        ICollectionWorkflowService service,
+        IDatabaseConfirmationService? confirmationService = null)
     {
         var project = CreateProject();
-        var viewModel = new CollectionViewModel(service);
+        var viewModel = new CollectionViewModel(
+            service,
+            confirmationService ?? new FakeDatabaseConfirmationService());
         viewModel.SelectProject(project);
         viewModel.SelectDevice(CreateSelection(project, componentAvailable: true, HostKeyTrustState.Verified));
         return viewModel;
+    }
+
+    private sealed class FakeDatabaseConfirmationService : IDatabaseConfirmationService
+    {
+        private readonly Exception? exception;
+
+        public FakeDatabaseConfirmationService(Exception? exception = null)
+        {
+            this.exception = exception;
+        }
+
+        public List<DatabaseConfirmationRecord> Confirmations { get; } =
+            new List<DatabaseConfirmationRecord>();
+
+        public Task<DatabaseConfirmationRecord> ConfirmAsync(
+            ProjectRecord project,
+            DeviceRecord device,
+            DatabaseInstanceCandidate candidate,
+            CancellationToken cancellationToken = default)
+        {
+            if (exception != null)
+            {
+                throw exception;
+            }
+
+            var record = new DatabaseConfirmationRecord(
+                project.Id,
+                device.Id,
+                candidate.Product,
+                candidate.Version,
+                candidate.InstallationType,
+                candidate.InstanceName,
+                candidate.PortEvidence,
+                candidate.Evidence,
+                candidate.Confidence,
+                DateTimeOffset.UtcNow,
+                "测试人工确认");
+            Confirmations.Add(record);
+            return Task.FromResult(record);
+        }
     }
 
     private static ProjectRecord CreateProject()

@@ -22,6 +22,7 @@ public enum CollectionViewModelState
     Stopping,
     AwaitingConfirmation,
     AwaitingDatabaseConfirmation,
+    ConfirmingDatabase,
     DatabaseConfirmed,
     Completed,
     Stopped,
@@ -31,6 +32,7 @@ public enum CollectionViewModelState
 public sealed class CollectionViewModel : INotifyPropertyChanged
 {
     private readonly ICollectionWorkflowService workflowService;
+    private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly DelegateCommand startCommand;
     private readonly DelegateCommand stopCommand;
     private readonly ParameterizedDelegateCommand<DetectionCandidate> confirmDetectionCommand;
@@ -52,9 +54,13 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private int activeGeneration;
     private CollectionError? error;
 
-    public CollectionViewModel(ICollectionWorkflowService workflowService)
+    public CollectionViewModel(
+        ICollectionWorkflowService workflowService,
+        IDatabaseConfirmationService databaseConfirmationService)
     {
         this.workflowService = workflowService ?? throw new ArgumentNullException(nameof(workflowService));
+        this.databaseConfirmationService = databaseConfirmationService
+            ?? throw new ArgumentNullException(nameof(databaseConfirmationService));
         state = CollectionViewModelState.Idle;
         startCommand = new DelegateCommand(() => _ = StartAsync(), CanStart);
         stopCommand = new DelegateCommand(Stop, () => State == CollectionViewModelState.Running);
@@ -63,7 +69,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             candidate => State == CollectionViewModelState.AwaitingConfirmation
                 && DetectionCandidates.Contains(candidate));
         confirmDatabaseCommand = new ParameterizedDelegateCommand<DatabaseInstanceCandidate>(
-            ConfirmDatabase,
+            candidate => _ = ConfirmDatabaseAsync(candidate),
             candidate => State == CollectionViewModelState.AwaitingDatabaseConfirmation
                 && DatabaseCandidates.Contains(candidate));
     }
@@ -162,7 +168,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         }
     }
 
-    public void ConfirmDatabase(DatabaseInstanceCandidate candidate)
+    public async Task ConfirmDatabaseAsync(DatabaseInstanceCandidate candidate)
     {
         if (candidate == null)
         {
@@ -175,9 +181,33 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             throw new InvalidOperationException("只能确认当前数据库候选项。");
         }
 
-        selectedDatabaseCandidate = candidate;
-        OnPropertyChanged(nameof(SelectedDatabaseCandidate));
-        SetState(CollectionViewModelState.DatabaseConfirmed);
+        if (selectedProject == null || selectedDevice == null)
+        {
+            throw new InvalidOperationException("数据库确认缺少当前项目或设备。");
+        }
+
+        SetError(null);
+        SetState(CollectionViewModelState.ConfirmingDatabase);
+        try
+        {
+            await databaseConfirmationService.ConfirmAsync(
+                selectedProject,
+                selectedDevice.Device,
+                candidate,
+                CancellationToken.None);
+            selectedDatabaseCandidate = candidate;
+            OnPropertyChanged(nameof(SelectedDatabaseCandidate));
+            SetState(CollectionViewModelState.DatabaseConfirmed);
+        }
+        catch (Exception exception)
+        {
+            SetError(new CollectionError(
+                "数据库确认记录保存失败",
+                "本地项目数据库无法保存本次人工确认记录",
+                "检查本地数据目录权限和磁盘空间后重试",
+                exception.GetType().Name));
+            SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
+        }
     }
 
     private bool CanStart()
@@ -186,6 +216,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             && State != CollectionViewModelState.Stopping
             && State != CollectionViewModelState.AwaitingConfirmation
             && State != CollectionViewModelState.AwaitingDatabaseConfirmation
+            && State != CollectionViewModelState.ConfirmingDatabase
             && selectedProject != null
             && selectedDevice != null
             && selectedDevice.Device.ProjectId.Equals(selectedProject.Id)

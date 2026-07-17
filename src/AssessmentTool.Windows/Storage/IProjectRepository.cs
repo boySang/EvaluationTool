@@ -38,6 +38,16 @@ public interface IProjectRepository
     Task<int> GetSchemaVersionAsync(CancellationToken cancellationToken = default);
 }
 
+public interface IDatabaseConfirmationRepository
+{
+    Task SaveDatabaseConfirmationAsync(
+        DatabaseConfirmationRecord record,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DatabaseConfirmationRecord>> GetDatabaseConfirmationsAsync(
+        ProjectId projectId,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ISshHostKeyTrustRepository
 {
     Task<SshHostKeyTrustRecord> GetSshHostKeyTrustAsync(

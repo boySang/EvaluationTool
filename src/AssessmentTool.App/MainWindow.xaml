@@ -497,6 +497,9 @@
                     <DataTrigger Binding="{Binding Collection.State}" Value="AwaitingDatabaseConfirmation">
                       <Setter Property="Visibility" Value="Visible" />
                     </DataTrigger>
+                    <DataTrigger Binding="{Binding Collection.State}" Value="ConfirmingDatabase">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
                   </Style.Triggers>
                 </Style>
               </Border.Style>
@@ -721,10 +724,9 @@
             <Border BorderBrush="{DynamicResource Brush.Error}" BorderThickness="1" Background="{DynamicResource Brush.ErrorBackground}" CornerRadius="10" Padding="20">
               <Border.Style>
                 <Style TargetType="Border">
-                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Setter Property="Visibility" Value="Visible" />
                   <Style.Triggers>
                     <DataTrigger Binding="{Binding Collection.Error}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
-                    <DataTrigger Binding="{Binding Collection.State}" Value="Failed"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
                   </Style.Triggers>
                 </Style>
               </Border.Style>

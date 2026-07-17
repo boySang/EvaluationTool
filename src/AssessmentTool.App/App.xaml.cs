@@ -52,9 +52,11 @@ public partial class App : Application
             startupStage = "加载软件主界面";
             var mainViewModel = new MainViewModel(
                 workspace,
-                new CollectionViewModel(new CollectionWorkflowService(
-                    credentialVault,
-                    new CollectionEvidenceService(repository))),
+                new CollectionViewModel(
+                    new CollectionWorkflowService(
+                        credentialVault,
+                        new CollectionEvidenceService(repository)),
+                    new DatabaseConfirmationService(repository)),
                 componentCenter,
                 new DeviceConnectionViewModel(
                     new SshConnectionWorkflowService(repository, credentialVault)),

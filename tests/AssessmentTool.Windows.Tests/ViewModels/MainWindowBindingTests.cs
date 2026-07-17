@@ -99,6 +99,7 @@ public sealed class MainWindowBindingTests
         var source = File.ReadAllText(FindMainWindowXaml());
 
         Assert.Contains("Value=\"AwaitingDatabaseConfirmation\"", source);
+        Assert.Contains("Value=\"ConfirmingDatabase\"", source);
         Assert.Contains("Collection.DatabaseCandidates", source);
         Assert.Contains("Collection.ConfirmDatabaseCommand", source);
         Assert.Contains("Collection.SelectedDatabaseCandidate.Product", source);
@@ -109,6 +110,7 @@ public sealed class MainWindowBindingTests
         Assert.Contains("CommandParameter=\"{Binding}\"", source);
         Assert.Contains("此操作仅确认主机侧只读发现结果，本阶段不执行 SQL，也不建立数据库直连。", source);
         Assert.Contains("仅确认发现结果，本阶段未执行 SQL，也未建立数据库直连。", source);
+        Assert.Contains("Binding=\"{Binding Collection.Error}\" Value=\"{x:Null}\"", source);
         Assert.DoesNotContain("Content=\"连接数据库\"", source);
         Assert.DoesNotContain("Content=\"执行 SQL\"", source);
     }
