@@ -31,11 +31,12 @@ internal static class SensitiveExportTextPolicy
                 continue;
             }
 
-            if ((value.IndexOf("-----BEGIN", StringComparison.OrdinalIgnoreCase) >= 0
-                    && value.IndexOf("PRIVATE KEY-----", StringComparison.OrdinalIgnoreCase) >= 0)
-                || AssignmentPattern.IsMatch(value)
-                || AuthorizationPattern.IsMatch(value)
-                || ConnectionStringPattern.IsMatch(value))
+            var text = value!;
+            if ((text.IndexOf("-----BEGIN", StringComparison.OrdinalIgnoreCase) >= 0
+                    && text.IndexOf("PRIVATE KEY-----", StringComparison.OrdinalIgnoreCase) >= 0)
+                || AssignmentPattern.IsMatch(text)
+                || AuthorizationPattern.IsMatch(text)
+                || ConnectionStringPattern.IsMatch(text))
             {
                 throw new InvalidDataException(
                     "导出内容中检测到疑似密码、令牌、私钥或连接字符串，已阻止导出。请先清理相关自由文本记录。");
