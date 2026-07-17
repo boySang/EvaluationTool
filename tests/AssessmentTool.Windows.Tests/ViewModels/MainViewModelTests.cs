@@ -145,7 +145,7 @@ public sealed class MainViewModelTests
             evidenceCenter);
 
         await collection.StartAsync();
-        await collection.ConfirmDatabaseAsync(candidate);
+        await collection.ConfirmDatabaseAsync(Assert.Single(collection.DatabaseCandidates));
         await WaitUntilAsync(() => evidenceService.LoadCount >= 2);
 
         Assert.Equal(CollectionViewModelState.DatabaseConfirmed, collection.State);
