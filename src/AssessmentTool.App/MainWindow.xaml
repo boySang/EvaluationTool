@@ -387,11 +387,11 @@
                   <TextBlock Text="类别" Style="{StaticResource SecondaryTextStyle}" />
                   <TextBlock Grid.Column="1" Text="{Binding Workspace.SelectedIdentification.Category, Converter={StaticResource DeviceMetadataConverter}}" />
                   <TextBlock Grid.Row="1" Text="厂商 / 型号" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
-                  <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Vendor, TargetNullValue=未知厂商}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Model, TargetNullValue=未知型号}" /></TextBlock>
+                  <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Vendor, Mode=OneWay, TargetNullValue=未知厂商}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Model, Mode=OneWay, TargetNullValue=未知型号}" /></TextBlock>
                   <TextBlock Grid.Row="2" Text="系列 / 版本" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
-                  <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.ProductFamily, TargetNullValue=未识别}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Version, TargetNullValue=未识别}" /></TextBlock>
+                  <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.ProductFamily, Mode=OneWay, TargetNullValue=未识别}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentification.Version, Mode=OneWay, TargetNullValue=未识别}" /></TextBlock>
                   <TextBlock Grid.Row="3" Text="可信度 / 时间" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
-                  <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Confidence, StringFormat={}{0:P0}}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentificationRecordedAtText}" /></TextBlock>
+                  <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"><Run Text="{Binding Workspace.SelectedIdentification.Confidence, Mode=OneWay, StringFormat={}{0:P0}}" /><Run Text="  " /><Run Text="{Binding Workspace.SelectedIdentificationRecordedAtText, Mode=OneWay}" /></TextBlock>
                   <TextBlock Grid.Row="4" Text="识别依据" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
                   <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Workspace.SelectedIdentification.Evidence}" TextWrapping="Wrap" Margin="0,6,0,0" />
                   <TextBlock Grid.Row="5" Text="确认方式" Style="{StaticResource SecondaryTextStyle}" Margin="0,6,0,0" />
@@ -670,7 +670,7 @@
                               <TextBlock Text="{Binding Product}" FontWeight="SemiBold" FontSize="17" VerticalAlignment="Center" />
                               <Border Background="{DynamicResource Brush.AccentSoft}" CornerRadius="10" Padding="8,2" Margin="10,0,0,0">
                                 <TextBlock FontSize="11" Foreground="{DynamicResource Brush.Accent}">
-                                  <Run Text="可信度 " /><Run Text="{Binding Confidence, StringFormat={}{0:P0}}" />
+                                  <Run Text="可信度 " /><Run Text="{Binding Confidence, Mode=OneWay, StringFormat={}{0:P0}}" />
                                 </TextBlock>
                               </Border>
                             </StackPanel>
@@ -800,11 +800,11 @@
                           <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                           <StackPanel>
                             <TextBlock FontWeight="SemiBold" FontSize="16">
-                              <Run Text="{Binding Category}" /><Run Text="  " /><Run Text="{Binding Vendor, TargetNullValue=未知厂商}" />
+                              <Run Text="{Binding Category, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Vendor, Mode=OneWay, TargetNullValue=未知厂商}" />
                             </TextBlock>
                             <TextBlock Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0">
-                              <Run Text="产品系列：" /><Run Text="{Binding ProductFamily, TargetNullValue=未知}" />
-                              <Run Text="  版本：" /><Run Text="{Binding Version, TargetNullValue=未知}" />
+                              <Run Text="产品系列：" /><Run Text="{Binding ProductFamily, Mode=OneWay, TargetNullValue=未知}" />
+                              <Run Text="  版本：" /><Run Text="{Binding Version, Mode=OneWay, TargetNullValue=未知}" />
                             </TextBlock>
                             <TextBlock Text="{Binding Confidence, StringFormat=可信度：{0:P0}}" Style="{StaticResource SecondaryTextStyle}" />
                             <TextBlock Text="{Binding Evidence, StringFormat=识别依据：{0}}" TextWrapping="Wrap" Margin="0,6,16,0" />

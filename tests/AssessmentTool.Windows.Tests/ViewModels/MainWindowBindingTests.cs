@@ -16,6 +16,7 @@ public sealed class MainWindowBindingTests
             .Descendants()
             .Where(element =>
                 element.Name.LocalName == "ProgressBar"
+                || element.Name.LocalName == "Run"
                 || (element.Name.LocalName == "TextBox"
                     && string.Equals((string?)element.Attribute("IsReadOnly"), "True", StringComparison.OrdinalIgnoreCase)))
             .SelectMany(element => element.Attributes()
