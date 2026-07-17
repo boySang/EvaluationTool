@@ -492,7 +492,7 @@ public sealed class CommandReleaseReviewer
         int commandIndex,
         ICollection<CommandReleaseReviewFinding> findings)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (value == null || value.Trim().Length == 0)
         {
             AddBlocker(findings, missingCode, "命令必须明确填写最低和最高适用版本。", commandIndex);
             return null;
@@ -567,7 +567,7 @@ public sealed class CommandReleaseReviewer
         ICollection<CommandReleaseReviewFinding> findings,
         int? commandIndex = null)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (value == null || value.Trim().Length == 0)
         {
             AddBlocker(findings, code, message, commandIndex);
             return null;
@@ -578,7 +578,7 @@ public sealed class CommandReleaseReviewer
 
     private static string? Optional(string? value)
     {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        return value == null || value.Trim().Length == 0 ? null : value.Trim();
     }
 
     private static int CountBlockers(IEnumerable<CommandReleaseReviewFinding> findings)
