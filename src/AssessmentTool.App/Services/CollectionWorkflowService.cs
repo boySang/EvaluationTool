@@ -89,8 +89,9 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             var collectionPack = commandCatalog.CreateGenericLinuxCollectionPack(fullPack);
             workflowStage = "加载数据库发现命令包";
             var databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
-            workflowStage = "创建受控 SSH 会话";
+            workflowStage = "构建 SSH 连接资料";
             var profile = CreateProfile(device, trusted);
+            workflowStage = "创建受控 SSH 会话";
             var session = createSession(profile);
             CollectionResult result;
             using (session as IDisposable)
@@ -141,7 +142,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "只读采集任务失败",
                 "连接、命令包或证据保存未完成",
                 "检查设备连接、组件中心和证据目录后重试",
-                workflowStage + ":" + exception.GetType().Name));
+                BuildTechnicalDetails(workflowStage, exception)));
         }
     }
 
@@ -246,5 +247,12 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             "首个真实采集闭环仅开放 SSH Linux 服务器",
             "可以继续保存设备和测试登录；后续命令包验证完成后会逐步开放",
             "UnsupportedCollectionTarget"));
+    }
+
+    private static string BuildTechnicalDetails(string workflowStage, Exception exception)
+    {
+        var argument = exception as ArgumentException;
+        return workflowStage + ":" + exception.GetType().Name
+            + (string.IsNullOrWhiteSpace(argument?.ParamName) ? string.Empty : ":" + argument.ParamName);
     }
 }
