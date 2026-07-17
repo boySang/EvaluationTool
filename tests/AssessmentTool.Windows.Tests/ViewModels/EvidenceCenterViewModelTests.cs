@@ -7,6 +7,7 @@ using AssessmentTool.App.Services;
 using AssessmentTool.App.ViewModels;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
+using AssessmentTool.Windows.Storage;
 using Xunit;
 
 namespace AssessmentTool.Windows.Tests.ViewModels;
@@ -80,6 +81,43 @@ public sealed class EvidenceCenterViewModelTests
         Assert.Empty(viewModel.Items);
         Assert.True(viewModel.HasDatabaseConfirmations);
         Assert.Same(confirmation, Assert.Single(viewModel.DatabaseConfirmations));
+        Assert.False(viewModel.CanVerify);
+    }
+
+    [Fact]
+    public async Task Host_software_only_snapshot_is_ready_and_exposes_full_decision_history()
+    {
+        var project = CreateProject("项目甲");
+        var discovery = new HostSoftwareDiscoveryAuditItem(
+            "Linux服务器甲",
+            2,
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            HostSoftwareCategory.Middleware,
+            "Apache Tomcat",
+            "9",
+            HostSoftwareInstallationType.LocalService,
+            "tomcat9.service",
+            "8080/tcp",
+            0.91,
+            "服务：tomcat9.service loaded active running",
+            HostSoftwareAuditDecisionStatus.Confirmed,
+            "CONTOSO\\assessor",
+            "候选确认界面",
+            null,
+            DateTimeOffset.UtcNow);
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(
+                project.Id,
+                Array.Empty<EvidenceCenterItem>(),
+                Array.Empty<DatabaseConfirmationAuditItem>(),
+                new[] { discovery })));
+        var viewModel = new EvidenceCenterViewModel(service);
+
+        await viewModel.SelectProjectAsync(project);
+
+        Assert.Equal(EvidenceCenterViewModelState.Ready, viewModel.State);
+        Assert.True(viewModel.HasHostSoftwareDiscoveries);
+        Assert.Same(discovery, Assert.Single(viewModel.HostSoftwareDiscoveries));
         Assert.False(viewModel.CanVerify);
     }
 

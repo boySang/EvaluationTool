@@ -34,6 +34,8 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private IReadOnlyList<EvidenceCenterItem> items = Array.Empty<EvidenceCenterItem>();
     private IReadOnlyList<DatabaseConfirmationAuditItem> databaseConfirmations =
         Array.Empty<DatabaseConfirmationAuditItem>();
+    private IReadOnlyList<HostSoftwareDiscoveryAuditItem> hostSoftwareDiscoveries =
+        Array.Empty<HostSoftwareDiscoveryAuditItem>();
     private ProjectRecord? selectedProject;
     private EvidenceCenterViewModelState state = EvidenceCenterViewModelState.NoProject;
     private Task? activeLoad;
@@ -66,6 +68,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     public ProjectRecord? SelectedProject => selectedProject;
     public IReadOnlyList<EvidenceCenterItem> Items => items;
     public IReadOnlyList<DatabaseConfirmationAuditItem> DatabaseConfirmations => databaseConfirmations;
+    public IReadOnlyList<HostSoftwareDiscoveryAuditItem> HostSoftwareDiscoveries => hostSoftwareDiscoveries;
     public EvidenceCenterViewModelState State => state;
     public ICommand RefreshCommand => refreshCommand;
     public ICommand VerifyCommand => verifyCommand;
@@ -79,6 +82,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         && State != EvidenceCenterViewModelState.Loading;
     public bool HasItems => Items.Count != 0;
     public bool HasDatabaseConfirmations => DatabaseConfirmations.Count != 0;
+    public bool HasHostSoftwareDiscoveries => HostSoftwareDiscoveries.Count != 0;
     public string WhatHappened => whatHappened;
     public string PossibleCause => possibleCause;
     public string HowToFix => howToFix;
@@ -96,6 +100,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         SetRecoverySummary("仅在证据文件已保存但本地索引写入失败时需要恢复。");
         SetItems(Array.Empty<EvidenceCenterItem>());
         SetDatabaseConfirmations(Array.Empty<DatabaseConfirmationAuditItem>());
+        SetHostSoftwareDiscoveries(Array.Empty<HostSoftwareDiscoveryAuditItem>());
 
         if (project == null)
         {
@@ -251,6 +256,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
 
             SetItems(snapshot.Items);
             SetDatabaseConfirmations(snapshot.DatabaseConfirmations);
+            SetHostSoftwareDiscoveries(snapshot.HostSoftwareDiscoveries);
             if (verifyFiles)
             {
                 var verified = Items.Count(item => item.ShaStatus == EvidenceShaStatus.Verified);
@@ -260,7 +266,9 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
                     "本次已读取证据文件：" + verified + " 条与索引 SHA-256 一致，" + problems + " 条需要处理。复核时间："
                     + DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             }
-            SetState(Items.Count == 0 && DatabaseConfirmations.Count == 0
+            SetState(Items.Count == 0
+                && DatabaseConfirmations.Count == 0
+                && HostSoftwareDiscoveries.Count == 0
                 ? EvidenceCenterViewModelState.Empty
                 : EvidenceCenterViewModelState.Ready);
         }
@@ -322,6 +330,13 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         databaseConfirmations = new ReadOnlyCollection<DatabaseConfirmationAuditItem>(value.ToArray());
         OnPropertyChanged(nameof(DatabaseConfirmations));
         OnPropertyChanged(nameof(HasDatabaseConfirmations));
+    }
+
+    private void SetHostSoftwareDiscoveries(IEnumerable<HostSoftwareDiscoveryAuditItem> value)
+    {
+        hostSoftwareDiscoveries = new ReadOnlyCollection<HostSoftwareDiscoveryAuditItem>(value.ToArray());
+        OnPropertyChanged(nameof(HostSoftwareDiscoveries));
+        OnPropertyChanged(nameof(HasHostSoftwareDiscoveries));
     }
 
     private void SetState(EvidenceCenterViewModelState value)

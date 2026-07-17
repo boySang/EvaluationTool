@@ -189,6 +189,10 @@ public sealed class MainWindowBindingTests
         Assert.Contains("仅保存人工确认或排除决议，不执行 SQL、不连接实例，也不修改客户设备", source);
         Assert.DoesNotContain("Content=\"连接实例\"", source);
         Assert.DoesNotContain("Content=\"进入容器\"", source);
+        Assert.Contains("EvidenceCenter.HostSoftwareDiscoveries", source);
+        Assert.Contains("EvidenceCenter.HasHostSoftwareDiscoveries", source);
+        Assert.Contains("数据库与中间件发现审计", source);
+        Assert.Contains("待确认、已确认、已排除和被新批次取代", source);
     }
 
     [Fact]

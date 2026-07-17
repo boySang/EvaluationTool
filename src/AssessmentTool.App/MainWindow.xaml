@@ -1093,6 +1093,77 @@
               </StackPanel>
             </Border>
 
+            <Border automation:AutomationProperties.Name="主机软件发现与人工决议审计历史">
+              <Border.Style>
+                <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
+                  <Setter Property="Visibility" Value="Collapsed" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding EvidenceCenter.HasHostSoftwareDiscoveries}" Value="True">
+                      <Setter Property="Visibility" Value="Visible" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </Border.Style>
+              <StackPanel>
+                <TextBlock Text="数据库与中间件发现审计" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="完整保留每次只读发现批次及候选状态，包括待确认、已确认、已排除和被新批次取代；这些记录不表示已连接实例或执行 SQL。"
+                           Style="{StaticResource SecondaryTextStyle}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12" />
+                <ItemsControl ItemsSource="{Binding EvidenceCenter.HostSoftwareDiscoveries, Mode=OneWay}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border Background="{DynamicResource Brush.SurfaceSubtle}"
+                              BorderBrush="{DynamicResource Brush.Border}"
+                              BorderThickness="1"
+                              CornerRadius="8"
+                              Padding="14"
+                              Margin="0,0,0,10">
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="1.2*" />
+                            <ColumnDefinition Width="1.3*" />
+                          </Grid.ColumnDefinitions>
+                          <StackPanel Margin="0,0,16,0">
+                            <StackPanel Orientation="Horizontal">
+                              <TextBlock Text="{Binding Product, Mode=OneWay}" FontWeight="SemiBold" FontSize="16" />
+                              <Border Background="{DynamicResource Brush.AccentSoft}" CornerRadius="10" Padding="8,2" Margin="10,0,0,0">
+                                <TextBlock Text="{Binding CategoryText, Mode=OneWay}" Foreground="{DynamicResource Brush.Accent}" FontSize="11" />
+                              </Border>
+                            </StackPanel>
+                            <TextBlock Text="{Binding DeviceName, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}" Margin="0,3,0,0" />
+                            <TextBlock Text="{Binding InstanceName, Mode=OneWay, StringFormat=实例：{0}}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding EvidenceSummary, Mode=OneWay, StringFormat=发现依据：{0}}"
+                                       Style="{StaticResource SecondaryTextStyle}"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0" />
+                          </StackPanel>
+                          <StackPanel Grid.Column="1" Margin="0,0,16,0">
+                            <TextBlock Text="发现批次" Style="{StaticResource SecondaryTextStyle}" />
+                            <TextBlock Text="{Binding BatchRevision, Mode=OneWay, StringFormat=修订：{0}}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding BatchRecordedAtText, Mode=OneWay}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding VersionText, Mode=OneWay, StringFormat=版本：{0}}" Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding InstallationTypeText, Mode=OneWay, StringFormat=方式：{0}}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding PortEvidenceText, Mode=OneWay, StringFormat=端口依据：{0}}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Confidence, Mode=OneWay, StringFormat=可信度：{0:P0}}" Margin="0,4,0,0" />
+                          </StackPanel>
+                          <StackPanel Grid.Column="2">
+                            <TextBlock Text="人工决议" Style="{StaticResource SecondaryTextStyle}" />
+                            <TextBlock Text="{Binding DecisionStatusText, Mode=OneWay}" FontWeight="SemiBold" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding DecisionActorText, Mode=OneWay, StringFormat=处理人：{0}}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding DecidedAtText, Mode=OneWay}" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding DecisionSource, Mode=OneWay, TargetNullValue=尚无决议来源, StringFormat=来源：{0}}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding DecisionReasonText, Mode=OneWay, StringFormat=理由：{0}}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                          </StackPanel>
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
             <Border automation:AutomationProperties.Name="数据库人工确认审计历史">
               <Border.Style>
                 <Style TargetType="Border" BasedOn="{StaticResource CardStyle}">
