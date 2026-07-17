@@ -23,7 +23,7 @@ public sealed class BuiltinCommandPackCatalog
     private const string HuaweiVrpPackId = "huawei-vrp";
     private const string HuaweiVrpRelativePath = "command-packs/builtin/huawei-vrp.json";
     private const string HuaweiVrpResourceName = "AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json";
-    private const string HuaweiVrpSha256 = "3b1780c370e8c4bf69761a37bc271f496d5c686b82f352d3cd0d72c2830a8902";
+    private const string HuaweiVrpSha256 = "ecbef9697e1c39fa9f0e6654dab7f989cb9c5c37a13ebc2d2a2ee25eae165411";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
