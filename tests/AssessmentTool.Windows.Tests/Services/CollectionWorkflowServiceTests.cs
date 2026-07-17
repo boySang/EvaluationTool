@@ -140,7 +140,10 @@ public sealed class CollectionWorkflowServiceTests
                 new CountingProgress(),
                 CancellationToken.None);
 
-            Assert.Equal(CollectionWorkflowOutcome.RequiresDatabaseConfirmation, result.Outcome);
+            Assert.True(
+                result.Outcome == CollectionWorkflowOutcome.RequiresDatabaseConfirmation,
+                "Actual outcome: " + result.Outcome + "; error: "
+                + (result.Error == null ? "none" : JoinError(result.Error)));
             var candidate = Assert.Single(result.DatabaseCandidates);
             Assert.Equal("PostgreSQL", candidate.Product);
             Assert.Equal("16", candidate.Version);
