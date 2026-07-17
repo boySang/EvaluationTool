@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
 using AssessmentTool.Core.Domain;
@@ -11,6 +12,7 @@ namespace AssessmentTool.App.ViewModels;
 public enum DeviceConnectionViewModelState
 {
     NoDevice,
+    LoadingTrust,
     ReadyToProbe,
     Probing,
     AwaitingConfirmation,
@@ -30,6 +32,8 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
     private string fingerprint = string.Empty;
     private string technicalDetails = string.Empty;
     private HostKeyTrust? currentTrust;
+    private CancellationTokenSource? selectionCancellation;
+    private int selectionGeneration;
 
     public DeviceConnectionViewModel(ISshConnectionWorkflowService? service)
     {
@@ -46,6 +50,7 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
     public string TechnicalDetails => technicalDetails;
     public HostKeyTrust? CurrentTrust => currentTrust;
     public bool CanProbe => service != null && device != null
+        && state != DeviceConnectionViewModelState.LoadingTrust
         && state != DeviceConnectionViewModelState.Probing
         && state != DeviceConnectionViewModelState.TestingLogin;
     public bool CanConfirm => service != null && device != null
@@ -53,6 +58,11 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
 
     public async Task SelectDeviceAsync(DeviceRecord? value)
     {
+        var generation = unchecked(++selectionGeneration);
+        selectionCancellation?.Cancel();
+        selectionCancellation = value == null || service == null
+            ? null
+            : new CancellationTokenSource();
         device = value;
         algorithm = string.Empty;
         fingerprint = string.Empty;
@@ -68,14 +78,30 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
         }
         else
         {
+            var selectedDevice = device;
+            var cancellationToken = selectionCancellation!.Token;
+            SetState(DeviceConnectionViewModelState.LoadingTrust, "正在读取当前设备已保存的 SSH 指纹状态。");
             try
             {
-                var trust = await service.GetTrustAsync(device);
+                var trust = await service.GetTrustAsync(selectedDevice, cancellationToken);
+                if (!IsCurrent(generation, selectedDevice))
+                {
+                    return;
+                }
+
+                EnsureResultDevice(trust.DeviceId, selectedDevice);
                 ApplyTrust(trust.Trust);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
             }
             catch (Exception exception)
             {
-                SetFailure("无法读取设备指纹状态，请检查本地项目数据。", exception);
+                if (IsCurrent(generation, selectedDevice))
+                {
+                    SetFailure("无法读取设备指纹状态，请检查本地项目数据。", exception);
+                }
             }
         }
 
@@ -84,39 +110,84 @@ public sealed class DeviceConnectionViewModel : INotifyPropertyChanged
 
     public async Task ProbeAsync()
     {
-        if (!CanProbe || device == null || service == null)
+        if (!CanProbe || device == null || service == null || selectionCancellation == null)
         {
             return;
         }
 
+        var generation = selectionGeneration;
+        var selectedDevice = device;
+        var cancellationToken = selectionCancellation.Token;
         SetState(DeviceConnectionViewModelState.Probing, "正在读取 SSH 主机指纹；不会读取密码或执行命令。");
         try
         {
-            var result = await service.ProbeAsync(device);
+            var result = await service.ProbeAsync(selectedDevice, cancellationToken);
+            if (!IsCurrent(generation, selectedDevice))
+            {
+                return;
+            }
+
+            EnsureResultDevice(result.TrustRecord.DeviceId, selectedDevice);
             ApplyResult(result);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception exception)
         {
-            SetFailure("SSH 主机指纹探测失败。", exception);
+            if (IsCurrent(generation, selectedDevice))
+            {
+                SetFailure("SSH 主机指纹探测失败。", exception);
+            }
         }
     }
 
     public async Task ConfirmAndTestAsync()
     {
-        if (!CanConfirm || device == null || service == null)
+        if (!CanConfirm || device == null || service == null || selectionCancellation == null)
         {
             return;
         }
 
+        var generation = selectionGeneration;
+        var selectedDevice = device;
+        var cancellationToken = selectionCancellation.Token;
         SetState(DeviceConnectionViewModelState.TestingLogin, "正在复核指纹并进行无命令登录测试。");
         try
         {
-            var result = await service.ConfirmAndTestAsync(device);
+            var result = await service.ConfirmAndTestAsync(selectedDevice, cancellationToken);
+            if (!IsCurrent(generation, selectedDevice))
+            {
+                return;
+            }
+
+            EnsureResultDevice(result.TrustRecord.DeviceId, selectedDevice);
             ApplyResult(result);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception exception)
         {
-            SetFailure("SSH 登录测试失败，未执行任何客户设备命令。", exception);
+            if (IsCurrent(generation, selectedDevice))
+            {
+                SetFailure("SSH 登录测试失败，未执行任何客户设备命令。", exception);
+            }
+        }
+    }
+
+    private bool IsCurrent(int generation, DeviceRecord selectedDevice)
+    {
+        return generation == selectionGeneration
+            && device != null
+            && device.Id.Equals(selectedDevice.Id);
+    }
+
+    private static void EnsureResultDevice(DeviceId resultDeviceId, DeviceRecord selectedDevice)
+    {
+        if (!resultDeviceId.Equals(selectedDevice.Id))
+        {
+            throw new InvalidOperationException("安全连接结果不属于当前设备，已阻止显示。");
         }
     }
 

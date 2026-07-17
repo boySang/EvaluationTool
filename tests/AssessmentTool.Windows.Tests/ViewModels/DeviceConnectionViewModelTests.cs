@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
@@ -57,13 +58,53 @@ public sealed class DeviceConnectionViewModelTests
         Assert.Equal(1, service.ConfirmCount);
     }
 
-    private static DeviceRecord Device()
+    [Fact]
+    public async Task Late_trust_result_from_previous_device_cannot_replace_current_device_state()
+    {
+        var first = Device("first.example.test");
+        var second = Device("second.example.test");
+        var service = new DeferredTrustWorkflowService();
+        var viewModel = new DeviceConnectionViewModel(service);
+
+        var selectingFirst = viewModel.SelectDeviceAsync(first);
+        await service.WaitUntilRequestedAsync(first.Id);
+        var selectingSecond = viewModel.SelectDeviceAsync(second);
+        await service.WaitUntilRequestedAsync(second.Id);
+        service.Complete(second, HostKeyTrust.Unconfigured(new SshEndpointIdentity(second.Host, second.Port)));
+        await selectingSecond;
+        service.Complete(first, HostKeyTrust.Unconfigured(new SshEndpointIdentity(first.Host, first.Port)));
+        await selectingFirst;
+
+        Assert.Same(second, viewModel.Device);
+        Assert.Equal(DeviceConnectionViewModelState.ReadyToProbe, viewModel.State);
+        Assert.Equal(string.Empty, viewModel.Fingerprint);
+        Assert.True(viewModel.CanProbe);
+    }
+
+    [Fact]
+    public async Task Trust_record_for_another_device_is_rejected_without_showing_its_fingerprint()
+    {
+        var selected = Device("selected.example.test");
+        var other = Device("other.example.test");
+        var trust = HostKeyTrust.Unconfigured(new SshEndpointIdentity(selected.Host, selected.Port));
+        var service = new MismatchedTrustWorkflowService(
+            new SshHostKeyTrustRecord(other.Id, trust, 0));
+        var viewModel = new DeviceConnectionViewModel(service);
+
+        await viewModel.SelectDeviceAsync(selected);
+
+        Assert.Equal(DeviceConnectionViewModelState.Failed, viewModel.State);
+        Assert.Equal(nameof(InvalidOperationException), viewModel.TechnicalDetails);
+        Assert.Equal(string.Empty, viewModel.Fingerprint);
+    }
+
+    private static DeviceRecord Device(string host = "router.example.test")
     {
         return new DeviceRecord(
             DeviceId.New(),
             ProjectId.New(),
             "核心交换机",
-            "router.example.test",
+            host,
             22,
             "audit-user",
             TargetCategory.NetworkDevice,
@@ -112,6 +153,102 @@ public sealed class DeviceConnectionViewModelTests
         {
             ConfirmCount++;
             return Task.FromResult(confirm);
+        }
+    }
+
+    private sealed class DeferredTrustWorkflowService : ISshConnectionWorkflowService
+    {
+        private readonly Dictionary<DeviceId, TaskCompletionSource<bool>> requested =
+            new Dictionary<DeviceId, TaskCompletionSource<bool>>();
+        private readonly Dictionary<DeviceId, TaskCompletionSource<SshHostKeyTrustRecord>> results =
+            new Dictionary<DeviceId, TaskCompletionSource<SshHostKeyTrustRecord>>();
+
+        public Task<SshHostKeyTrustRecord> GetTrustAsync(
+            DeviceRecord device,
+            CancellationToken cancellationToken = default)
+        {
+            GetRequested(device.Id).TrySetResult(true);
+            return GetResult(device.Id).Task;
+        }
+
+        public async Task WaitUntilRequestedAsync(DeviceId deviceId)
+        {
+            var task = GetRequested(deviceId).Task;
+            var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+            Assert.Same(task, completed);
+            await task;
+        }
+
+        public void Complete(DeviceRecord device, HostKeyTrust trust)
+        {
+            GetResult(device.Id).TrySetResult(new SshHostKeyTrustRecord(device.Id, trust, 0));
+        }
+
+        public Task<SshConnectionWorkflowResult> ProbeAsync(
+            DeviceRecord device,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<SshConnectionWorkflowResult> ConfirmAndTestAsync(
+            DeviceRecord device,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        private TaskCompletionSource<bool> GetRequested(DeviceId deviceId)
+        {
+            if (!requested.TryGetValue(deviceId, out var value))
+            {
+                value = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                requested.Add(deviceId, value);
+            }
+
+            return value;
+        }
+
+        private TaskCompletionSource<SshHostKeyTrustRecord> GetResult(DeviceId deviceId)
+        {
+            if (!results.TryGetValue(deviceId, out var value))
+            {
+                value = new TaskCompletionSource<SshHostKeyTrustRecord>(TaskCreationOptions.RunContinuationsAsynchronously);
+                results.Add(deviceId, value);
+            }
+
+            return value;
+        }
+    }
+
+    private sealed class MismatchedTrustWorkflowService : ISshConnectionWorkflowService
+    {
+        private readonly SshHostKeyTrustRecord record;
+
+        public MismatchedTrustWorkflowService(SshHostKeyTrustRecord record)
+        {
+            this.record = record;
+        }
+
+        public Task<SshHostKeyTrustRecord> GetTrustAsync(
+            DeviceRecord device,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(record);
+        }
+
+        public Task<SshConnectionWorkflowResult> ProbeAsync(
+            DeviceRecord device,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<SshConnectionWorkflowResult> ConfirmAndTestAsync(
+            DeviceRecord device,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 }
