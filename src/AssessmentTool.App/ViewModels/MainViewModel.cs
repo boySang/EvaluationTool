@@ -169,6 +169,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(CollectionFailureCount));
             OnPropertyChanged(nameof(IsWorkspaceSelectionEnabled));
             if (Collection.State == CollectionViewModelState.AwaitingConfirmation
+                || Collection.State == CollectionViewModelState.DatabaseConfirmed
                 || Collection.State == CollectionViewModelState.Completed
                 || Collection.State == CollectionViewModelState.Stopped
                 || Collection.State == CollectionViewModelState.Failed)

@@ -62,7 +62,7 @@ public partial class App : Application
                     new SshConnectionWorkflowService(repository, credentialVault)),
                 ToggleTheme,
                 new EvidenceCenterViewModel(
-                    new EvidenceCenterService(repository),
+                    new EvidenceCenterService(repository, repository),
                     new ProjectEvidenceFolderLauncher(repository)));
             var window = new MainWindow(mainViewModel);
             MainWindow = window;

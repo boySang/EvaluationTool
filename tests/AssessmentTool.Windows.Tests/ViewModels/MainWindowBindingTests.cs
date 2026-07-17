@@ -86,6 +86,10 @@ public sealed class MainWindowBindingTests
         Assert.Contains("EvidenceCenter.RefreshCommand", source);
         Assert.Contains("EvidenceCenter.VerifyCommand", source);
         Assert.Contains("EvidenceCenter.OpenFolderCommand", source);
+        Assert.Contains("EvidenceCenter.DatabaseConfirmations", source);
+        Assert.Contains("EvidenceCenter.HasDatabaseConfirmations", source);
+        Assert.Contains("数据库人工确认审计", source);
+        Assert.Contains("不表示已经连接数据库或执行 SQL", source);
         Assert.Contains("ShaStatusText", source);
         Assert.Contains("RawOutputPathText", source);
         Assert.Contains("复核文件 SHA-256", source);

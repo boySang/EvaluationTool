@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
 using AssessmentTool.App.ViewModels;
+using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using Xunit;
 
@@ -49,6 +50,37 @@ public sealed class EvidenceCenterViewModelTests
         Assert.Same(second, Assert.Single(viewModel.Items));
         Assert.Equal(2, service.RequestedProjectIds.Count);
         Assert.Equal(EvidenceCenterViewModelState.Ready, viewModel.State);
+    }
+
+    [Fact]
+    public async Task Confirmation_only_snapshot_is_ready_and_exposes_audit_history()
+    {
+        var project = CreateProject("项目甲");
+        var confirmation = new DatabaseConfirmationAuditItem(
+            "Linux服务器甲",
+            "PostgreSQL",
+            "16.3",
+            DatabaseInstallationType.Container,
+            "postgres-main",
+            "15432->5432/tcp",
+            "容器名称、镜像和端口元数据",
+            0.91,
+            DateTimeOffset.UtcNow,
+            "测评人员人工确认");
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(
+                project.Id,
+                Array.Empty<EvidenceCenterItem>(),
+                new[] { confirmation })));
+        var viewModel = new EvidenceCenterViewModel(service);
+
+        await viewModel.SelectProjectAsync(project);
+
+        Assert.Equal(EvidenceCenterViewModelState.Ready, viewModel.State);
+        Assert.Empty(viewModel.Items);
+        Assert.True(viewModel.HasDatabaseConfirmations);
+        Assert.Same(confirmation, Assert.Single(viewModel.DatabaseConfirmations));
+        Assert.False(viewModel.CanVerify);
     }
 
     [Fact]

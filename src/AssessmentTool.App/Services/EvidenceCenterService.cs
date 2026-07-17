@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Windows.Storage;
 
@@ -171,6 +172,14 @@ public sealed class EvidenceCenterItem
 public sealed class EvidenceCenterSnapshot
 {
     public EvidenceCenterSnapshot(ProjectId projectId, IEnumerable<EvidenceCenterItem> items)
+        : this(projectId, items, Array.Empty<DatabaseConfirmationAuditItem>())
+    {
+    }
+
+    public EvidenceCenterSnapshot(
+        ProjectId projectId,
+        IEnumerable<EvidenceCenterItem> items,
+        IEnumerable<DatabaseConfirmationAuditItem> databaseConfirmations)
     {
         if (projectId.Equals(default(ProjectId)))
         {
@@ -182,12 +191,81 @@ public sealed class EvidenceCenterSnapshot
             throw new ArgumentNullException(nameof(items));
         }
 
+        if (databaseConfirmations == null)
+        {
+            throw new ArgumentNullException(nameof(databaseConfirmations));
+        }
+
         ProjectId = projectId;
         Items = new ReadOnlyCollection<EvidenceCenterItem>(items.ToArray());
+        DatabaseConfirmations = new ReadOnlyCollection<DatabaseConfirmationAuditItem>(
+            databaseConfirmations.ToArray());
     }
 
     public ProjectId ProjectId { get; }
     public IReadOnlyList<EvidenceCenterItem> Items { get; }
+    public IReadOnlyList<DatabaseConfirmationAuditItem> DatabaseConfirmations { get; }
+}
+
+public sealed class DatabaseConfirmationAuditItem
+{
+    public DatabaseConfirmationAuditItem(
+        string deviceName,
+        string product,
+        string? version,
+        DatabaseInstallationType installationType,
+        string instanceName,
+        string? portEvidence,
+        string detectionEvidence,
+        double confidence,
+        DateTimeOffset confirmedAt,
+        string confirmationSource)
+    {
+        DeviceName = Required(deviceName, nameof(deviceName));
+        Product = Required(product, nameof(product));
+        Version = version;
+        if (!Enum.IsDefined(typeof(DatabaseInstallationType), installationType))
+        {
+            throw new ArgumentOutOfRangeException(nameof(installationType));
+        }
+
+        if (double.IsNaN(confidence) || double.IsInfinity(confidence) || confidence < 0 || confidence > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(confidence));
+        }
+
+        InstallationType = installationType;
+        InstanceName = Required(instanceName, nameof(instanceName));
+        PortEvidence = portEvidence;
+        DetectionEvidence = Required(detectionEvidence, nameof(detectionEvidence));
+        Confidence = confidence;
+        ConfirmedAt = confirmedAt;
+        ConfirmationSource = Required(confirmationSource, nameof(confirmationSource));
+    }
+
+    public string DeviceName { get; }
+    public string Product { get; }
+    public string? Version { get; }
+    public DatabaseInstallationType InstallationType { get; }
+    public string InstanceName { get; }
+    public string? PortEvidence { get; }
+    public string DetectionEvidence { get; }
+    public double Confidence { get; }
+    public DateTimeOffset ConfirmedAt { get; }
+    public string ConfirmationSource { get; }
+    public string VersionText => Version ?? "未识别";
+    public string PortEvidenceText => PortEvidence ?? "未发现";
+    public string InstallationTypeText => InstallationType == DatabaseInstallationType.Container
+        ? "容器"
+        : "本机服务";
+    public string ConfirmedAtText => ConfirmedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz");
+
+    private static string Required(string value, string parameterName)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? throw new ArgumentException("人工确认审计字段不能为空。", parameterName)
+            : value;
+    }
 }
 
 public interface IEvidenceCenterService
@@ -203,18 +281,35 @@ public interface IEvidenceCenterService
 public sealed class EvidenceCenterService : IEvidenceCenterService
 {
     private readonly IProjectRepository repository;
+    private readonly IDatabaseConfirmationRepository databaseConfirmationRepository;
     private readonly EvidenceFileIntegrityVerifier integrityVerifier;
 
     public EvidenceCenterService(IProjectRepository repository)
-        : this(repository, new EvidenceFileIntegrityVerifier())
+        : this(
+            repository,
+            repository as IDatabaseConfirmationRepository
+                ?? throw new ArgumentException(
+                    "证据中心仓储必须支持数据库人工确认审计读取。",
+                    nameof(repository)),
+            new EvidenceFileIntegrityVerifier())
+    {
+    }
+
+    public EvidenceCenterService(
+        IProjectRepository repository,
+        IDatabaseConfirmationRepository databaseConfirmationRepository)
+        : this(repository, databaseConfirmationRepository, new EvidenceFileIntegrityVerifier())
     {
     }
 
     internal EvidenceCenterService(
         IProjectRepository repository,
+        IDatabaseConfirmationRepository databaseConfirmationRepository,
         EvidenceFileIntegrityVerifier integrityVerifier)
     {
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        this.databaseConfirmationRepository = databaseConfirmationRepository
+            ?? throw new ArgumentNullException(nameof(databaseConfirmationRepository));
         this.integrityVerifier = integrityVerifier ?? throw new ArgumentNullException(nameof(integrityVerifier));
     }
 
@@ -252,6 +347,9 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
                 .ConfigureAwait(false);
             var devices = await repository.GetDevicesAsync(projectId, cancellationToken)
                 .ConfigureAwait(false);
+            var confirmations = await databaseConfirmationRepository
+                .GetDatabaseConfirmationsAsync(projectId, cancellationToken)
+                .ConfigureAwait(false);
             string? evidenceRoot = null;
             if (verifyFiles)
             {
@@ -268,7 +366,7 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
             }
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (executions == null || evidenceFiles == null || devices == null)
+            if (executions == null || evidenceFiles == null || devices == null || confirmations == null)
             {
                 throw new InvalidOperationException("Repository returned no evidence index result.");
             }
@@ -289,7 +387,25 @@ public sealed class EvidenceCenterService : IEvidenceCenterService
                 .ThenBy(item => item.DeviceId, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(item => item.CommandId, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            return new EvidenceCenterSnapshot(projectId, items);
+            var confirmationItems = confirmations
+                .Select(confirmation => new DatabaseConfirmationAuditItem(
+                    deviceNames.TryGetValue(confirmation.DeviceId.ToString(), out var deviceName)
+                        ? deviceName
+                        : "未知设备（" + confirmation.DeviceId + "）",
+                    confirmation.Product,
+                    confirmation.Version,
+                    confirmation.InstallationType,
+                    confirmation.InstanceName,
+                    confirmation.PortEvidence,
+                    confirmation.DetectionEvidence,
+                    confirmation.Confidence,
+                    confirmation.ConfirmedAt,
+                    confirmation.ConfirmationSource))
+                .OrderByDescending(item => item.ConfirmedAt)
+                .ThenBy(item => item.DeviceName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Product, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            return new EvidenceCenterSnapshot(projectId, items, confirmationItems);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

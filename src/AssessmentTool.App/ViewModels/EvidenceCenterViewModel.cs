@@ -29,6 +29,8 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     private readonly DelegateCommand verifyCommand;
     private readonly DelegateCommand openFolderCommand;
     private IReadOnlyList<EvidenceCenterItem> items = Array.Empty<EvidenceCenterItem>();
+    private IReadOnlyList<DatabaseConfirmationAuditItem> databaseConfirmations =
+        Array.Empty<DatabaseConfirmationAuditItem>();
     private ProjectRecord? selectedProject;
     private EvidenceCenterViewModelState state = EvidenceCenterViewModelState.NoProject;
     private Task? activeLoad;
@@ -56,6 +58,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
 
     public ProjectRecord? SelectedProject => selectedProject;
     public IReadOnlyList<EvidenceCenterItem> Items => items;
+    public IReadOnlyList<DatabaseConfirmationAuditItem> DatabaseConfirmations => databaseConfirmations;
     public EvidenceCenterViewModelState State => state;
     public ICommand RefreshCommand => refreshCommand;
     public ICommand VerifyCommand => verifyCommand;
@@ -64,6 +67,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
     public bool CanVerify => selectedProject != null && HasItems && State != EvidenceCenterViewModelState.Loading;
     public bool CanOpenFolder => selectedProject != null && State != EvidenceCenterViewModelState.Loading;
     public bool HasItems => Items.Count != 0;
+    public bool HasDatabaseConfirmations => DatabaseConfirmations.Count != 0;
     public string WhatHappened => whatHappened;
     public string PossibleCause => possibleCause;
     public string HowToFix => howToFix;
@@ -78,6 +82,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         ClearError();
         SetVerificationSummary("尚未读取证据文件进行 SHA-256 复核。");
         SetItems(Array.Empty<EvidenceCenterItem>());
+        SetDatabaseConfirmations(Array.Empty<DatabaseConfirmationAuditItem>());
 
         if (project == null)
         {
@@ -191,6 +196,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
             }
 
             SetItems(snapshot.Items);
+            SetDatabaseConfirmations(snapshot.DatabaseConfirmations);
             if (verifyFiles)
             {
                 var verified = Items.Count(item => item.ShaStatus == EvidenceShaStatus.Verified);
@@ -200,7 +206,7 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
                     "本次已读取证据文件：" + verified + " 条与索引 SHA-256 一致，" + problems + " 条需要处理。复核时间："
                     + DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             }
-            SetState(Items.Count == 0
+            SetState(Items.Count == 0 && DatabaseConfirmations.Count == 0
                 ? EvidenceCenterViewModelState.Empty
                 : EvidenceCenterViewModelState.Ready);
         }
@@ -255,6 +261,13 @@ public sealed class EvidenceCenterViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(HasItems));
         OnPropertyChanged(nameof(CanVerify));
         verifyCommand.RaiseCanExecuteChanged();
+    }
+
+    private void SetDatabaseConfirmations(IEnumerable<DatabaseConfirmationAuditItem> value)
+    {
+        databaseConfirmations = new ReadOnlyCollection<DatabaseConfirmationAuditItem>(value.ToArray());
+        OnPropertyChanged(nameof(DatabaseConfirmations));
+        OnPropertyChanged(nameof(HasDatabaseConfirmations));
     }
 
     private void SetState(EvidenceCenterViewModelState value)

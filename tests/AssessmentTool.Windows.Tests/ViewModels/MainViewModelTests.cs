@@ -8,6 +8,7 @@ using AssessmentTool.App.Services;
 using AssessmentTool.App.ViewModels;
 using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
+using AssessmentTool.Core.Execution;
 using Xunit;
 
 namespace AssessmentTool.Windows.Tests.ViewModels;
@@ -113,6 +114,74 @@ public sealed class MainViewModelTests
         AssertNavigationRemainsAvailable(viewModel);
     }
 
+    [Fact]
+    public async Task Confirmed_database_refreshes_visible_audit_history()
+    {
+        var project = new ProjectRecord(
+            ProjectId.New(), "客户", "项目", @"C:\Evidence", DateTimeOffset.UtcNow);
+        var device = new DeviceRecord(
+            DeviceId.New(), project.Id, "Linux服务器", "192.0.2.20", 22,
+            CredentialReference.New(), DateTimeOffset.UtcNow);
+        var candidate = CreateDatabaseCandidate();
+        var collection = new CollectionViewModel(
+            new DatabaseCandidateWorkflowService(candidate),
+            new FakeDatabaseConfirmationService());
+        collection.SelectProject(project);
+        collection.SelectDevice(new CollectionDeviceSelection(
+            device, true, CreateVerifiedHostKeyTrust(device)));
+        var componentCenter = new ComponentCenterViewModel(
+            new ComponentCenterViewModelTests.FakeComponentStatusService(
+                ComponentCenterViewModelTests.AvailableStatus()));
+        await componentCenter.RefreshAsync();
+        var evidenceService = new CountingEvidenceCenterService();
+        var evidenceCenter = new EvidenceCenterViewModel(evidenceService);
+        await evidenceCenter.SelectProjectAsync(project);
+        var viewModel = new MainViewModel(
+            null,
+            collection,
+            componentCenter,
+            new DeviceConnectionViewModel(null),
+            () => { },
+            evidenceCenter);
+
+        await collection.StartAsync();
+        await collection.ConfirmDatabaseAsync(candidate);
+        await WaitUntilAsync(() => evidenceService.LoadCount >= 2);
+
+        Assert.Equal(CollectionViewModelState.DatabaseConfirmed, collection.State);
+        Assert.Equal(2, evidenceService.LoadCount);
+        Assert.Same(evidenceCenter, viewModel.EvidenceCenter);
+    }
+
+    private static DatabaseInstanceCandidate CreateDatabaseCandidate()
+    {
+        var timestamp = DateTimeOffset.UtcNow;
+        var output = new CommandOutput(
+            "database-host-discovery-linux-processes",
+            "100 postgres-16",
+            string.Empty,
+            0,
+            RemoteExecutionOutcome.Succeeded,
+            null,
+            timestamp,
+            timestamp.AddSeconds(1));
+        return Assert.Single(new HostDatabaseDiscovery().Detect(new[] { output }));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (!predicate())
+        {
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new TimeoutException("等待证据中心自动刷新超时。");
+            }
+
+            await Task.Delay(20);
+        }
+    }
+
     private static HostKeyTrust CreateVerifiedHostKeyTrust(DeviceRecord device)
     {
         var coordinator = HostKeyTrustServices.CreateCoordinator();
@@ -190,7 +259,59 @@ public sealed class MainViewModelTests
             DatabaseInstanceCandidate candidate,
             CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            return Task.FromResult(new DatabaseConfirmationRecord(
+                project.Id,
+                device.Id,
+                candidate.Product,
+                candidate.Version,
+                candidate.InstallationType,
+                candidate.InstanceName,
+                candidate.PortEvidence,
+                candidate.Evidence,
+                candidate.Confidence,
+                DateTimeOffset.UtcNow,
+                "测试人工确认"));
+        }
+    }
+
+    private sealed class DatabaseCandidateWorkflowService : ICollectionWorkflowService
+    {
+        private readonly DatabaseInstanceCandidate candidate;
+
+        public DatabaseCandidateWorkflowService(DatabaseInstanceCandidate candidate)
+        {
+            this.candidate = candidate;
+        }
+
+        public Task<CollectionWorkflowResult> RunAsync(
+            CollectionWorkflowRequest request,
+            IProgress<CollectionProgress> progress,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(
+                CollectionWorkflowResult.RequiresDatabaseConfirmation(new[] { candidate }));
+        }
+    }
+
+    private sealed class CountingEvidenceCenterService : IEvidenceCenterService
+    {
+        public int LoadCount { get; private set; }
+
+        public Task<EvidenceCenterSnapshot> LoadAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            LoadCount++;
+            return Task.FromResult(new EvidenceCenterSnapshot(
+                projectId,
+                Array.Empty<EvidenceCenterItem>()));
+        }
+
+        public Task<EvidenceCenterSnapshot> VerifyAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return LoadAsync(projectId, cancellationToken);
         }
     }
 }

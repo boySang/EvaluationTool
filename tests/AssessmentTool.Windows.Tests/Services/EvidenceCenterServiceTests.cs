@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using AssessmentTool.App.Services;
+using AssessmentTool.Core.Detection;
 using AssessmentTool.Core.Domain;
 using AssessmentTool.Windows.Storage;
 using Xunit;
@@ -39,7 +40,11 @@ public sealed class EvidenceCenterServiceTests
             EvidenceFiles = CreateEvidenceFiles(projectId, deviceId, earlier)
                 .Concat(CreateEvidenceFiles(projectId, deviceId, later))
                 .ToArray(),
-            Devices = new[] { CreateDevice(projectId, deviceId, "Linux服务器甲") }
+            Devices = new[] { CreateDevice(projectId, deviceId, "Linux服务器甲") },
+            DatabaseConfirmations = new[]
+            {
+                CreateDatabaseConfirmation(projectId, deviceId, "PostgreSQL", "16.3")
+            }
         };
         var service = new EvidenceCenterService(repository);
 
@@ -57,9 +62,21 @@ public sealed class EvidenceCenterServiceTests
         Assert.Equal(1, item.ScreenshotCount);
         Assert.Equal("1 张", item.ScreenshotCountText);
         Assert.Equal("索引完整（未复核文件）", item.ShaStatusText);
+        var confirmation = Assert.Single(snapshot.DatabaseConfirmations);
+        Assert.Equal("Linux服务器甲", confirmation.DeviceName);
+        Assert.Equal("PostgreSQL", confirmation.Product);
+        Assert.Equal("16.3", confirmation.VersionText);
+        Assert.Equal("本机服务", confirmation.InstallationTypeText);
+        Assert.Equal("5432/tcp", confirmation.PortEvidenceText);
+        Assert.Equal("只读进程和服务元数据", confirmation.DetectionEvidence);
+        Assert.Equal("测评人员人工确认", confirmation.ConfirmationSource);
+        Assert.Equal(
+            confirmation.ConfirmedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz"),
+            confirmation.ConfirmedAtText);
         Assert.Equal(1, repository.ExecutionQueryCount);
         Assert.Equal(1, repository.EvidenceQueryCount);
         Assert.Equal(1, repository.DeviceQueryCount);
+        Assert.Equal(1, repository.DatabaseConfirmationQueryCount);
         Assert.Equal(projectId, repository.RequestedProjectId);
     }
 
@@ -116,6 +133,23 @@ public sealed class EvidenceCenterServiceTests
         Assert.DoesNotContain("customer", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Null(error.InnerException);
         Assert.Equal(0, repository.EvidenceQueryCount);
+    }
+
+    [Fact]
+    public async Task Confirmation_audit_error_cannot_be_silently_hidden()
+    {
+        var repository = new FakeProjectRepository
+        {
+            DatabaseConfirmationError = new InvalidOperationException(@"secret C:\customer\audit.db")
+        };
+
+        var error = await Assert.ThrowsAsync<EvidenceCenterException>(
+            () => new EvidenceCenterService(repository).LoadAsync(ProjectId.New()));
+
+        Assert.Equal(EvidenceCenterFailure.IndexUnavailable, error.Failure);
+        Assert.Contains("证据索引", error.Message, StringComparison.Ordinal);
+        Assert.Equal(1, repository.DatabaseConfirmationQueryCount);
+        Assert.DoesNotContain("secret", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -295,6 +329,26 @@ public sealed class EvidenceCenterServiceTests
             DateTimeOffset.UtcNow);
     }
 
+    private static DatabaseConfirmationRecord CreateDatabaseConfirmation(
+        ProjectId projectId,
+        DeviceId deviceId,
+        string product,
+        string version)
+    {
+        return new DatabaseConfirmationRecord(
+            projectId,
+            deviceId,
+            product,
+            version,
+            DatabaseInstallationType.LocalService,
+            "postgresql.service",
+            "5432/tcp",
+            "只读进程和服务元数据",
+            0.94,
+            new DateTimeOffset(2026, 7, 17, 7, 30, 0, TimeSpan.Zero),
+            "测评人员人工确认");
+    }
+
     private static ExecutionRecord CreateFailedExecution(
         ProjectId projectId,
         DeviceId deviceId,
@@ -342,16 +396,20 @@ public sealed class EvidenceCenterServiceTests
             execution.CompletedAt.Value);
     }
 
-    private sealed class FakeProjectRepository : IProjectRepository
+    private sealed class FakeProjectRepository : IProjectRepository, IDatabaseConfirmationRepository
     {
         public IReadOnlyList<ExecutionRecord> Executions { get; set; } = Array.Empty<ExecutionRecord>();
         public IReadOnlyList<EvidenceFileRecord> EvidenceFiles { get; set; } = Array.Empty<EvidenceFileRecord>();
         public IReadOnlyList<DeviceRecord> Devices { get; set; } = Array.Empty<DeviceRecord>();
         public IReadOnlyList<ProjectRecord> Projects { get; set; } = Array.Empty<ProjectRecord>();
+        public IReadOnlyList<DatabaseConfirmationRecord> DatabaseConfirmations { get; set; } =
+            Array.Empty<DatabaseConfirmationRecord>();
         public Exception? ExecutionError { get; set; }
+        public Exception? DatabaseConfirmationError { get; set; }
         public int ExecutionQueryCount { get; private set; }
         public int EvidenceQueryCount { get; private set; }
         public int DeviceQueryCount { get; private set; }
+        public int DatabaseConfirmationQueryCount { get; private set; }
         public ProjectId RequestedProjectId { get; private set; }
 
         public Task<IReadOnlyList<ExecutionRecord>> GetExecutionsAsync(
@@ -396,5 +454,21 @@ public sealed class EvidenceCenterServiceTests
             return Task.FromResult(Devices);
         }
         public Task<int> GetSchemaVersionAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task SaveDatabaseConfirmationAsync(
+            DatabaseConfirmationRecord record,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<IReadOnlyList<DatabaseConfirmationRecord>> GetDatabaseConfirmationsAsync(
+            ProjectId projectId,
+            CancellationToken cancellationToken = default)
+        {
+            DatabaseConfirmationQueryCount++;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (DatabaseConfirmationError != null)
+            {
+                throw DatabaseConfirmationError;
+            }
+
+            return Task.FromResult(DatabaseConfirmations);
+        }
     }
 }
