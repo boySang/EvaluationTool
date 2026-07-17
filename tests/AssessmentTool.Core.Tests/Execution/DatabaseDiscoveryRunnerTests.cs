@@ -17,7 +17,7 @@ namespace AssessmentTool.Core.Tests.Execution;
 public sealed class DatabaseDiscoveryRunnerTests
 {
     [Fact]
-    public async Task Runs_verified_commands_in_order_and_returns_candidates()
+    public async Task Same_outputs_return_only_database_candidates_without_repeating_commands()
     {
         var pack = LoadPack();
         var session = new ScriptedSession(new Dictionary<string, CommandOutput>
@@ -32,9 +32,57 @@ public sealed class DatabaseDiscoveryRunnerTests
 
         Assert.Equal(DatabaseDiscoveryOutcome.Completed, result.Outcome);
         Assert.Equal(pack.Commands.Select(command => command.Id), session.ExecutedIds);
-        var candidate = Assert.Single(result.Candidates);
+        var candidate = Assert.Single(result.DatabaseCandidates);
         Assert.Equal("PostgreSQL", candidate.Product);
         Assert.Equal("16", candidate.Version);
+        Assert.Same(result.DatabaseCandidates, result.Candidates);
+        Assert.Empty(result.MiddlewareCandidates);
+    }
+
+    [Fact]
+    public async Task Same_outputs_return_only_middleware_candidates_without_repeating_commands()
+    {
+        var pack = LoadPack();
+        var session = SessionFor(pack, "101 nginx", "nginx.service loaded active running A high performance web server");
+
+        var result = await CreateRunner(session).RunAsync(pack, new RecordingProgress(), CancellationToken.None);
+
+        Assert.Equal(DatabaseDiscoveryOutcome.Completed, result.Outcome);
+        Assert.Equal(pack.Commands.Select(command => command.Id), session.ExecutedIds);
+        Assert.Empty(result.DatabaseCandidates);
+        var candidate = Assert.Single(result.MiddlewareCandidates);
+        Assert.Equal("Nginx", candidate.Product);
+    }
+
+    [Fact]
+    public async Task Same_outputs_return_database_and_middleware_candidates_without_repeating_commands()
+    {
+        var pack = LoadPack();
+        var session = SessionFor(
+            pack,
+            "101 postgres-16\n202 nginx",
+            "postgresql@16-main.service loaded active running PostgreSQL Cluster 16-main\nnginx.service loaded active running A high performance web server");
+
+        var result = await CreateRunner(session).RunAsync(pack, new RecordingProgress(), CancellationToken.None);
+
+        Assert.Equal(DatabaseDiscoveryOutcome.Completed, result.Outcome);
+        Assert.Equal(pack.Commands.Select(command => command.Id), session.ExecutedIds);
+        Assert.Equal("PostgreSQL", Assert.Single(result.DatabaseCandidates).Product);
+        Assert.Equal("Nginx", Assert.Single(result.MiddlewareCandidates).Product);
+    }
+
+    [Fact]
+    public async Task Same_outputs_return_no_candidates_without_repeating_commands()
+    {
+        var pack = LoadPack();
+        var session = SessionFor(pack, "101 sshd", "ssh.service loaded active running OpenBSD Secure Shell server");
+
+        var result = await CreateRunner(session).RunAsync(pack, new RecordingProgress(), CancellationToken.None);
+
+        Assert.Equal(DatabaseDiscoveryOutcome.Completed, result.Outcome);
+        Assert.Equal(pack.Commands.Select(command => command.Id), session.ExecutedIds);
+        Assert.Empty(result.DatabaseCandidates);
+        Assert.Empty(result.MiddlewareCandidates);
     }
 
     [Fact]
@@ -111,7 +159,22 @@ public sealed class DatabaseDiscoveryRunnerTests
 
     private static DatabaseDiscoveryRunner CreateRunner(IRemoteSession session)
     {
-        return new DatabaseDiscoveryRunner(session, new CommandSafetyPolicy(), new HostDatabaseDiscovery());
+        return new DatabaseDiscoveryRunner(
+            session,
+            new CommandSafetyPolicy(),
+            new HostDatabaseDiscovery(),
+            new HostMiddlewareDiscovery());
+    }
+
+    private static ScriptedSession SessionFor(CommandPack pack, string processes, string services)
+    {
+        return new ScriptedSession(new Dictionary<string, CommandOutput>
+        {
+            [pack.Commands[0].Id] = Success(pack.Commands[0].Id, processes),
+            [pack.Commands[1].Id] = Success(pack.Commands[1].Id, services),
+            [pack.Commands[2].Id] = Success(pack.Commands[2].Id, ""),
+            [pack.Commands[3].Id] = Success(pack.Commands[3].Id, "")
+        });
     }
 
     private static CommandPack LoadPack()
