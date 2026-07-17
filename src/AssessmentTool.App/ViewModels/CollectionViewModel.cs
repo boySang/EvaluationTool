@@ -41,6 +41,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         CollectionAdapterId.HuaweiVrp,
         "华为 VRP 网络设备",
         "仅适用于已确认的华为 VRP 设备；当前执行版本识别和 AAA 配置概要只读查询，不适用于 H3C、Cisco、锐捷等厂商。");
+    private static readonly CollectionAdapterOption H3cComwareAdapter = new CollectionAdapterOption(
+        CollectionAdapterId.H3cComware,
+        "H3C Comware 7/9 网络设备",
+        "仅适用于已确认的 H3C Comware 7.1 或 9.x 设备；当前执行版本识别和全局口令控制策略只读查询，不适用于 Comware 5、华为、Cisco、锐捷等设备。");
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
@@ -807,10 +811,12 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 nextSelection = GenericLinuxAdapter;
                 break;
             case TargetCategory.NetworkDevice:
-                nextOptions = new[] { HuaweiVrpAdapter };
+                nextOptions = new[] { HuaweiVrpAdapter, H3cComwareAdapter };
                 nextSelection = selectedAdapterOption?.Id == CollectionAdapterId.HuaweiVrp
                     ? HuaweiVrpAdapter
-                    : null;
+                    : selectedAdapterOption?.Id == CollectionAdapterId.H3cComware
+                        ? H3cComwareAdapter
+                        : null;
                 break;
             default:
                 nextOptions = Array.Empty<CollectionAdapterOption>();
@@ -830,15 +836,24 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         TargetCategory category,
         IReadOnlyList<DetectionCandidate> candidates)
     {
-        if (category != TargetCategory.NetworkDevice
-            || selectedAdapterOption != null
-            || !candidates.Any(candidate =>
-                string.Equals(candidate.Vendor, "Huawei", StringComparison.OrdinalIgnoreCase)))
+        if (category != TargetCategory.NetworkDevice || selectedAdapterOption != null)
         {
             return;
         }
 
-        selectedAdapterOption = HuaweiVrpAdapter;
+        selectedAdapterOption = candidates.Any(candidate =>
+                string.Equals(candidate.Vendor, "Huawei", StringComparison.OrdinalIgnoreCase))
+            ? HuaweiVrpAdapter
+            : candidates.Any(candidate =>
+                string.Equals(candidate.Vendor, "H3C", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.ProductFamily, "Comware", StringComparison.OrdinalIgnoreCase))
+                ? H3cComwareAdapter
+                : null;
+        if (selectedAdapterOption == null)
+        {
+            return;
+        }
+
         OnPropertyChanged(nameof(SelectedAdapterOption));
         OnPropertyChanged(nameof(AdapterScopeNotice));
     }

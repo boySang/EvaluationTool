@@ -144,24 +144,37 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         }
 
         var isHuaweiVrpWorkflow = request.AdapterId == CollectionAdapterId.HuaweiVrp;
-        var workflowStage = isHuaweiVrpWorkflow ? "加载华为 VRP 命令包" : "加载通用 Linux 命令包";
+        var isH3cComwareWorkflow = request.AdapterId == CollectionAdapterId.H3cComware;
+        var isNetworkDeviceWorkflow = isHuaweiVrpWorkflow || isH3cComwareWorkflow;
+        var workflowStage = isHuaweiVrpWorkflow
+            ? "加载华为 VRP 命令包"
+            : isH3cComwareWorkflow
+                ? "加载 H3C Comware 命令包"
+                : "加载通用 Linux 命令包";
         WorkflowExecutionObserver? executionObserver = null;
         try
         {
             var fullPack = isHuaweiVrpWorkflow
                 ? commandCatalog.LoadHuaweiVrp()
-                : commandCatalog.LoadGenericLinux();
+                : isH3cComwareWorkflow
+                    ? commandCatalog.LoadH3cComware()
+                    : commandCatalog.LoadGenericLinux();
             var collectionPack = isHuaweiVrpWorkflow
                 ? await LoadHuaweiVrpProjectCollectionPackAsync(
                     request.Project.Id,
                     fullPack,
                     cancellationToken).ConfigureAwait(false)
-                : await LoadProjectCollectionPackAsync(
-                    request.Project.Id,
-                    fullPack,
-                    cancellationToken).ConfigureAwait(false);
+                : isH3cComwareWorkflow
+                    ? await LoadH3cComwareProjectCollectionPackAsync(
+                        request.Project.Id,
+                        fullPack,
+                        cancellationToken).ConfigureAwait(false)
+                    : await LoadProjectCollectionPackAsync(
+                        request.Project.Id,
+                        fullPack,
+                        cancellationToken).ConfigureAwait(false);
             CommandPack? databaseDiscoveryPack = null;
-            if (!isHuaweiVrpWorkflow)
+            if (!isNetworkDeviceWorkflow)
             {
                 workflowStage = "加载数据库发现命令包";
                 databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
@@ -185,10 +198,14 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     session,
                     isHuaweiVrpWorkflow
                         ? commandCatalog.SelectHuaweiVrpIdentificationCommands(fullPack)
-                        : commandCatalog.SelectGenericLinuxIdentificationCommands(fullPack),
+                        : isH3cComwareWorkflow
+                            ? commandCatalog.SelectH3cComwareIdentificationCommands(fullPack)
+                            : commandCatalog.SelectGenericLinuxIdentificationCommands(fullPack),
                     isHuaweiVrpWorkflow
                         ? new[] { BuiltInIdentificationRules.HuaweiVrp }
-                        : identificationRules,
+                        : isH3cComwareWorkflow
+                            ? new[] { BuiltInIdentificationRules.H3cComware }
+                            : identificationRules,
                     new DetectionEngine(),
                     new CommandMatcher(),
                     new CommandSafetyPolicy(),
@@ -200,15 +217,21 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
 
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
-                    if (isHuaweiVrpWorkflow
+                    if (isNetworkDeviceWorkflow
                         && result.Outcome == CollectionOutcome.NeedsUserConfirmation
                         && (result.Detection == null || result.Detection.Candidates.Count == 0))
                     {
                         return CollectionWorkflowResult.Failed(new CollectionError(
-                            "未识别为华为 VRP 网络设备",
-                            "固定 display version 查询没有返回可由华为官方特征规则确认的结果",
-                            "请核对设备厂商；H3C、Cisco、锐捷等设备不得选择华为 VRP 适配器",
-                            "HuaweiVrpIdentityNotDetected"));
+                            isHuaweiVrpWorkflow
+                                ? "未识别为华为 VRP 网络设备"
+                                : "未识别为 H3C Comware 网络设备",
+                            "固定 display version 查询没有返回可由所选厂商官方特征规则确认的结果",
+                            isHuaweiVrpWorkflow
+                                ? "请核对设备厂商；H3C、Cisco、锐捷等设备不得选择华为 VRP 适配器"
+                                : "请核对设备厂商；华为、Cisco、锐捷等设备不得选择 H3C Comware 适配器",
+                            isHuaweiVrpWorkflow
+                                ? "HuaweiVrpIdentityNotDetected"
+                                : "H3cComwareIdentityNotDetected"));
                     }
 
                     var identification = executionObserver.HasTask
@@ -228,7 +251,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     return MapResult(result, identification.PendingBatchId);
                 }
 
-                if (isHuaweiVrpWorkflow)
+                if (isNetworkDeviceWorkflow)
                 {
                     await executionObserver.FinalizeAsync(
                         CollectionTaskState.Completed,
@@ -325,6 +348,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     || category == TargetCategory.Server;
             case CollectionAdapterId.HuaweiVrp:
                 return category == TargetCategory.NetworkDevice;
+            case CollectionAdapterId.H3cComware:
+                return category == TargetCategory.NetworkDevice;
             default:
                 return false;
         }
@@ -398,6 +423,40 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
         {
             throw new CommandPackException("项目锁定的华为 VRP 命令包缺少安全采集命令或与固定识别命令冲突。");
+        }
+
+        return selected.SelectCommands(collectionIds);
+    }
+
+    private async Task<CommandPack> LoadH3cComwareProjectCollectionPackAsync(
+        ProjectId projectId,
+        CommandPack builtinFullPack,
+        CancellationToken cancellationToken)
+    {
+        if (commandPackReleaseService == null)
+        {
+            return commandCatalog.CreateH3cComwareCollectionPack(builtinFullPack);
+        }
+
+        var selected = await commandPackReleaseService.LoadCurrentProjectPackAsync(
+            projectId,
+            builtinFullPack.Id,
+            cancellationToken).ConfigureAwait(false);
+        if (selected == null)
+        {
+            return commandCatalog.CreateH3cComwareCollectionPack(builtinFullPack);
+        }
+
+        var fixedIdentificationIds = new HashSet<string>(
+            commandCatalog.H3cComwareIdentificationCommandIds,
+            StringComparer.Ordinal);
+        var collectionIds = selected.Commands
+            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
+            .Select(command => command.Id)
+            .ToArray();
+        if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
+        {
+            throw new CommandPackException("项目锁定的 H3C Comware 命令包缺少安全采集命令或与固定识别命令冲突。");
         }
 
         return selected.SelectCommands(collectionIds);

@@ -101,6 +101,38 @@ public sealed class BuiltinCommandPackCatalogTests
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json\"", project);
         Assert.Contains("Link=\"command-packs/builtin/huawei-vrp.json\"", project);
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json\"", project);
+        Assert.Contains("Link=\"command-packs/builtin/h3c-comware.json\"", project);
+        Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.H3cComware.json\"", project);
+    }
+
+    [Fact]
+    public void LoadH3cComware_uses_fixed_hash_layout_and_explicit_command_groups()
+    {
+        var releaseDirectory = CreateReleaseDirectory();
+        try
+        {
+            var catalog = new BuiltinCommandPackCatalog(releaseDirectory);
+            var pack = catalog.LoadH3cComware();
+            var identification = catalog.SelectH3cComwareIdentificationCommands(pack);
+            var collection = catalog.CreateH3cComwareCollectionPack(pack);
+
+            Assert.Equal("h3c-comware", pack.Id);
+            Assert.Equal("1.0.0", pack.Version);
+            Assert.Equal(new[] { "h3c-comware-display-version" }, identification.Select(command => command.Id));
+            Assert.Equal(new[] { "h3c-comware-display-password-control" }, collection.Commands.Select(command => command.Id));
+            Assert.All(pack.Commands, command =>
+            {
+                Assert.Equal(AssessmentTool.Core.Domain.TargetCategory.NetworkDevice, command.TargetCategory);
+                Assert.Equal("H3C", command.Vendor);
+                Assert.Equal("Comware", command.ProductFamily);
+                Assert.True(command.IsEligibleForAutomaticExecution);
+                Assert.True(new AssessmentTool.Core.Security.CommandSafetyPolicy().Validate(command).Allowed);
+            });
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
     }
 
     [Fact]

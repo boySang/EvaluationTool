@@ -282,6 +282,80 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task H3c_comware_collection_requires_human_confirmation_then_runs_only_password_policy_query()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.NetworkDevice, "192.0.2.63", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        const string versionOutput = "H3C Comware Software, Version 7.1.070, Ess 6505\n"
+            + "H3C S6850-56HF uptime is 0 weeks, 0 days, 3 hours, 43 minutes";
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["h3c-comware-display-version"] = Success("h3c-comware-display-version", versionOutput)
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["h3c-comware-display-version"] = Success("h3c-comware-display-version", versionOutput),
+            ["h3c-comware-display-password-control"] = Success(
+                "h3c-comware-display-password-control",
+                "Global password control configurations:\n Password aging: 90 days")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.H3cComware", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                new RecordingEvidenceService(),
+                identifications);
+            var selection = new CollectionDeviceSelection(device, true, trust);
+
+            var detected = await service.RunAsync(
+                new CollectionWorkflowRequest(project, selection, CollectionAdapterId.H3cComware),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, detected.Outcome);
+            var candidate = Assert.Single(detected.DetectionCandidates);
+            Assert.Equal("H3C", candidate.Vendor);
+            Assert.Equal("Comware", candidate.ProductFamily);
+            Assert.Equal("7.1.070", candidate.Version);
+            var pending = Assert.Single(identifications.PendingBatches);
+            Assert.Equal(new[] { "h3c-comware-display-version" }, firstSession.ExecutedIds);
+
+            var completed = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    selection,
+                    CollectionAdapterId.H3cComware,
+                    candidate,
+                    pending.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, completed.Outcome);
+            Assert.Equal(
+                new[] { "h3c-comware-display-version", "h3c-comware-display-password-control" },
+                secondSession.ExecutedIds);
+            Assert.Equal(
+                new[] { "h3c-comware-display-password-control" },
+                completed.CompletedCommands.Select(command => command.CommandId));
+            var task = Assert.Single(identifications.Tasks);
+            Assert.All(task.Commands, command => Assert.Equal("h3c-comware", command.CommandPackId));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("huawei-vrp", StringComparison.Ordinal));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("generic-linux", StringComparison.Ordinal));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("database-host-discovery", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Network_device_without_matching_adapter_is_rejected_before_session_creation()
     {
         var project = CreateProject();

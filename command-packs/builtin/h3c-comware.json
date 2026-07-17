@@ -1,0 +1,50 @@
+{
+  "id": "h3c-comware",
+  "name": "H3C Comware 只读识别与最小采集",
+  "version": "1.0.0",
+  "officialSource": "https://www.h3c.com/cn/d_202503/2368787_30005_0.htm",
+  "commands": [
+    {
+      "id": "h3c-comware-display-version",
+      "title": "读取 Comware 与设备版本",
+      "targetCategory": "NetworkDevice",
+      "commandText": "display version | no-more",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "H3C",
+      "productFamily": "Comware",
+      "minimumVersion": "7.1",
+      "maximumVersion": null,
+      "checkItem": "IDENTIFY",
+      "modelRange": "*",
+      "accountRequirement": "具备 network-operator 或等效 display 权限的只读审计账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 45,
+      "pagingBehavior": "DisablePaging",
+      "resultDescription": "确认设备运行 H3C Comware，并读取软件版本、设备型号和运行时间；no-more 仅关闭本次查询输出分页。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://www.h3c.com/cn/d_202503/2368787_30005_0.htm"
+    },
+    {
+      "id": "h3c-comware-display-password-control",
+      "title": "读取全局口令控制策略",
+      "targetCategory": "NetworkDevice",
+      "commandText": "display password-control | no-more",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "H3C",
+      "productFamily": "Comware",
+      "minimumVersion": "7.1",
+      "maximumVersion": null,
+      "checkItem": "身份鉴别",
+      "modelRange": "*",
+      "accountRequirement": "具备 network-operator 或等效 display 权限的只读审计账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 45,
+      "pagingBehavior": "DisablePaging",
+      "resultDescription": "读取口令老化、最小长度、复杂度、历史记录和登录尝试限制等全局策略；不读取用户口令。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://www.h3c.com/en/d_201905/1179883_294551_0.htm"
+    }
+  ]
+}

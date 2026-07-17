@@ -24,6 +24,10 @@ public sealed class BuiltinCommandPackCatalog
     private const string HuaweiVrpRelativePath = "command-packs/builtin/huawei-vrp.json";
     private const string HuaweiVrpResourceName = "AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json";
     private const string HuaweiVrpSha256 = "ecbef9697e1c39fa9f0e6654dab7f989cb9c5c37a13ebc2d2a2ee25eae165411";
+    private const string H3cComwarePackId = "h3c-comware";
+    private const string H3cComwareRelativePath = "command-packs/builtin/h3c-comware.json";
+    private const string H3cComwareResourceName = "AssessmentTool.App.CommandPacks.Builtin.H3cComware.json";
+    private const string H3cComwareSha256 = "516e3f33d6a5d46175ba07acf75db4425e072cf6ce3713d40733e75641c12a82";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -54,6 +58,12 @@ public sealed class BuiltinCommandPackCatalog
     private static readonly IReadOnlyList<string> HuaweiVrpCollectionIds =
         new ReadOnlyCollection<string>(new[] { "huawei-vrp-display-aaa-configuration" });
 
+    private static readonly IReadOnlyList<string> H3cComwareIdentificationIds =
+        new ReadOnlyCollection<string>(new[] { "h3c-comware-display-version" });
+
+    private static readonly IReadOnlyList<string> H3cComwareCollectionIds =
+        new ReadOnlyCollection<string>(new[] { "h3c-comware-display-password-control" });
+
     private readonly string releaseDirectory;
     private readonly Assembly resourceAssembly;
 
@@ -83,6 +93,8 @@ public sealed class BuiltinCommandPackCatalog
     public IReadOnlyList<string> GenericLinuxCollectionCommandIds => CollectionIds;
 
     public IReadOnlyList<string> HuaweiVrpIdentificationCommandIds => HuaweiVrpIdentificationIds;
+
+    public IReadOnlyList<string> H3cComwareIdentificationCommandIds => H3cComwareIdentificationIds;
 
     public CommandPack LoadGenericLinux()
     {
@@ -117,6 +129,17 @@ public sealed class BuiltinCommandPackCatalog
         return pack;
     }
 
+    public CommandPack LoadH3cComware()
+    {
+        var packBytes = LoadPackBytes(
+            H3cComwareRelativePath,
+            H3cComwareResourceName,
+            "H3C Comware 命令包");
+        var pack = new CommandPackLoader().Load(packBytes, H3cComwareSha256);
+        EnsureH3cComwareLayout(pack);
+        return pack;
+    }
+
     public IReadOnlyList<CommandDefinition> SelectGenericLinuxIdentificationCommands(CommandPack pack)
     {
         return SelectCommands(pack, IdentificationIds);
@@ -143,6 +166,18 @@ public sealed class BuiltinCommandPackCatalog
     {
         EnsureHuaweiVrpLayout(pack);
         return pack.SelectCommands(HuaweiVrpCollectionIds);
+    }
+
+    public IReadOnlyList<CommandDefinition> SelectH3cComwareIdentificationCommands(CommandPack pack)
+    {
+        EnsureH3cComwareLayout(pack);
+        return SelectCommandsUnchecked(pack, H3cComwareIdentificationIds);
+    }
+
+    public CommandPack CreateH3cComwareCollectionPack(CommandPack pack)
+    {
+        EnsureH3cComwareLayout(pack);
+        return pack.SelectCommands(H3cComwareCollectionIds);
     }
 
     private byte[] LoadPackBytes(string relativePath, string resourceName, string description)
@@ -301,6 +336,36 @@ public sealed class BuiltinCommandPackCatalog
                 StringComparison.Ordinal)))
         {
             throw new CommandPackException("华为 VRP 固定识别命令缺少 IDENTIFY 安全标记。");
+        }
+    }
+
+    private static void EnsureH3cComwareLayout(CommandPack pack)
+    {
+        if (pack == null)
+        {
+            throw new ArgumentNullException(nameof(pack));
+        }
+
+        if (!string.Equals(pack.Id, H3cComwarePackId, StringComparison.Ordinal))
+        {
+            throw new CommandPackException("命令包不是受支持的 H3C Comware 内置命令包。");
+        }
+
+        var expectedIds = H3cComwareIdentificationIds.Concat(H3cComwareCollectionIds).ToArray();
+        if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
+            || pack.Commands.Any(command => command.TargetCategory != TargetCategory.NetworkDevice
+                || !string.Equals(command.Vendor, "H3C", StringComparison.Ordinal)
+                || !string.Equals(command.ProductFamily, "Comware", StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("H3C Comware 内置命令包的命令顺序或对象边界不正确。");
+        }
+
+        if (H3cComwareIdentificationIds.Any(commandId =>
+            !string.Equals(pack.Commands.Single(command => command.Id == commandId).CheckItem,
+                "IDENTIFY",
+                StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("H3C Comware 固定识别命令缺少 IDENTIFY 安全标记。");
         }
     }
 }

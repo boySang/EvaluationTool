@@ -599,7 +599,7 @@
             <TextBlock Text="只读采集任务" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="自动采集区不提供自由命令输入，只执行已验证命令包。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
             <Border Style="{StaticResource CardStyle}" Background="{DynamicResource Brush.WarningBackground}">
-              <TextBlock Text="当前支持已完成指纹确认和无命令登录测试的 SSH Linux 服务器，以及明确选择并人工确认的华为 VRP 网络设备；其他厂商和类型会被安全阻止。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
+              <TextBlock Text="当前支持已完成指纹确认和无命令登录测试的 SSH Linux 服务器，以及明确选择并人工确认的华为 VRP、H3C Comware 网络设备；其他厂商和类型会被安全阻止。" Foreground="{DynamicResource Brush.WarningText}" TextWrapping="Wrap" />
             </Border>
             <Border Style="{StaticResource CardStyle}">
               <StackPanel>

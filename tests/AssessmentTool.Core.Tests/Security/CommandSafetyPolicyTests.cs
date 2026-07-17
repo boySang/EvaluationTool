@@ -124,7 +124,8 @@ public sealed class CommandSafetyPolicyTests
     [Theory]
     [InlineData("display version | no-more")]
     [InlineData("display aaa configuration | no-more")]
-    public void Allows_only_fixed_huawei_no_more_queries(string commandText)
+    [InlineData("display password-control | no-more")]
+    public void Allows_only_fixed_network_device_no_more_queries(string commandText)
     {
         var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
 
@@ -134,6 +135,7 @@ public sealed class CommandSafetyPolicyTests
     [Theory]
     [InlineData("display current-configuration | no-more")]
     [InlineData("display aaa configuration | include password")]
+    [InlineData("display password-control super | no-more")]
     [InlineData("display aaa configuration | no-more | count")]
     [InlineData("display version | no-more; reboot")]
     public void Rejects_unapproved_huawei_pipe_variants(string commandText)

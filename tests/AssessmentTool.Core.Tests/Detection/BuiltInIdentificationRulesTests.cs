@@ -21,6 +21,37 @@ public sealed class BuiltInIdentificationRulesTests
     }
 
     [Theory]
+    [InlineData("H3C Comware Software, Version 7.1.070, Ess 6505", "7.1.070")]
+    [InlineData("H3C Comware Software, Version 9.1.055, Demo 5202P14", "9.1.055")]
+    public void H3c_comware_banner_creates_versioned_candidate_for_human_confirmation(
+        string banner,
+        string expectedVersion)
+    {
+        var result = new DetectionEngine().Detect(
+            banner,
+            new[] { BuiltInIdentificationRules.H3cComware });
+
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(TargetCategory.NetworkDevice, candidate.Category);
+        Assert.Equal("H3C", candidate.Vendor);
+        Assert.Equal("Comware", candidate.ProductFamily);
+        Assert.Equal(expectedVersion, candidate.Version);
+        Assert.Equal(0.85, candidate.Confidence);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Fact]
+    public void H3c_comware_5_is_not_misrepresented_as_verified_adapter_scope()
+    {
+        var result = new DetectionEngine().Detect(
+            "H3C Comware Platform Software, Version 5.20, 0000",
+            new[] { BuiltInIdentificationRules.H3cComware });
+
+        Assert.Empty(result.Candidates);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Theory]
     [InlineData("ID=ubuntu", "ubuntu")]
     [InlineData("ID=\"kylin\"", "kylin")]
     [InlineData("ID=uos", "uos")]

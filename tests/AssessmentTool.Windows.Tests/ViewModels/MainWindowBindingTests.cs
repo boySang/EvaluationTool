@@ -71,6 +71,7 @@ public sealed class MainWindowBindingTests
         Assert.Contains("自动识别（推荐）", text);
         Assert.Contains("网络设备采集适配器 *", text);
         Assert.Contains("未选择时不会连接或执行命令", text);
+        Assert.Contains("H3C Comware 网络设备", text);
         Assert.Contains("SSH 用户名 *", text);
         Assert.Contains("密码验证", text);
         Assert.Contains("PuTTY PPK 私钥", text);
