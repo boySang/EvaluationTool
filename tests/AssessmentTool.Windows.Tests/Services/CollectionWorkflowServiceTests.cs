@@ -124,7 +124,8 @@ public sealed class CollectionWorkflowServiceTests
             ["database-host-discovery-linux-processes"] = Success("database-host-discovery-linux-processes", "101 postgres-16"),
             ["database-host-discovery-linux-services"] = Success(
                 "database-host-discovery-linux-services",
-                "postgresql@16-main.service loaded active running PostgreSQL Cluster 16-main"),
+                "postgresql@16-main.service loaded active running PostgreSQL Cluster 16-main\n"
+                    + "tomcat9.service loaded active running Apache Tomcat 9"),
             ["database-host-discovery-linux-docker-containers"] = MissingOptional("database-host-discovery-linux-docker-containers"),
             ["database-host-discovery-linux-podman-containers"] = MissingOptional("database-host-discovery-linux-podman-containers")
         });
@@ -146,13 +147,17 @@ public sealed class CollectionWorkflowServiceTests
                 CancellationToken.None);
 
             Assert.True(
-                result.Outcome == CollectionWorkflowOutcome.RequiresDatabaseConfirmation,
+                result.Outcome == CollectionWorkflowOutcome.RequiresHostSoftwareConfirmation,
                 "Actual outcome: " + result.Outcome + "; error: "
                 + (result.Error == null ? "none" : JoinError(result.Error)));
             var candidate = Assert.Single(result.DatabaseCandidates);
             Assert.Equal("PostgreSQL", candidate.Product);
             Assert.Equal("16", candidate.Version);
             Assert.True(candidate.RequiresUserConfirmation);
+            Assert.NotNull(result.PendingHostSoftwareBatchId);
+            var middleware = Assert.Single(result.MiddlewareCandidates);
+            Assert.Equal("Apache Tomcat", middleware.Product);
+            Assert.Equal("9", middleware.Version);
             Assert.Equal(8, session.ExecutedIds.Count);
             Assert.Equal(session.ExecutedIds, evidence.SavedCommandIds);
             var identification = Assert.Single(identifications.Records);
@@ -166,6 +171,25 @@ public sealed class CollectionWorkflowServiceTests
             Assert.Equal(CollectionTaskState.Ready, taskEvents.First().State);
             Assert.Equal(CollectionTaskState.Completed, taskEvents.Last().State);
             Assert.Equal(8, taskEvents.Count(item => item.EventCode == "CommandEvidenceCommitted"));
+            var discoveryBatch = Assert.Single(identifications.HostSoftwareBatches);
+            Assert.Equal(result.PendingHostSoftwareBatchId, discoveryBatch.BatchId);
+            Assert.Equal(task.Id, discoveryBatch.CollectionTaskId);
+            Assert.Equal(2, discoveryBatch.Candidates.Count);
+            var storedDatabase = Assert.Single(
+                discoveryBatch.Candidates,
+                item => item.Category == HostSoftwareCategory.Database);
+            Assert.Equal("PostgreSQL", storedDatabase.Product);
+            Assert.Equal("16", storedDatabase.Version);
+            var storedMiddleware = Assert.Single(
+                discoveryBatch.Candidates,
+                item => item.Category == HostSoftwareCategory.Middleware);
+            Assert.Equal("Apache Tomcat", storedMiddleware.Product);
+            Assert.Equal("9", storedMiddleware.Version);
+            Assert.All(discoveryBatch.Candidates.SelectMany(item => item.Sources), source =>
+            {
+                Assert.Equal(task.Id, source.CollectionTaskId);
+                Assert.Equal(new string('a', 64), source.RawOutputSha256);
+            });
             Assert.Equal(
                 new[]
                 {
@@ -793,14 +817,41 @@ public sealed class CollectionWorkflowServiceTests
             CancellationToken cancellationToken = default)
         {
             SavedCommandIds.Add(command.Id);
-            return Task.FromResult<SavedCollectionEvidence>(null!);
+            const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string imagePath = "screenshots\\page-001.png";
+            var execution = new ExecutionRecord(
+                project.Id.ToString(),
+                device.Id.ToString(),
+                device.Protocol,
+                commandPackVersion,
+                command.Id,
+                command.CommandText,
+                output.StartedAt,
+                output.CompletedAt,
+                ExecutionStatus.Succeeded,
+                output.ExitCode,
+                "raw\\output.txt",
+                hash,
+                new[] { imagePath },
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [imagePath] = hash
+                },
+                null);
+            return Task.FromResult(new SavedCollectionEvidence(
+                "batch",
+                "manifest.json",
+                execution,
+                new[] { imagePath },
+                true));
         }
     }
 
     private sealed class RecordingIdentificationRepository :
         IDeviceIdentificationRepository,
         IPendingDeviceIdentificationRepository,
-        ICollectionTaskRepository
+        ICollectionTaskRepository,
+        IHostSoftwareDiscoveryRepository
     {
         internal List<DeviceIdentificationRecord> Records { get; } = new List<DeviceIdentificationRecord>();
         internal List<PendingDeviceIdentificationBatch> PendingBatches { get; } =
@@ -810,6 +861,10 @@ public sealed class CollectionWorkflowServiceTests
         internal List<CollectionTaskRecord> Tasks { get; } = new List<CollectionTaskRecord>();
         internal Dictionary<CollectionTaskId, List<CollectionTaskEventRecord>> TaskEvents { get; } =
             new Dictionary<CollectionTaskId, List<CollectionTaskEventRecord>>();
+        internal List<HostSoftwareDiscoveryBatchRecord> HostSoftwareBatches { get; } =
+            new List<HostSoftwareDiscoveryBatchRecord>();
+        internal List<HostSoftwareCandidateDecisionRecord> HostSoftwareDecisions { get; } =
+            new List<HostSoftwareCandidateDecisionRecord>();
 
         public Task<DeviceIdentificationRecord> AppendDeviceIdentificationAsync(
             DeviceId deviceId,
@@ -969,6 +1024,123 @@ public sealed class CollectionWorkflowServiceTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(0);
+        }
+
+        public Task<HostSoftwareDiscoveryBatchRecord> AppendHostSoftwareDiscoveryBatchAsync(
+            ProjectId projectId,
+            DeviceId deviceId,
+            CollectionTaskId collectionTaskId,
+            IReadOnlyList<HostSoftwareDiscoveryCandidateInput> candidates,
+            string discoverySource,
+            DateTimeOffset recordedAt,
+            CancellationToken cancellationToken = default)
+        {
+            var task = Assert.Single(Tasks, item => item.Id.Equals(collectionTaskId));
+            var batchId = Guid.NewGuid();
+            var previous = HostSoftwareBatches.LastOrDefault(item => item.DeviceId.Equals(deviceId));
+            var records = candidates.Select((candidate, candidateOrdinal) =>
+            {
+                var candidateId = Guid.NewGuid();
+                var sources = candidate.Sources.Select((source, sourceOrdinal) =>
+                {
+                    var command = Assert.Single(
+                        task.Commands,
+                        item => string.Equals(item.CommandId, source.SourceCommandId, StringComparison.Ordinal));
+                    return new HostSoftwareDiscoveryEvidenceRecord(
+                        Guid.NewGuid(),
+                        candidateId,
+                        sourceOrdinal,
+                        collectionTaskId,
+                        command.Ordinal,
+                        source.Kind,
+                        source.SourceCommandId,
+                        source.Excerpt,
+                        source.RawOutputSha256);
+                }).ToArray();
+                return new HostSoftwareDiscoveryCandidateRecord(
+                    candidateId,
+                    batchId,
+                    candidateOrdinal,
+                    candidate.Category,
+                    candidate.Product,
+                    candidate.Version,
+                    candidate.InstallationType,
+                    candidate.InstanceName,
+                    candidate.PortEvidence,
+                    candidate.Confidence,
+                    sources);
+            }).ToArray();
+            var batch = new HostSoftwareDiscoveryBatchRecord(
+                batchId,
+                projectId,
+                deviceId,
+                collectionTaskId,
+                previous == null ? 1 : previous.Revision + 1,
+                previous?.BatchId,
+                discoverySource,
+                records,
+                recordedAt);
+            HostSoftwareBatches.Add(batch);
+            return Task.FromResult(batch);
+        }
+
+        public Task<HostSoftwareDiscoveryBatchRecord?> GetLatestHostSoftwareDiscoveryBatchAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<HostSoftwareDiscoveryBatchRecord?>(
+                HostSoftwareBatches.LastOrDefault(item => item.DeviceId.Equals(deviceId)));
+        }
+
+        public Task<PendingHostSoftwareDiscoveryBatchRecord?> GetLatestPendingHostSoftwareDiscoveryBatchAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            var batch = HostSoftwareBatches.LastOrDefault(item => item.DeviceId.Equals(deviceId));
+            if (batch == null)
+            {
+                return Task.FromResult<PendingHostSoftwareDiscoveryBatchRecord?>(null);
+            }
+
+            var decided = new HashSet<Guid>(HostSoftwareDecisions.Select(item => item.CandidateId));
+            var pending = batch.Candidates.Where(item => !decided.Contains(item.CandidateId)).ToArray();
+            return Task.FromResult<PendingHostSoftwareDiscoveryBatchRecord?>(
+                pending.Length == 0 ? null : new PendingHostSoftwareDiscoveryBatchRecord(batch, pending));
+        }
+
+        public Task<IReadOnlyList<HostSoftwareDiscoveryBatchRecord>> GetHostSoftwareDiscoveryHistoryAsync(
+            DeviceId deviceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<HostSoftwareDiscoveryBatchRecord>>(
+                HostSoftwareBatches.Where(item => item.DeviceId.Equals(deviceId)).ToArray());
+        }
+
+        public Task<HostSoftwareCandidateDecisionRecord> AppendHostSoftwareCandidateDecisionAsync(
+            Guid candidateId,
+            HostSoftwareCandidateDecision decision,
+            string decidedBy,
+            string decisionSource,
+            string? reason,
+            DateTimeOffset decidedAt,
+            CancellationToken cancellationToken = default)
+        {
+            var record = new HostSoftwareCandidateDecisionRecord(
+                Guid.NewGuid(), candidateId, decision, decidedBy, decisionSource, reason, decidedAt);
+            HostSoftwareDecisions.Add(record);
+            return Task.FromResult(record);
+        }
+
+        public Task<IReadOnlyList<HostSoftwareCandidateDecisionRecord>> GetHostSoftwareCandidateDecisionsAsync(
+            Guid batchId,
+            CancellationToken cancellationToken = default)
+        {
+            var candidateIds = new HashSet<Guid>(HostSoftwareBatches
+                .Where(item => item.BatchId == batchId)
+                .SelectMany(item => item.Candidates)
+                .Select(item => item.CandidateId));
+            return Task.FromResult<IReadOnlyList<HostSoftwareCandidateDecisionRecord>>(
+                HostSoftwareDecisions.Where(item => candidateIds.Contains(item.CandidateId)).ToArray());
         }
     }
 }

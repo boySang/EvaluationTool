@@ -86,7 +86,8 @@ public enum CollectionWorkflowOutcome
     RequiresConfirmation,
     RequiresDatabaseConfirmation,
     Failed,
-    Stopped
+    Stopped,
+    RequiresHostSoftwareConfirmation
 }
 
 public sealed class CompletedCollectionCommand
@@ -153,24 +154,30 @@ public sealed class CollectionWorkflowResult
         CollectionWorkflowOutcome outcome,
         IEnumerable<DetectionCandidate> detectionCandidates,
         IEnumerable<DatabaseInstanceCandidate> databaseCandidates,
+        IEnumerable<MiddlewareInstanceCandidate> middlewareCandidates,
         IEnumerable<CompletedCollectionCommand> completedCommands,
         CollectionError? error,
-        Guid? pendingIdentificationBatchId)
+        Guid? pendingIdentificationBatchId,
+        Guid? pendingHostSoftwareBatchId)
     {
         Outcome = outcome;
         DetectionCandidates = Copy(detectionCandidates, nameof(detectionCandidates));
         DatabaseCandidates = Copy(databaseCandidates, nameof(databaseCandidates));
+        MiddlewareCandidates = Copy(middlewareCandidates, nameof(middlewareCandidates));
         CompletedCommands = Copy(completedCommands, nameof(completedCommands));
         Error = error;
         PendingIdentificationBatchId = pendingIdentificationBatchId;
+        PendingHostSoftwareBatchId = pendingHostSoftwareBatchId;
     }
 
     public CollectionWorkflowOutcome Outcome { get; }
     public IReadOnlyList<DetectionCandidate> DetectionCandidates { get; }
     public IReadOnlyList<DatabaseInstanceCandidate> DatabaseCandidates { get; }
+    public IReadOnlyList<MiddlewareInstanceCandidate> MiddlewareCandidates { get; }
     public IReadOnlyList<CompletedCollectionCommand> CompletedCommands { get; }
     public CollectionError? Error { get; }
     public Guid? PendingIdentificationBatchId { get; }
+    public Guid? PendingHostSoftwareBatchId { get; }
 
     public static CollectionWorkflowResult Completed(IEnumerable<CompletedCollectionCommand> completedCommands)
     {
@@ -178,7 +185,9 @@ public sealed class CollectionWorkflowResult
             CollectionWorkflowOutcome.Completed,
             Array.Empty<DetectionCandidate>(),
             Array.Empty<DatabaseInstanceCandidate>(),
+            Array.Empty<MiddlewareInstanceCandidate>(),
             completedCommands,
+            null,
             null,
             null);
     }
@@ -202,9 +211,11 @@ public sealed class CollectionWorkflowResult
             CollectionWorkflowOutcome.RequiresConfirmation,
             copied,
             Array.Empty<DatabaseInstanceCandidate>(),
+            Array.Empty<MiddlewareInstanceCandidate>(),
             Array.Empty<CompletedCollectionCommand>(),
             null,
-            pendingIdentificationBatchId);
+            pendingIdentificationBatchId,
+            null);
     }
 
     public static CollectionWorkflowResult RequiresDatabaseConfirmation(
@@ -221,9 +232,45 @@ public sealed class CollectionWorkflowResult
             CollectionWorkflowOutcome.RequiresDatabaseConfirmation,
             Array.Empty<DetectionCandidate>(),
             copied,
+            Array.Empty<MiddlewareInstanceCandidate>(),
             completedCommands ?? Array.Empty<CompletedCollectionCommand>(),
             null,
+            null,
             null);
+    }
+
+    public static CollectionWorkflowResult RequiresHostSoftwareConfirmation(
+        IEnumerable<DatabaseInstanceCandidate> databaseCandidates,
+        IEnumerable<MiddlewareInstanceCandidate> middlewareCandidates,
+        Guid pendingHostSoftwareBatchId,
+        IEnumerable<CompletedCollectionCommand>? completedCommands = null)
+    {
+        var copiedDatabases = Copy(databaseCandidates, nameof(databaseCandidates));
+        var copiedMiddleware = Copy(middlewareCandidates, nameof(middlewareCandidates));
+        if (copiedDatabases.Count == 0 && copiedMiddleware.Count == 0)
+        {
+            throw new ArgumentException("主机软件确认结果必须包含至少一个候选项。");
+        }
+
+        if (copiedDatabases.Any(candidate => !candidate.RequiresUserConfirmation))
+        {
+            throw new ArgumentException("数据库候选项必须先标记为需要人工确认。", nameof(databaseCandidates));
+        }
+
+        if (pendingHostSoftwareBatchId == Guid.Empty)
+        {
+            throw new ArgumentException("待确认主机软件批次标识不能为空。", nameof(pendingHostSoftwareBatchId));
+        }
+
+        return new CollectionWorkflowResult(
+            CollectionWorkflowOutcome.RequiresHostSoftwareConfirmation,
+            Array.Empty<DetectionCandidate>(),
+            copiedDatabases,
+            copiedMiddleware,
+            completedCommands ?? Array.Empty<CompletedCollectionCommand>(),
+            null,
+            null,
+            pendingHostSoftwareBatchId);
     }
 
     public static CollectionWorkflowResult Failed(CollectionError error)
@@ -232,8 +279,10 @@ public sealed class CollectionWorkflowResult
             CollectionWorkflowOutcome.Failed,
             Array.Empty<DetectionCandidate>(),
             Array.Empty<DatabaseInstanceCandidate>(),
+            Array.Empty<MiddlewareInstanceCandidate>(),
             Array.Empty<CompletedCollectionCommand>(),
             error ?? throw new ArgumentNullException(nameof(error)),
+            null,
             null);
     }
 
@@ -243,7 +292,9 @@ public sealed class CollectionWorkflowResult
             CollectionWorkflowOutcome.Stopped,
             Array.Empty<DetectionCandidate>(),
             Array.Empty<DatabaseInstanceCandidate>(),
+            Array.Empty<MiddlewareInstanceCandidate>(),
             Array.Empty<CompletedCollectionCommand>(),
+            null,
             null,
             null);
     }

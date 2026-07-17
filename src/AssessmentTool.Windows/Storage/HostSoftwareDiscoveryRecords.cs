@@ -31,7 +31,8 @@ public enum HostSoftwareEvidenceKind
 public enum HostSoftwareCandidateDecision
 {
     Confirmed = 1,
-    Rejected = 2
+    Rejected = 2,
+    Superseded = 3
 }
 
 public sealed class HostSoftwareDiscoveryEvidenceInput
@@ -363,9 +364,13 @@ public sealed class HostSoftwareCandidateDecisionRecord
         DecidedBy = HostSoftwareDiscoveryEvidenceInput.RequireText(decidedBy, nameof(decidedBy));
         DecisionSource = HostSoftwareDiscoveryEvidenceInput.RequireText(decisionSource, nameof(decisionSource));
         Reason = reason == null ? null : HostSoftwareDiscoveryEvidenceInput.RequireText(reason, nameof(reason));
-        if (decision == HostSoftwareCandidateDecision.Rejected && Reason == null)
+        if ((decision == HostSoftwareCandidateDecision.Rejected
+                || decision == HostSoftwareCandidateDecision.Superseded)
+            && Reason == null)
         {
-            throw new ArgumentException("A rejected candidate must include an audit reason.", nameof(reason));
+            throw new ArgumentException(
+                "A rejected or superseded candidate must include an audit reason.",
+                nameof(reason));
         }
         if (decidedAt == default(DateTimeOffset))
         {
@@ -382,4 +387,34 @@ public sealed class HostSoftwareCandidateDecisionRecord
     public string DecisionSource { get; }
     public string? Reason { get; }
     public DateTimeOffset DecidedAt { get; }
+}
+
+public sealed class PendingHostSoftwareDiscoveryBatchRecord
+{
+    public PendingHostSoftwareDiscoveryBatchRecord(
+        HostSoftwareDiscoveryBatchRecord batch,
+        IReadOnlyList<HostSoftwareDiscoveryCandidateRecord> pendingCandidates)
+    {
+        Batch = batch ?? throw new ArgumentNullException(nameof(batch));
+        var copiedCandidates = (pendingCandidates
+            ?? throw new ArgumentNullException(nameof(pendingCandidates))).ToArray();
+        if (copiedCandidates.Length == 0
+            || copiedCandidates.Any(candidate => candidate == null || candidate.BatchId != batch.BatchId)
+            || copiedCandidates.Select(candidate => candidate.CandidateId).Distinct().Count()
+                != copiedCandidates.Length
+            || !copiedCandidates.Select(candidate => candidate.Ordinal)
+                .SequenceEqual(copiedCandidates.Select(candidate => candidate.Ordinal).OrderBy(value => value))
+            || copiedCandidates.Any(candidate => !batch.Candidates
+                .Any(stored => stored.CandidateId == candidate.CandidateId)))
+        {
+            throw new ArgumentException(
+                "Pending candidates must be a non-empty ordered subset of the discovery batch.",
+                nameof(pendingCandidates));
+        }
+
+        PendingCandidates = new ReadOnlyCollection<HostSoftwareDiscoveryCandidateRecord>(copiedCandidates);
+    }
+
+    public HostSoftwareDiscoveryBatchRecord Batch { get; }
+    public IReadOnlyList<HostSoftwareDiscoveryCandidateRecord> PendingCandidates { get; }
 }

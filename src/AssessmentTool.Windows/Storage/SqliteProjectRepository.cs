@@ -24,7 +24,8 @@ public sealed partial class SqliteProjectRepository :
     ICollectionTaskRepository,
     ICommandDraftRepository,
     ICommandPackPublishingRepository,
-    IHostSoftwareDiscoveryRepository
+    IHostSoftwareDiscoveryRepository,
+    IPendingHostSoftwareDiscoveryRepository
 {
     private const int BusyTimeoutMilliseconds = 5000;
     private const string DeviceIdentificationSelect =

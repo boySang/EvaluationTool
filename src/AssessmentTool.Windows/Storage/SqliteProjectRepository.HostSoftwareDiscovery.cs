@@ -86,10 +86,11 @@ public sealed partial class SqliteProjectRepository
 
                         long revision;
                         Guid? previousBatchId;
+                        DateTimeOffset? previousRecordedAt;
                         using (var command = connection.CreateCommand())
                         {
                             command.Transaction = transaction;
-                            command.CommandText = "SELECT batch_id, revision FROM host_software_discovery_batches WHERE device_id = @deviceId ORDER BY revision DESC LIMIT 1;";
+                            command.CommandText = "SELECT batch_id, revision, recorded_at_utc FROM host_software_discovery_batches WHERE device_id = @deviceId ORDER BY revision DESC LIMIT 1;";
                             command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
                             using (var reader = command.ExecuteReader())
                             {
@@ -97,13 +98,22 @@ public sealed partial class SqliteProjectRepository
                                 {
                                     previousBatchId = Guid.Parse(reader.GetString(0));
                                     revision = checked(reader.GetInt64(1) + 1L);
+                                    previousRecordedAt = ParseUtc(reader.GetString(2));
                                 }
                                 else
                                 {
                                     previousBatchId = null;
                                     revision = 1;
+                                    previousRecordedAt = null;
                                 }
                             }
+                        }
+
+                        if (previousRecordedAt.HasValue
+                            && recordedAt.ToUniversalTime() < previousRecordedAt.Value)
+                        {
+                            throw new InvalidOperationException(
+                                "A newer host software discovery batch cannot precede the previous batch.");
                         }
 
                         var batchId = Guid.NewGuid();
@@ -136,6 +146,17 @@ public sealed partial class SqliteProjectRepository
                             {
                                 InsertHostSoftwareEvidence(connection, transaction, source);
                             }
+                        }
+
+                        if (previousBatchId.HasValue)
+                        {
+                            SupersedePendingHostSoftwareCandidates(
+                                connection,
+                                transaction,
+                                previousBatchId.Value,
+                                batch.BatchId,
+                                batch.RecordedAt,
+                                token);
                         }
 
                         token.ThrowIfCancellationRequested();
@@ -216,6 +237,79 @@ public sealed partial class SqliteProjectRepository
             cancellationToken);
     }
 
+    public Task<PendingHostSoftwareDiscoveryBatchRecord?> GetLatestPendingHostSoftwareDiscoveryBatchAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (deviceId.Equals(default(DeviceId)))
+        {
+            throw new ArgumentException("Device ID must be initialized.", nameof(deviceId));
+        }
+
+        return RunDatabaseOperationAsync<PendingHostSoftwareDiscoveryBatchRecord?>(
+            token =>
+            {
+                using (var connection = OpenConnection())
+                using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                {
+                    token.ThrowIfCancellationRequested();
+                    Guid? batchId;
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "SELECT batch_id FROM host_software_discovery_batches WHERE device_id = @deviceId ORDER BY revision DESC LIMIT 1;";
+                        command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                        var storedBatchId = command.ExecuteScalar() as string;
+                        batchId = storedBatchId == null ? (Guid?)null : Guid.Parse(storedBatchId);
+                    }
+
+                    if (!batchId.HasValue)
+                    {
+                        transaction.Commit();
+                        return null;
+                    }
+
+                    var batch = ReadHostSoftwareBatch(
+                        connection, batchId.Value, token, transaction);
+                    var pendingCandidateIds = new HashSet<Guid>();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "SELECT c.candidate_id FROM host_software_discovery_candidates c LEFT JOIN host_software_candidate_decisions d ON d.candidate_id = c.candidate_id WHERE c.batch_id = @batchId AND d.decision_id IS NULL ORDER BY c.ordinal;";
+                        command.Parameters.AddWithValue("@batchId", batchId.Value.ToString("D"));
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                token.ThrowIfCancellationRequested();
+                                pendingCandidateIds.Add(Guid.Parse(reader.GetString(0)));
+                            }
+                        }
+                    }
+
+                    if (pendingCandidateIds.Count == 0)
+                    {
+                        transaction.Commit();
+                        return null;
+                    }
+
+                    var pendingCandidates = batch.Candidates
+                        .Where(candidate => pendingCandidateIds.Contains(candidate.CandidateId))
+                        .ToArray();
+                    if (pendingCandidates.Length != pendingCandidateIds.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Pending host software discovery candidates are incomplete.");
+                    }
+
+                    var result = new PendingHostSoftwareDiscoveryBatchRecord(batch, pendingCandidates);
+                    transaction.Commit();
+                    return result;
+                }
+            },
+            cancellationToken);
+    }
+
     public async Task<HostSoftwareCandidateDecisionRecord> AppendHostSoftwareCandidateDecisionAsync(
         Guid candidateId,
         HostSoftwareCandidateDecision decision,
@@ -225,6 +319,14 @@ public sealed partial class SqliteProjectRepository
         DateTimeOffset decidedAt,
         CancellationToken cancellationToken = default)
     {
+        if (decision == HostSoftwareCandidateDecision.Superseded)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(decision),
+                decision,
+                "Superseded decisions are reserved for transactional replacement by a newer batch.");
+        }
+
         var record = new HostSoftwareCandidateDecisionRecord(
             Guid.NewGuid(), candidateId, decision, decidedBy, decisionSource, reason, decidedAt);
         var lockKey = databasePath + "|host-software-decision|" + candidateId.ToString("D");
@@ -464,10 +566,57 @@ public sealed partial class SqliteProjectRepository
         command.Parameters.AddWithValue("@decidedAtUtc", FormatUtc(record.DecidedAt));
     }
 
+    private static void SupersedePendingHostSoftwareCandidates(
+        SQLiteConnection connection,
+        SQLiteTransaction transaction,
+        Guid previousBatchId,
+        Guid replacementBatchId,
+        DateTimeOffset replacementRecordedAt,
+        CancellationToken cancellationToken)
+    {
+        var candidateIds = new List<Guid>();
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "SELECT c.candidate_id FROM host_software_discovery_candidates c LEFT JOIN host_software_candidate_decisions d ON d.candidate_id = c.candidate_id WHERE c.batch_id = @batchId AND d.decision_id IS NULL ORDER BY c.ordinal;";
+            command.Parameters.AddWithValue("@batchId", previousBatchId.ToString("D"));
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    candidateIds.Add(Guid.Parse(reader.GetString(0)));
+                }
+            }
+        }
+
+        foreach (var candidateId in candidateIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var record = new HostSoftwareCandidateDecisionRecord(
+                Guid.NewGuid(),
+                candidateId,
+                HostSoftwareCandidateDecision.Superseded,
+                "system",
+                "new-host-software-discovery-batch:" + replacementBatchId.ToString("D"),
+                "Superseded by newer host software discovery batch "
+                    + replacementBatchId.ToString("D") + ".",
+                replacementRecordedAt);
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = "INSERT INTO host_software_candidate_decisions(decision_id, candidate_id, decision, decided_by, decision_source, reason, decided_at_utc) VALUES(@decisionId, @candidateId, @decision, @decidedBy, @decisionSource, @reason, @decidedAtUtc);";
+                AddHostSoftwareDecisionParameters(command, record);
+                command.ExecuteNonQuery();
+            }
+        }
+    }
+
     private static HostSoftwareDiscoveryBatchRecord ReadHostSoftwareBatch(
         SQLiteConnection connection,
         Guid batchId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SQLiteTransaction? transaction = null)
     {
         ProjectId projectId;
         DeviceId deviceId;
@@ -479,6 +628,7 @@ public sealed partial class SqliteProjectRepository
         DateTimeOffset recordedAt;
         using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = "SELECT project_id, device_id, collection_task_id, revision, previous_batch_id, discovery_source, candidate_count, recorded_at_utc FROM host_software_discovery_batches WHERE batch_id = @batchId;";
             command.Parameters.AddWithValue("@batchId", batchId.ToString("D"));
             using (var reader = command.ExecuteReader())
@@ -502,6 +652,7 @@ public sealed partial class SqliteProjectRepository
         var storedCandidates = new List<StoredHostSoftwareCandidate>();
         using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = "SELECT candidate_id, ordinal, category, product, version, installation_type, instance_name, port_evidence, confidence, evidence_count FROM host_software_discovery_candidates WHERE batch_id = @batchId ORDER BY ordinal;";
             command.Parameters.AddWithValue("@batchId", batchId.ToString("D"));
             using (var reader = command.ExecuteReader())
@@ -531,7 +682,7 @@ public sealed partial class SqliteProjectRepository
         {
             cancellationToken.ThrowIfCancellationRequested();
             var sources = ReadHostSoftwareEvidence(
-                connection, storedCandidate.CandidateId, cancellationToken);
+                connection, storedCandidate.CandidateId, cancellationToken, transaction);
             if (sources.Count != storedCandidate.EvidenceCount)
             {
                 throw new InvalidDataException("Host software discovery evidence is incomplete.");
@@ -571,11 +722,13 @@ public sealed partial class SqliteProjectRepository
     private static IReadOnlyList<HostSoftwareDiscoveryEvidenceRecord> ReadHostSoftwareEvidence(
         SQLiteConnection connection,
         Guid candidateId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SQLiteTransaction? transaction = null)
     {
         var sources = new List<HostSoftwareDiscoveryEvidenceRecord>();
         using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = "SELECT evidence_id, ordinal, collection_task_id, command_ordinal, evidence_kind, source_command_id, evidence_excerpt, raw_output_sha256 FROM host_software_discovery_evidence WHERE candidate_id = @candidateId ORDER BY ordinal;";
             command.Parameters.AddWithValue("@candidateId", candidateId.ToString("D"));
             using (var reader = command.ExecuteReader())

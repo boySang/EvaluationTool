@@ -23,6 +23,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     private readonly IDeviceIdentificationRepository? identificationRepository;
     private readonly IPendingDeviceIdentificationRepository? pendingIdentificationRepository;
     private readonly ICollectionTaskRepository? collectionTaskRepository;
+    private readonly IHostSoftwareDiscoveryRepository? hostSoftwareDiscoveryRepository;
     private readonly ICommandPackReleaseService? commandPackReleaseService;
 
     public CollectionWorkflowService(
@@ -83,6 +84,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         this.identificationRepository = identificationRepository;
         pendingIdentificationRepository = identificationRepository as IPendingDeviceIdentificationRepository;
         collectionTaskRepository = identificationRepository as ICollectionTaskRepository;
+        hostSoftwareDiscoveryRepository = identificationRepository as IHostSoftwareDiscoveryRepository;
         this.commandPackReleaseService = commandPackReleaseService;
         this.identificationRules = identificationRules ?? new[] { BuiltInIdentificationRules.LinuxOsReleaseId };
     }
@@ -196,7 +198,37 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                         databaseDiscoveryPack,
                         progress,
                         cancellationToken);
-                workflowStage = "整理数据库发现结果";
+                workflowStage = "保存数据库与中间件待确认结果";
+                Guid? hostSoftwareBatchId = null;
+                if (discoveryResult.DatabaseCandidates.Count != 0
+                    || discoveryResult.MiddlewareCandidates.Count != 0)
+                {
+                    if (hostSoftwareDiscoveryRepository == null || !executionObserver.HasTask)
+                    {
+                        throw new InvalidOperationException(
+                            "主机软件发现持久化服务不可用，已阻止返回无法恢复的候选结果。");
+                    }
+
+                    var inputs = new HostSoftwareDiscoveryBatchBuilder().Build(
+                        discoveryResult,
+                        executionObserver.RawOutputSha256ByCommand);
+                    var batch = await hostSoftwareDiscoveryRepository
+                        .AppendHostSoftwareDiscoveryBatchAsync(
+                            request.Project.Id,
+                            device.Id,
+                            executionObserver.TaskId,
+                            inputs,
+                            "固定只读主机软件发现命令包 "
+                                + databaseDiscoveryPack.Id
+                                + "@"
+                                + databaseDiscoveryPack.Version,
+                            DateTimeOffset.UtcNow,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    hostSoftwareBatchId = batch.BatchId;
+                }
+
+                workflowStage = "整理数据库与中间件发现结果";
                 await executionObserver.FinalizeAsync(
                     discoveryResult.Outcome == DatabaseDiscoveryOutcome.Completed
                         ? CollectionTaskState.Completed
@@ -205,7 +237,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                             : CollectionTaskState.Failed,
                     discoveryResult.Outcome.ToString(),
                     CancellationToken.None).ConfigureAwait(false);
-                return MapDatabaseDiscovery(result, discoveryResult);
+                return MapDatabaseDiscovery(result, discoveryResult, hostSoftwareBatchId);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -373,6 +405,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         private readonly Dictionary<string, CommandDefinition> identificationCommands;
         private readonly Dictionary<string, CommandDefinition> collectionCommands;
         private readonly Dictionary<string, CommandDefinition> databaseCommands;
+        private readonly Dictionary<string, string> rawOutputSha256ByCommand =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly List<string> completedBeforeTask = new List<string>();
         private readonly Dictionary<string, int> taskOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
         private CollectionTaskId taskId;
@@ -415,6 +449,10 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         }
 
         public bool HasTask => hasTask;
+        public CollectionTaskId TaskId => HasTask
+            ? taskId
+            : throw new InvalidOperationException("采集任务总账尚未创建。");
+        public IReadOnlyDictionary<string, string> RawOutputSha256ByCommand => rawOutputSha256ByCommand;
 
         public async Task OnPlanReadyAsync(
             DetectionResult detection,
@@ -535,13 +573,23 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 throw new InvalidOperationException("采集输出缺少受信任命令包归属。");
             }
 
-            await evidenceService.SaveAsync(
+            var saved = await evidenceService.SaveAsync(
                 request.Project,
                 request.DeviceSelection.Device,
                 pack.Version,
                 command,
                 output,
                 cancellationToken).ConfigureAwait(false);
+            var rawOutputSha256 = saved?.Execution.RawOutputSha256;
+            if (rawOutputSha256 == null
+                || rawOutputSha256.Trim().Length == 0
+                || rawOutputSha256ByCommand.ContainsKey(command.Id))
+            {
+                throw new InvalidOperationException(
+                    "采集命令缺少唯一的已保存原始输出完整性校验值。");
+            }
+
+            rawOutputSha256ByCommand.Add(command.Id, rawOutputSha256);
 
             if (HasTask)
             {
@@ -647,7 +695,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
 
     private static CollectionWorkflowResult MapDatabaseDiscovery(
         CollectionResult collection,
-        DatabaseDiscoveryResult discovery)
+        DatabaseDiscoveryResult discovery,
+        Guid? hostSoftwareBatchId)
     {
         if (discovery.Outcome == DatabaseDiscoveryOutcome.Stopped)
         {
@@ -667,13 +716,17 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             .Concat(discovery.Outputs.Where(output => output.Outcome == RemoteExecutionOutcome.Succeeded))
             .Select(output => new CompletedCollectionCommand(output.CommandId))
             .ToArray();
-        if (discovery.Candidates.Count == 0)
+        if (discovery.DatabaseCandidates.Count == 0
+            && discovery.MiddlewareCandidates.Count == 0)
         {
             return CollectionWorkflowResult.Completed(completed);
         }
 
-        return CollectionWorkflowResult.RequiresDatabaseConfirmation(
-            discovery.Candidates.Select(candidate => candidate.RequireConfirmation()),
+        return CollectionWorkflowResult.RequiresHostSoftwareConfirmation(
+            discovery.DatabaseCandidates.Select(candidate => candidate.RequireConfirmation()),
+            discovery.MiddlewareCandidates,
+            hostSoftwareBatchId
+                ?? throw new InvalidOperationException("主机软件候选缺少可恢复的持久化批次。"),
             completed);
     }
 

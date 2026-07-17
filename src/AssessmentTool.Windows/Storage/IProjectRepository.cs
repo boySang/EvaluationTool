@@ -233,6 +233,13 @@ public interface IHostSoftwareDiscoveryRepository
         CancellationToken cancellationToken = default);
 }
 
+public interface IPendingHostSoftwareDiscoveryRepository
+{
+    Task<PendingHostSoftwareDiscoveryBatchRecord?> GetLatestPendingHostSoftwareDiscoveryBatchAsync(
+        DeviceId deviceId,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed class CommandDraftArchiveRecord
 {
     public CommandDraftArchiveRecord(

@@ -55,13 +55,13 @@ CREATE TABLE host_software_discovery_evidence (
 CREATE TABLE host_software_candidate_decisions (
     decision_id TEXT NOT NULL PRIMARY KEY,
     candidate_id TEXT NOT NULL UNIQUE,
-    decision INTEGER NOT NULL CHECK (decision IN (1, 2)),
+    decision INTEGER NOT NULL CHECK (decision IN (1, 2, 3)),
     decided_by TEXT NOT NULL CHECK (length(trim(decided_by)) > 0),
     decision_source TEXT NOT NULL CHECK (length(trim(decision_source)) > 0),
     reason TEXT NULL CHECK (
         reason IS NULL OR length(trim(reason)) > 0),
     decided_at_utc TEXT NOT NULL,
-    CHECK (decision != 2 OR reason IS NOT NULL),
+    CHECK (decision NOT IN (2, 3) OR reason IS NOT NULL),
     FOREIGN KEY(candidate_id) REFERENCES host_software_discovery_candidates(candidate_id) ON DELETE RESTRICT
 );
 
@@ -110,6 +110,13 @@ BEGIN
             ORDER BY revision DESC
             LIMIT 1)
         THEN RAISE(ABORT, 'host software discovery batch must reference latest predecessor')
+    END;
+    SELECT CASE
+        WHEN NEW.revision > 1 AND NEW.recorded_at_utc < (
+            SELECT recorded_at_utc
+            FROM host_software_discovery_batches
+            WHERE batch_id = NEW.previous_batch_id)
+        THEN RAISE(ABORT, 'host software discovery batch cannot precede predecessor')
     END;
 END;
 

@@ -963,7 +963,9 @@ public sealed class SqliteProjectRepositoryTests
                 projectId, "应用服务器", "192.0.2.61", 22, CredentialReference.New());
             var taskId = await CreateHostSoftwareCollectionTaskAsync(
                 repository, projectId, deviceId, "192.0.2.61");
-            var firstAt = new DateTimeOffset(2026, 7, 18, 3, 0, 0, TimeSpan.Zero);
+            var firstAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+            Assert.Null(await repository.GetLatestPendingHostSoftwareDiscoveryBatchAsync(deviceId));
 
             var first = await repository.AppendHostSoftwareDiscoveryBatchAsync(
                 projectId,
@@ -1040,6 +1042,7 @@ public sealed class SqliteProjectRepositoryTests
                 new[] { HostSoftwareCandidateDecision.Confirmed, HostSoftwareCandidateDecision.Rejected },
                 decisions.Select(item => item.Decision));
             Assert.Equal("版本与服务信息一致", decisions[0].Reason);
+            Assert.Null(await repository.GetLatestPendingHostSoftwareDiscoveryBatchAsync(deviceId));
         }
     }
 
@@ -1057,13 +1060,36 @@ public sealed class SqliteProjectRepositoryTests
             var taskId = await CreateHostSoftwareCollectionTaskAsync(
                 repository, projectId, deviceId, "192.0.2.62");
 
+            var firstAt = DateTimeOffset.UtcNow.AddMinutes(1);
             var first = await repository.AppendHostSoftwareDiscoveryBatchAsync(
                 projectId,
                 deviceId,
                 taskId,
-                new[] { CreateHostSoftwareCandidate() },
+                new[]
+                {
+                    CreateHostSoftwareCandidate(),
+                    CreateHostSoftwareCandidate(
+                        HostSoftwareCategory.Middleware,
+                        "Apache Tomcat",
+                        "9.0.89",
+                        HostSoftwareInstallationType.LocalService,
+                        "tomcat9.service",
+                        "8080/tcp",
+                        HostSoftwareEvidenceKind.Service,
+                        "database-host-discovery-linux-services",
+                        "tomcat9.service loaded active running",
+                        0.92)
+                },
                 "collection-task:first",
-                DateTimeOffset.UtcNow);
+                firstAt);
+            var confirmed = await repository.AppendHostSoftwareCandidateDecisionAsync(
+                first.Candidates[0].CandidateId,
+                HostSoftwareCandidateDecision.Confirmed,
+                "测评人员C",
+                "软件界面人工确认",
+                null,
+                firstAt.AddSeconds(30));
+            var secondAt = firstAt.AddMinutes(1);
             var second = await repository.AppendHostSoftwareDiscoveryBatchAsync(
                 projectId,
                 deviceId,
@@ -1080,10 +1106,30 @@ public sealed class SqliteProjectRepositoryTests
                         HostSoftwareEvidenceKind.Process,
                         "database-host-discovery-linux-processes",
                         "nginx: master process /usr/sbin/nginx",
-                        0.94)
+                        0.94),
+                    CreateHostSoftwareCandidate(
+                        HostSoftwareCategory.Database,
+                        "PostgreSQL",
+                        "16.3",
+                        HostSoftwareInstallationType.LocalService,
+                        "postgresql.service",
+                        "5432/tcp",
+                        HostSoftwareEvidenceKind.Process,
+                        "database-host-discovery-linux-processes",
+                        "postgres 123 1 postgres -D /var/lib/postgresql/16/main",
+                        0.96)
                 },
                 "collection-task:second",
-                DateTimeOffset.UtcNow.AddMinutes(1));
+                secondAt);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.AppendHostSoftwareDiscoveryBatchAsync(
+                    projectId,
+                    deviceId,
+                    taskId,
+                    new[] { CreateHostSoftwareCandidate() },
+                    "collection-task:out-of-order",
+                    firstAt));
 
             var history = await repository.GetHostSoftwareDiscoveryHistoryAsync(deviceId);
             Assert.Equal(new long[] { 1, 2 }, history.Select(batch => batch.Revision));
@@ -1091,6 +1137,56 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal(new[] { first.BatchId, second.BatchId }, history.Select(batch => batch.BatchId));
             Assert.Equal(second.BatchId,
                 (await repository.GetLatestHostSoftwareDiscoveryBatchAsync(deviceId))!.BatchId);
+
+            var firstDecisions = await repository.GetHostSoftwareCandidateDecisionsAsync(first.BatchId);
+            Assert.Equal(2, firstDecisions.Count);
+            Assert.Equal(confirmed.DecisionId, firstDecisions[0].DecisionId);
+            var superseded = firstDecisions[1];
+            Assert.Equal(HostSoftwareCandidateDecision.Superseded, superseded.Decision);
+            Assert.Equal("system", superseded.DecidedBy);
+            Assert.Equal(
+                "new-host-software-discovery-batch:" + second.BatchId.ToString("D"),
+                superseded.DecisionSource);
+            Assert.NotNull(superseded.Reason);
+            Assert.Contains(second.BatchId.ToString("D"), superseded.Reason!);
+            Assert.Equal(secondAt, superseded.DecidedAt);
+
+            var pending = await repository.GetLatestPendingHostSoftwareDiscoveryBatchAsync(deviceId);
+            Assert.NotNull(pending);
+            Assert.Equal(second.BatchId, pending!.Batch.BatchId);
+            Assert.Equal(second.Candidates.Select(candidate => candidate.CandidateId),
+                pending.PendingCandidates.Select(candidate => candidate.CandidateId));
+
+            await repository.AppendHostSoftwareCandidateDecisionAsync(
+                second.Candidates[0].CandidateId,
+                HostSoftwareCandidateDecision.Rejected,
+                "测评人员C",
+                "软件界面人工确认",
+                "服务不属于本次授权范围",
+                secondAt.AddMinutes(1));
+            var partiallyPending = await repository.GetLatestPendingHostSoftwareDiscoveryBatchAsync(deviceId);
+            Assert.NotNull(partiallyPending);
+            Assert.Equal(
+                new[] { second.Candidates[1].CandidateId },
+                partiallyPending!.PendingCandidates.Select(candidate => candidate.CandidateId));
+
+            await repository.AppendHostSoftwareCandidateDecisionAsync(
+                second.Candidates[1].CandidateId,
+                HostSoftwareCandidateDecision.Confirmed,
+                "测评人员C",
+                "软件界面人工确认",
+                null,
+                secondAt.AddMinutes(2));
+            Assert.Null(await repository.GetLatestPendingHostSoftwareDiscoveryBatchAsync(deviceId));
+
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+                repository.AppendHostSoftwareCandidateDecisionAsync(
+                    second.Candidates[0].CandidateId,
+                    HostSoftwareCandidateDecision.Superseded,
+                    "system",
+                    "manual-supersede-is-forbidden",
+                    "不得由外部调用伪造取代决议",
+                    secondAt.AddMinutes(3)));
 
             AssertSqliteWriteRejected(database,
                 "UPDATE host_software_discovery_batches SET discovery_source = 'changed';");
@@ -1228,6 +1324,7 @@ public sealed class SqliteProjectRepositoryTests
                     "invalid-time-order",
                     new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero)));
 
+            var concurrentRecordedAt = DateTimeOffset.UtcNow.AddMinutes(1);
             var writes = Enumerable.Range(0, 8)
                 .Select(index => (index & 1) == 0 ? firstRepository : secondRepository)
                 .Select((repository, index) => repository.AppendHostSoftwareDiscoveryBatchAsync(
@@ -1236,13 +1333,33 @@ public sealed class SqliteProjectRepositoryTests
                     taskId,
                     new[] { CreateHostSoftwareCandidate() },
                     "collection-task:concurrent-" + index,
-                    DateTimeOffset.UtcNow.AddSeconds(index)))
+                    concurrentRecordedAt))
                 .ToArray();
             await Task.WhenAll(writes);
 
             var history = await firstRepository.GetHostSoftwareDiscoveryHistoryAsync(deviceId);
             Assert.Equal(Enumerable.Range(1, 8).Select(value => (long)value),
                 history.Select(batch => batch.Revision));
+            for (var index = 0; index < history.Count - 1; index++)
+            {
+                var decisions = await firstRepository
+                    .GetHostSoftwareCandidateDecisionsAsync(history[index].BatchId);
+                var decision = Assert.Single(decisions);
+                Assert.Equal(HostSoftwareCandidateDecision.Superseded, decision.Decision);
+                Assert.Equal(concurrentRecordedAt, decision.DecidedAt);
+                Assert.Equal(
+                    "new-host-software-discovery-batch:"
+                        + history[index + 1].BatchId.ToString("D"),
+                    decision.DecisionSource);
+            }
+
+            Assert.Empty(await firstRepository.GetHostSoftwareCandidateDecisionsAsync(
+                history[history.Count - 1].BatchId));
+            var pending = await firstRepository
+                .GetLatestPendingHostSoftwareDiscoveryBatchAsync(deviceId);
+            Assert.NotNull(pending);
+            Assert.Equal(history[history.Count - 1].BatchId, pending!.Batch.BatchId);
+            Assert.Single(pending.PendingCandidates);
             Assert.Equal(0, SqliteProjectRepository.HostSoftwareDiscoveryWriteLockCount);
         }
     }
