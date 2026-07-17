@@ -83,7 +83,9 @@ public partial class App : Application
                     new EvidenceRecoveryService(repository),
                     new ProjectEvidenceFileLocator(repository),
                     new ProjectEvidenceManifestExporter(repository),
-                    new JsonEvidenceManifestExportFilePicker()),
+                    new JsonEvidenceManifestExportFilePicker(),
+                    new ProjectEvidencePackageExporter(repository),
+                    new ZipEvidencePackageExportFilePicker()),
                 commandLibrary,
                 new CollectionTaskHistoryViewModel(repository));
             var window = new MainWindow(mainViewModel);

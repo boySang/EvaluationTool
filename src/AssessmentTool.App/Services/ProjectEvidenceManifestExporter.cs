@@ -27,6 +27,39 @@ public interface IEvidenceManifestExportFilePicker
     string? SelectDestination(ProjectRecord project);
 }
 
+internal interface IProjectEvidenceManifestDocumentProvider
+{
+    Task<ProjectEvidenceManifestDocument> CreateDocumentAsync(
+        ProjectRecord project,
+        CancellationToken cancellationToken = default);
+}
+
+internal sealed class ProjectEvidenceManifestDocument
+{
+    internal ProjectEvidenceManifestDocument(
+        ProjectRecord project,
+        IReadOnlyList<ExecutionRecord> executions,
+        IReadOnlyList<EvidenceFileRecord> evidenceFiles,
+        EvidenceCenterSnapshot verifiedSnapshot,
+        JObject document,
+        int discoveryBatchCount)
+    {
+        Project = project ?? throw new ArgumentNullException(nameof(project));
+        Executions = (executions ?? throw new ArgumentNullException(nameof(executions))).ToArray();
+        EvidenceFiles = (evidenceFiles ?? throw new ArgumentNullException(nameof(evidenceFiles))).ToArray();
+        VerifiedSnapshot = verifiedSnapshot ?? throw new ArgumentNullException(nameof(verifiedSnapshot));
+        Document = (JObject)(document ?? throw new ArgumentNullException(nameof(document))).DeepClone();
+        DiscoveryBatchCount = discoveryBatchCount;
+    }
+
+    internal ProjectRecord Project { get; }
+    internal IReadOnlyList<ExecutionRecord> Executions { get; }
+    internal IReadOnlyList<EvidenceFileRecord> EvidenceFiles { get; }
+    internal EvidenceCenterSnapshot VerifiedSnapshot { get; }
+    internal JObject Document { get; }
+    internal int DiscoveryBatchCount { get; }
+}
+
 public sealed class EvidenceManifestExportResult
 {
     public EvidenceManifestExportResult(
@@ -82,7 +115,9 @@ public sealed class JsonEvidenceManifestExportFilePicker : IEvidenceManifestExpo
     }
 }
 
-public sealed class ProjectEvidenceManifestExporter : IProjectEvidenceManifestExporter
+public sealed class ProjectEvidenceManifestExporter :
+    IProjectEvidenceManifestExporter,
+    IProjectEvidenceManifestDocumentProvider
 {
     private const int MaximumExportRecords = 200000;
     private readonly IProjectRepository repository;
@@ -130,7 +165,35 @@ public sealed class ProjectEvidenceManifestExporter : IProjectEvidenceManifestEx
             throw new ArgumentNullException(nameof(project));
         }
 
-        var targetPath = ValidateDestination(destinationPath);
+        var targetPath = LocalExportDestinationPolicy.ValidateNewFile(
+            destinationPath,
+            ".json",
+            nameof(destinationPath));
+        var exportDocument = await CreateDocumentCoreAsync(project, cancellationToken).ConfigureAwait(false);
+        WriteAtomically(targetPath, exportDocument.Document, cancellationToken);
+        return new EvidenceManifestExportResult(
+            targetPath,
+            exportDocument.Executions.Count,
+            exportDocument.EvidenceFiles.Count,
+            exportDocument.DiscoveryBatchCount);
+    }
+
+    Task<ProjectEvidenceManifestDocument> IProjectEvidenceManifestDocumentProvider.CreateDocumentAsync(
+        ProjectRecord project,
+        CancellationToken cancellationToken)
+    {
+        return CreateDocumentCoreAsync(project, cancellationToken);
+    }
+
+    private async Task<ProjectEvidenceManifestDocument> CreateDocumentCoreAsync(
+        ProjectRecord project,
+        CancellationToken cancellationToken = default)
+    {
+        if (project == null)
+        {
+            throw new ArgumentNullException(nameof(project));
+        }
+
         var projects = await repository.GetProjectsAsync(cancellationToken).ConfigureAwait(false);
         var persistedProject = projects.SingleOrDefault(item => item.Id.Equals(project.Id));
         if (persistedProject == null)
@@ -190,6 +253,15 @@ public sealed class ProjectEvidenceManifestExporter : IProjectEvidenceManifestEx
             }
         }
 
+        SensitiveExportTextPolicy.EnsureNoLikelySecrets(EnumerateExportText(
+            persistedProject,
+            devices,
+            executions,
+            evidenceFiles,
+            confirmations,
+            discoveryBatches,
+            decisionsByBatch));
+
         var document = BuildDocument(
             persistedProject,
             devices,
@@ -201,12 +273,81 @@ public sealed class ProjectEvidenceManifestExporter : IProjectEvidenceManifestEx
             deviceNames,
             integrityByExecution,
             utcNow().ToUniversalTime());
-        WriteAtomically(targetPath, document, cancellationToken);
-        return new EvidenceManifestExportResult(
-            targetPath,
-            executions.Count,
-            evidenceFiles.Count,
+        return new ProjectEvidenceManifestDocument(
+            persistedProject,
+            executions.ToArray(),
+            evidenceFiles.ToArray(),
+            verifiedSnapshot,
+            document,
             discoveryBatches.Count);
+    }
+
+    private static IEnumerable<string?> EnumerateExportText(
+        ProjectRecord project,
+        IReadOnlyList<DeviceRecord> devices,
+        IReadOnlyList<ExecutionRecord> executions,
+        IReadOnlyList<EvidenceFileRecord> evidenceFiles,
+        IReadOnlyList<DatabaseConfirmationRecord> confirmations,
+        IReadOnlyList<HostSoftwareDiscoveryBatchRecord> discoveryBatches,
+        IReadOnlyDictionary<Guid, IReadOnlyList<HostSoftwareCandidateDecisionRecord>> decisionsByBatch)
+    {
+        yield return project.CustomerName;
+        yield return project.ProjectName;
+        foreach (var device in devices)
+        {
+            yield return device.DisplayName;
+        }
+
+        foreach (var execution in executions)
+        {
+            yield return execution.CommandId;
+            yield return execution.CommandText;
+            yield return execution.CommandPackVersion;
+            yield return execution.RawOutputPath;
+            foreach (var imagePath in execution.EvidenceImagePaths)
+            {
+                yield return imagePath;
+            }
+        }
+
+        foreach (var evidenceFile in evidenceFiles)
+        {
+            yield return evidenceFile.RelativePath;
+        }
+
+        foreach (var confirmation in confirmations)
+        {
+            yield return confirmation.Product;
+            yield return confirmation.Version;
+            yield return confirmation.InstanceName;
+            yield return confirmation.PortEvidence;
+            yield return confirmation.DetectionEvidence;
+            yield return confirmation.ConfirmationSource;
+        }
+
+        foreach (var batch in discoveryBatches)
+        {
+            yield return batch.DiscoverySource;
+            foreach (var candidate in batch.Candidates)
+            {
+                yield return candidate.Product;
+                yield return candidate.Version;
+                yield return candidate.InstanceName;
+                yield return candidate.PortEvidence;
+                foreach (var source in candidate.Sources)
+                {
+                    yield return source.SourceCommandId;
+                    yield return source.Excerpt;
+                }
+            }
+
+            foreach (var decision in decisionsByBatch[batch.BatchId])
+            {
+                yield return decision.DecidedBy;
+                yield return decision.DecisionSource;
+                yield return decision.Reason;
+            }
+        }
     }
 
     private static JObject BuildDocument(
@@ -407,59 +548,6 @@ public sealed class ProjectEvidenceManifestExporter : IProjectEvidenceManifestEx
             + startedAt.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     }
 
-    private static string ValidateDestination(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path)
-            || path.Any(character => character == '\0' || character == '\r' || character == '\n'))
-        {
-            throw new ArgumentException("请选择有效的 JSON 导出路径。", nameof(path));
-        }
-
-        var fullPath = Path.GetFullPath(path);
-        if (!Path.IsPathRooted(path))
-        {
-            throw new ArgumentException("导出路径必须是完整绝对路径。", nameof(path));
-        }
-        if (fullPath.StartsWith(@"\\?\", StringComparison.Ordinal)
-            || fullPath.StartsWith(@"\\.\", StringComparison.Ordinal))
-        {
-            throw new ArgumentException("导出路径不能使用 Windows 设备路径。", nameof(path));
-        }
-        if (!string.Equals(Path.GetExtension(fullPath), ".json", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("项目证据清单必须导出为 .json 文件。", nameof(path));
-        }
-
-        var directory = Path.GetDirectoryName(fullPath);
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-        {
-            throw new DirectoryNotFoundException("导出目录不存在。");
-        }
-
-        EnsureNoReparsePoints(directory);
-
-        if (File.Exists(fullPath))
-        {
-            throw new IOException("目标文件已存在。为避免覆盖审计清单，请使用新的文件名。");
-        }
-
-        return fullPath;
-    }
-
-    private static void EnsureNoReparsePoints(string directory)
-    {
-        var current = new DirectoryInfo(directory);
-        while (current != null)
-        {
-            if ((current.Attributes & FileAttributes.ReparsePoint) != 0)
-            {
-                throw new InvalidDataException("导出目录或其上级目录包含 Windows 重解析点。");
-            }
-
-            current = current.Parent;
-        }
-    }
-
     private static void WriteAtomically(string targetPath, JObject document, CancellationToken cancellationToken)
     {
         var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -482,6 +570,7 @@ public sealed class ProjectEvidenceManifestExporter : IProjectEvidenceManifestEx
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            LocalExportDestinationPolicy.RevalidateNewFile(targetPath);
             File.Move(temporaryPath, targetPath);
         }
         finally

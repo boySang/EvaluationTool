@@ -1077,12 +1077,17 @@
                 <TextBlock Text="证据中心" Style="{StaticResource PageTitleStyle}" />
                 <TextBlock Text="按当前项目查看人工确认审计、命令执行记录、原始输出索引、截图数量和 SHA-256 状态。" Style="{StaticResource SecondaryTextStyle}" />
               </StackPanel>
-              <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Content="导出项目证据清单" Command="{Binding EvidenceCenter.ExportManifestCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="只读复核后导出不含凭据和正文的项目证据 JSON 清单" />
-                <Button Content="打开证据目录" Command="{Binding EvidenceCenter.OpenFolderCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" />
-                <Button Content="恢复待入库证据" Command="{Binding EvidenceCenter.RecoverCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="校验执行清单和证据哈希后恢复本地索引" />
-                <Button Content="复核文件 SHA-256" Command="{Binding EvidenceCenter.VerifyCommand}" Style="{StaticResource FluentPrimaryButtonStyle}" Margin="0,0,8,0" />
-                <Button Content="刷新索引" Command="{Binding EvidenceCenter.RefreshCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" />
+              <StackPanel Grid.Column="1">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,8">
+                  <Button Content="导出 JSON 清单" Command="{Binding EvidenceCenter.ExportManifestCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="只读复核后导出不含凭据和正文的项目证据 JSON 清单" />
+                  <Button Content="导出已验证证据包" Command="{Binding EvidenceCenter.ExportPackageCommand}" Style="{StaticResource FluentPrimaryButtonStyle}" automation:AutomationProperties.Name="再次校验哈希后将当前项目证据和清单导出为 ZIP" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                  <Button Content="打开证据目录" Command="{Binding EvidenceCenter.OpenFolderCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" />
+                  <Button Content="恢复待入库证据" Command="{Binding EvidenceCenter.RecoverCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" automation:AutomationProperties.Name="校验执行清单和证据哈希后恢复本地索引" />
+                  <Button Content="复核文件 SHA-256" Command="{Binding EvidenceCenter.VerifyCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" Margin="0,0,8,0" />
+                  <Button Content="刷新索引" Command="{Binding EvidenceCenter.RefreshCommand}" Style="{StaticResource FluentSecondaryButtonStyle}" />
+                </StackPanel>
               </StackPanel>
             </Grid>
             <Border Style="{StaticResource CardStyle}">
@@ -1092,6 +1097,7 @@
                 <TextBlock Text="{Binding EvidenceCenter.VerificationSummary}" Margin="0,8,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.RecoverySummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding EvidenceCenter.ExportSummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding EvidenceCenter.PackageExportSummary}" Margin="0,6,0,0" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 

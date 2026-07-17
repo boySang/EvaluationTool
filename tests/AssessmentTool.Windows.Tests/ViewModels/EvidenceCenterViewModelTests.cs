@@ -351,6 +351,55 @@ public sealed class EvidenceCenterViewModelTests
     }
 
     [Fact]
+    public async Task Export_package_requires_evidence_and_reports_sanitized_result()
+    {
+        var project = CreateProject("项目甲");
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(project.Id, new[] { CreateItem("command") })));
+        var exporter = new FakePackageExporter();
+        var picker = new FakePackageFilePicker { Path = @"C:\Exports\项目甲.zip" };
+        var viewModel = new EvidenceCenterViewModel(
+            service,
+            packageExporter: exporter,
+            packageExportFilePicker: picker);
+        await viewModel.SelectProjectAsync(project);
+
+        Assert.True(viewModel.CanExportPackage);
+        Assert.True(viewModel.ExportPackageCommand.CanExecute(null));
+        await viewModel.ExportPackageAsync();
+
+        Assert.Equal(project.Id, Assert.Single(exporter.Projects).Id);
+        Assert.Equal(picker.Path, Assert.Single(exporter.Paths));
+        Assert.Contains("已打包 2 个已验证证据文件", viewModel.PackageExportSummary, StringComparison.Ordinal);
+        Assert.Equal(EvidenceCenterViewModelState.Ready, viewModel.State);
+
+        exporter.Error = new InvalidDataException(@"secret C:\customer");
+        await viewModel.ExportPackageAsync();
+        Assert.Equal(EvidenceCenterViewModelState.Failed, viewModel.State);
+        Assert.Equal("项目证据包导出失败", viewModel.WhatHappened);
+        Assert.DoesNotContain("secret", string.Join(" ", viewModel.WhatHappened,
+            viewModel.PossibleCause, viewModel.HowToFix, viewModel.TechnicalDetails),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Export_package_is_disabled_for_project_without_execution_evidence()
+    {
+        var project = CreateProject("项目甲");
+        var service = new FakeEvidenceCenterService(Task.FromResult(
+            new EvidenceCenterSnapshot(project.Id, Array.Empty<EvidenceCenterItem>())));
+        var viewModel = new EvidenceCenterViewModel(
+            service,
+            packageExporter: new FakePackageExporter(),
+            packageExportFilePicker: new FakePackageFilePicker { Path = @"C:\Exports\empty.zip" });
+
+        await viewModel.SelectProjectAsync(project);
+
+        Assert.False(viewModel.CanExportPackage);
+        Assert.False(viewModel.ExportPackageCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task Recover_pending_evidence_reports_counts_and_refreshes_index()
     {
         var project = CreateProject("项目甲");
@@ -487,6 +536,32 @@ public sealed class EvidenceCenterViewModelTests
             return Error == null
                 ? Task.FromResult(new EvidenceManifestExportResult(destinationPath, 1, 2, 0))
                 : Task.FromException<EvidenceManifestExportResult>(Error);
+        }
+    }
+
+    private sealed class FakePackageFilePicker : IEvidencePackageExportFilePicker
+    {
+        internal string? Path { get; set; }
+
+        public string? SelectDestination(ProjectRecord project) => Path;
+    }
+
+    private sealed class FakePackageExporter : IProjectEvidencePackageExporter
+    {
+        internal List<ProjectRecord> Projects { get; } = new List<ProjectRecord>();
+        internal List<string> Paths { get; } = new List<string>();
+        internal Exception? Error { get; set; }
+
+        public Task<EvidencePackageExportResult> ExportAsync(
+            ProjectRecord project,
+            string destinationPath,
+            CancellationToken cancellationToken = default)
+        {
+            Projects.Add(project);
+            Paths.Add(destinationPath);
+            return Error == null
+                ? Task.FromResult(new EvidencePackageExportResult(destinationPath, 2, 2048))
+                : Task.FromException<EvidencePackageExportResult>(Error);
         }
     }
 

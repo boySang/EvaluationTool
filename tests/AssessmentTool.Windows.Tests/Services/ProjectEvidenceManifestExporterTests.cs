@@ -15,6 +15,26 @@ namespace AssessmentTool.Windows.Tests.Services;
 
 public sealed class ProjectEvidenceManifestExporterTests
 {
+    [Theory]
+    [InlineData("password=SuperSecret123")]
+    [InlineData("Authorization: Bearer abc.def.ghi")]
+    [InlineData("Server=db01;User Id=audit;Password=secret")]
+    [InlineData("-----BEGIN OPENSSH PRIVATE KEY-----")]
+    public void Sensitive_export_text_is_blocked_before_serialization(string value)
+    {
+        Assert.Throws<InvalidDataException>(() =>
+            SensitiveExportTextPolicy.EnsureNoLikelySecrets(new[] { value }));
+    }
+
+    [Theory]
+    [InlineData("show password policy")]
+    [InlineData("grep '^PASS_MAX_DAYS' /etc/login.defs")]
+    [InlineData("只读查询令牌有效期策略")]
+    public void Read_only_policy_text_without_secret_values_is_allowed(string value)
+    {
+        SensitiveExportTextPolicy.EnsureNoLikelySecrets(new[] { value });
+    }
+
     [Fact]
     public async Task Export_writes_verified_audit_manifest_without_credentials_or_absolute_evidence_root()
     {

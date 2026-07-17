@@ -56,17 +56,9 @@ public sealed class ProjectEvidenceFileLocator : IProjectEvidenceFileLocator
             .ConfigureAwait(false);
         var normalizedRelativePath = RequireUniqueIndexedPath(projectId, indexedFiles, relativePath);
 
-        var root = WindowsEvidenceRootPolicy.Normalize(project.EvidenceRoot, nameof(project.EvidenceRoot));
-        WindowsEvidenceRootPolicy.EnsureNoExistingReparsePoints(root);
-        var path = WindowsEvidenceRootPolicy.ResolveContainedPath(
-            root,
-            normalizedRelativePath,
-            nameof(relativePath));
-        EnsureNoReparsePoints(root, path);
-        if (!File.Exists(path))
-        {
-            throw new FileNotFoundException("证据文件不存在，请先执行文件 SHA-256 复核。", path);
-        }
+        var path = EvidencePathAccessPolicy.ResolveExistingFile(
+            project.EvidenceRoot,
+            normalizedRelativePath);
 
         cancellationToken.ThrowIfCancellationRequested();
         var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -121,23 +113,6 @@ public sealed class ProjectEvidenceFileLocator : IProjectEvidenceFileLocator
         return normalizedRelativePath;
     }
 
-    private static void EnsureNoReparsePoints(string root, string filePath)
-    {
-        var relativePath = filePath.Substring(root.Length)
-            .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var current = root;
-        foreach (var segment in relativePath.Split(
-            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-            StringSplitOptions.RemoveEmptyEntries))
-        {
-            current = Path.Combine(current, segment);
-            if ((Directory.Exists(current) || File.Exists(current))
-                && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-            {
-                throw new InvalidDataException("证据路径包含 Windows 重解析点，已阻止打开。");
-            }
-        }
-    }
 }
 
 internal sealed class UnavailableProjectEvidenceFileLocator : IProjectEvidenceFileLocator
