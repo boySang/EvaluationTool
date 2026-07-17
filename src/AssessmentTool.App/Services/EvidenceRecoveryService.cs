@@ -395,7 +395,10 @@ public sealed class EvidenceRecoveryService : IEvidenceRecoveryService
     {
         var token = document[name];
         var value = token?.Type == JTokenType.String ? (string?)token : null;
-        if (string.IsNullOrWhiteSpace(value) || value.Length > maximumLength || value.Any(character => character == '\0'))
+        if (value == null
+            || string.IsNullOrWhiteSpace(value)
+            || value.Length > maximumLength
+            || value.Any(character => character == '\0'))
         {
             throw new InvalidDataException("执行清单字段无效：" + name);
         }
