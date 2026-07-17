@@ -1,0 +1,50 @@
+{
+  "id": "huawei-vrp",
+  "name": "华为 VRP 只读识别与最小采集",
+  "version": "1.0.0",
+  "officialSource": "https://info.support.huawei.com/enterprise/en/doc/EDOC1100352648/91652f17/device-status-checking-commands",
+  "commands": [
+    {
+      "id": "huawei-vrp-display-version",
+      "title": "读取 VRP 与设备版本",
+      "targetCategory": "NetworkDevice",
+      "commandText": "display version | no-more",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "Huawei",
+      "productFamily": null,
+      "minimumVersion": null,
+      "maximumVersion": null,
+      "checkItem": "IDENTIFY",
+      "modelRange": "*",
+      "accountRequirement": "具备监控级 display 权限的只读审计账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 45,
+      "pagingBehavior": "DisablePaging",
+      "resultDescription": "确认设备运行华为 VRP，并读取软件版本、设备系列和运行时间；no-more 仅关闭本次查询输出分页。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://info.support.huawei.com/enterprise/en/doc/EDOC1100352648/91652f17/device-status-checking-commands"
+    },
+    {
+      "id": "huawei-vrp-display-aaa-configuration",
+      "title": "读取 AAA 概要与登录失败锁定策略",
+      "targetCategory": "NetworkDevice",
+      "commandText": "display aaa configuration | no-more",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "Huawei",
+      "productFamily": null,
+      "minimumVersion": null,
+      "maximumVersion": null,
+      "checkItem": "身份鉴别",
+      "modelRange": "*",
+      "accountRequirement": "具备监控级 display 权限的只读审计账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 45,
+      "pagingBehavior": "DisablePaging",
+      "resultDescription": "读取 AAA 域、认证方案数量以及本地和远程管理员连续认证失败锁定参数；不读取用户口令。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://info.support.huawei.com/enterprise/zh/doc/EDOC1100410648/330af205"
+    }
+  ]
+}

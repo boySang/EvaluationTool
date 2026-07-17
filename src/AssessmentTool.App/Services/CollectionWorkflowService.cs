@@ -107,7 +107,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         var device = request.DeviceSelection.Device;
         if (device.Protocol != ConnectionProtocol.Ssh
             || (device.Category != TargetCategory.Automatic
-                && device.Category != TargetCategory.Server))
+                && device.Category != TargetCategory.Server
+                && device.Category != TargetCategory.NetworkDevice))
         {
             return UnsupportedTarget();
         }
@@ -131,17 +132,29 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 "HostKeyTrustNotEligible"));
         }
 
-        var workflowStage = "加载通用 Linux 命令包";
+        var isHuaweiVrpWorkflow = device.Category == TargetCategory.NetworkDevice;
+        var workflowStage = isHuaweiVrpWorkflow ? "加载华为 VRP 命令包" : "加载通用 Linux 命令包";
         WorkflowExecutionObserver? executionObserver = null;
         try
         {
-            var fullPack = commandCatalog.LoadGenericLinux();
-            var collectionPack = await LoadProjectCollectionPackAsync(
-                request.Project.Id,
-                fullPack,
-                cancellationToken).ConfigureAwait(false);
-            workflowStage = "加载数据库发现命令包";
-            var databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
+            var fullPack = isHuaweiVrpWorkflow
+                ? commandCatalog.LoadHuaweiVrp()
+                : commandCatalog.LoadGenericLinux();
+            var collectionPack = isHuaweiVrpWorkflow
+                ? await LoadHuaweiVrpProjectCollectionPackAsync(
+                    request.Project.Id,
+                    fullPack,
+                    cancellationToken).ConfigureAwait(false)
+                : await LoadProjectCollectionPackAsync(
+                    request.Project.Id,
+                    fullPack,
+                    cancellationToken).ConfigureAwait(false);
+            CommandPack? databaseDiscoveryPack = null;
+            if (!isHuaweiVrpWorkflow)
+            {
+                workflowStage = "加载数据库发现命令包";
+                databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
+            }
             executionObserver = new WorkflowExecutionObserver(
                 this,
                 request,
@@ -159,8 +172,12 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             {
                 var runner = new CollectionRunner(
                     session,
-                    commandCatalog.SelectGenericLinuxIdentificationCommands(fullPack),
-                    identificationRules,
+                    isHuaweiVrpWorkflow
+                        ? commandCatalog.SelectHuaweiVrpIdentificationCommands(fullPack)
+                        : commandCatalog.SelectGenericLinuxIdentificationCommands(fullPack),
+                    isHuaweiVrpWorkflow
+                        ? new[] { BuiltInIdentificationRules.HuaweiVrp }
+                        : identificationRules,
                     new DetectionEngine(),
                     new CommandMatcher(),
                     new CommandSafetyPolicy(),
@@ -189,13 +206,22 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     return MapResult(result, identification.PendingBatchId);
                 }
 
+                if (isHuaweiVrpWorkflow)
+                {
+                    await executionObserver.FinalizeAsync(
+                        CollectionTaskState.Completed,
+                        CollectionOutcome.Completed.ToString(),
+                        CancellationToken.None).ConfigureAwait(false);
+                    return MapResult(result, null);
+                }
+
                 workflowStage = "执行数据库主机只读发现";
                 var discoveryResult = await new DatabaseDiscoveryRunner(
                     session,
                     new CommandSafetyPolicy(),
                     new HostDatabaseDiscovery(),
                     executionObserver).RunAsync(
-                        databaseDiscoveryPack,
+                        databaseDiscoveryPack!,
                         progress,
                         cancellationToken);
                 workflowStage = "保存数据库与中间件待确认结果";
@@ -219,7 +245,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                             executionObserver.TaskId,
                             inputs,
                             "固定只读主机软件发现命令包 "
-                                + databaseDiscoveryPack.Id
+                                + databaseDiscoveryPack!.Id
                                 + "@"
                                 + databaseDiscoveryPack.Version,
                             DateTimeOffset.UtcNow,
@@ -300,6 +326,40 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         if (collectionIds.Any(fixedIdentificationIds.Contains))
         {
             throw new CommandPackException("项目锁定命令包与固定识别命令标识冲突，已阻止执行。");
+        }
+
+        return selected.SelectCommands(collectionIds);
+    }
+
+    private async Task<CommandPack> LoadHuaweiVrpProjectCollectionPackAsync(
+        ProjectId projectId,
+        CommandPack builtinFullPack,
+        CancellationToken cancellationToken)
+    {
+        if (commandPackReleaseService == null)
+        {
+            return commandCatalog.CreateHuaweiVrpCollectionPack(builtinFullPack);
+        }
+
+        var selected = await commandPackReleaseService.LoadCurrentProjectPackAsync(
+            projectId,
+            builtinFullPack.Id,
+            cancellationToken).ConfigureAwait(false);
+        if (selected == null)
+        {
+            return commandCatalog.CreateHuaweiVrpCollectionPack(builtinFullPack);
+        }
+
+        var fixedIdentificationIds = new HashSet<string>(
+            commandCatalog.HuaweiVrpIdentificationCommandIds,
+            StringComparer.Ordinal);
+        var collectionIds = selected.Commands
+            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
+            .Select(command => command.Id)
+            .ToArray();
+        if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
+        {
+            throw new CommandPackException("项目锁定的华为 VRP 命令包缺少安全采集命令或与固定识别命令冲突。");
         }
 
         return selected.SelectCommands(collectionIds);
@@ -398,7 +458,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         private readonly CollectionWorkflowRequest request;
         private readonly CommandPack identificationPack;
         private readonly CommandPack collectionPack;
-        private readonly CommandPack databaseDiscoveryPack;
+        private readonly CommandPack? databaseDiscoveryPack;
         private readonly ICollectionTaskRepository? taskRepository;
         private readonly ICollectionEvidenceService evidenceService;
         private readonly Dictionary<string, CommandDefinition> identificationCommands;
@@ -418,7 +478,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             CollectionWorkflowRequest request,
             CommandPack identificationPack,
             CommandPack collectionPack,
-            CommandPack databaseDiscoveryPack,
+            CommandPack? databaseDiscoveryPack,
             ICollectionTaskRepository? taskRepository,
             ICollectionEvidenceService evidenceService)
         {
@@ -433,7 +493,9 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 .Where(command => string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
                 .ToDictionary(command => command.Id, StringComparer.Ordinal);
             collectionCommands = collectionPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
-            databaseCommands = databaseDiscoveryPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+            databaseCommands = databaseDiscoveryPack == null
+                ? new Dictionary<string, CommandDefinition>(StringComparer.Ordinal)
+                : databaseDiscoveryPack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
             var duplicateIds = identificationCommands.Keys
                 .Concat(collectionCommands.Keys)
                 .Concat(databaseCommands.Keys)
@@ -482,8 +544,10 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             var selectedCommands = identificationCommands.Values
                 .Select(command => new PackCommand(identificationPack, command))
                 .Concat(commands.Select(command => new PackCommand(collectionPack, command)))
-                .Concat(databaseDiscoveryPack.Commands.Select(command =>
-                    new PackCommand(databaseDiscoveryPack, command)))
+                .Concat(databaseDiscoveryPack == null
+                    ? Enumerable.Empty<PackCommand>()
+                    : databaseDiscoveryPack.Commands.Select(command =>
+                        new PackCommand(databaseDiscoveryPack, command)))
                 .ToArray();
             var validatedAt = DateTimeOffset.UtcNow;
             var safetyPolicy = new CommandSafetyPolicy();
@@ -565,7 +629,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             }
             else if (databaseCommands.ContainsKey(command.Id))
             {
-                pack = databaseDiscoveryPack;
+                pack = databaseDiscoveryPack
+                    ?? throw new InvalidOperationException("数据库发现命令缺少命令包归属。");
             }
             else
             {
@@ -749,8 +814,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     {
         return CollectionWorkflowResult.Failed(new CollectionError(
             "当前体验版尚未启用该设备的自动采集",
-            "首个真实采集闭环仅开放 SSH Linux 服务器",
-            "可以继续保存设备和测试登录；后续命令包验证完成后会逐步开放",
+            "当前开放 SSH Linux 服务器和经人工确认的华为 VRP 网络设备",
+            "可以继续保存设备和测试登录；其他厂商命令包验证完成后会逐步开放",
             "UnsupportedCollectionTarget"));
     }
 

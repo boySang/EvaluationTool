@@ -99,6 +99,37 @@ public sealed class BuiltinCommandPackCatalogTests
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json\"", project);
         Assert.Contains("Link=\"command-packs/builtin/database-host-discovery-linux.json\"", project);
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json\"", project);
+        Assert.Contains("Link=\"command-packs/builtin/huawei-vrp.json\"", project);
+        Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json\"", project);
+    }
+
+    [Fact]
+    public void LoadHuaweiVrp_uses_fixed_hash_layout_and_explicit_command_groups()
+    {
+        var releaseDirectory = CreateReleaseDirectory();
+        try
+        {
+            var catalog = new BuiltinCommandPackCatalog(releaseDirectory);
+            var pack = catalog.LoadHuaweiVrp();
+            var identification = catalog.SelectHuaweiVrpIdentificationCommands(pack);
+            var collection = catalog.CreateHuaweiVrpCollectionPack(pack);
+
+            Assert.Equal("huawei-vrp", pack.Id);
+            Assert.Equal("1.0.0", pack.Version);
+            Assert.Equal(new[] { "huawei-vrp-display-version" }, identification.Select(command => command.Id));
+            Assert.Equal(new[] { "huawei-vrp-display-aaa-configuration" }, collection.Commands.Select(command => command.Id));
+            Assert.All(pack.Commands, command =>
+            {
+                Assert.Equal(AssessmentTool.Core.Domain.TargetCategory.NetworkDevice, command.TargetCategory);
+                Assert.Equal("Huawei", command.Vendor);
+                Assert.True(command.IsEligibleForAutomaticExecution);
+                Assert.True(new AssessmentTool.Core.Security.CommandSafetyPolicy().Validate(command).Allowed);
+            });
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
     }
 
     [Fact]

@@ -122,6 +122,28 @@ public sealed class CommandSafetyPolicyTests
     }
 
     [Theory]
+    [InlineData("display version | no-more")]
+    [InlineData("display aaa configuration | no-more")]
+    public void Allows_only_fixed_huawei_no_more_queries(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.True(result.Allowed);
+    }
+
+    [Theory]
+    [InlineData("display current-configuration | no-more")]
+    [InlineData("display aaa configuration | include password")]
+    [InlineData("display aaa configuration | no-more | count")]
+    [InlineData("display version | no-more; reboot")]
+    public void Rejects_unapproved_huawei_pipe_variants(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.False(result.Allowed);
+    }
+
+    [Theory]
     [InlineData("show version")]
     [InlineData("display version")]
     [InlineData("show clock")]

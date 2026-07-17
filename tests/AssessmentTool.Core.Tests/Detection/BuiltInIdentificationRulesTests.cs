@@ -6,6 +6,20 @@ namespace AssessmentTool.Core.Tests.Detection;
 
 public sealed class BuiltInIdentificationRulesTests
 {
+    [Fact]
+    public void Huawei_vrp_banner_creates_low_confidence_network_candidate_for_human_confirmation()
+    {
+        var result = new DetectionEngine().Detect(
+            "Huawei Versatile Routing Platform Software\nVRP (R) software, Version 8.200",
+            new[] { BuiltInIdentificationRules.HuaweiVrp });
+
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(TargetCategory.NetworkDevice, candidate.Category);
+        Assert.Equal("Huawei", candidate.Vendor);
+        Assert.Equal(0.85, candidate.Confidence);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
     [Theory]
     [InlineData("ID=ubuntu", "ubuntu")]
     [InlineData("ID=\"kylin\"", "kylin")]

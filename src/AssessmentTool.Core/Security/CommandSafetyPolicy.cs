@@ -8,6 +8,8 @@ public sealed class CommandSafetyPolicy
 {
     private const string DockerInventoryCommand = "docker ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'";
     private const string PodmanInventoryCommand = "podman ps --no-trunc --format '{\"Image\":{{json .Image}},\"Names\":{{json .Names}},\"Ports\":{{json .Ports}}}'";
+    private const string HuaweiDisplayVersionCommand = "display version | no-more";
+    private const string HuaweiDisplayAaaConfigurationCommand = "display aaa configuration | no-more";
 
     private static readonly Regex RecognizedReadOnlyRoot = new Regex(
         @"^(?:(?:show|display)\b|uname\b|hostname\b|cat\b|ps\b|systemctl\s+list-units\b|(?:docker|podman)\s+ps\b|Get-ComputerInfo$|(?:select|with)\b)",
@@ -38,7 +40,7 @@ public sealed class CommandSafetyPolicy
         }
 
         var commandText = command.CommandText?.Trim();
-        if (ForbiddenSyntax.IsMatch(commandText))
+        if (ForbiddenSyntax.IsMatch(commandText) && !IsAllowedHuaweiNoMore(commandText))
         {
             return SafetyDecision.Reject("unsafe-command", "命令包含可能修改目标或组合执行的语法。");
         }
@@ -47,7 +49,8 @@ public sealed class CommandSafetyPolicy
             !RecognizedReadOnlyRoot.IsMatch(commandText) ||
             (!AllowedReadOnlyShape.IsMatch(commandText)
                 && !AllowedSqlMetadataTemplate.IsMatch(commandText)
-                && !IsAllowedContainerInventory(commandText)))
+                && !IsAllowedContainerInventory(commandText)
+                && !IsAllowedHuaweiNoMore(commandText)))
         {
             return SafetyDecision.Reject("unsupported-command-shape", "命令不属于允许自动执行的只读命令形状。");
         }
@@ -59,6 +62,12 @@ public sealed class CommandSafetyPolicy
     {
         return string.Equals(commandText, DockerInventoryCommand, StringComparison.Ordinal)
             || string.Equals(commandText, PodmanInventoryCommand, StringComparison.Ordinal);
+    }
+
+    private static bool IsAllowedHuaweiNoMore(string? commandText)
+    {
+        return string.Equals(commandText, HuaweiDisplayVersionCommand, StringComparison.Ordinal)
+            || string.Equals(commandText, HuaweiDisplayAaaConfigurationCommand, StringComparison.Ordinal);
     }
 }
 

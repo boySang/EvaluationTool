@@ -20,5 +20,7 @@
     <EmbeddedResource Include="../../command-packs/builtin/generic-linux.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json" />
     <Content Include="../../command-packs/builtin/database-host-discovery-linux.json" Link="command-packs/builtin/database-host-discovery-linux.json" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="../../command-packs/builtin/database-host-discovery-linux.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json" />
+    <Content Include="../../command-packs/builtin/huawei-vrp.json" Link="command-packs/builtin/huawei-vrp.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../command-packs/builtin/huawei-vrp.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json" />
   </ItemGroup>
 </Project>

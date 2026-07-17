@@ -20,6 +20,10 @@ public sealed class BuiltinCommandPackCatalog
     private const string DatabaseDiscoveryRelativePath = "command-packs/builtin/database-host-discovery-linux.json";
     private const string DatabaseDiscoveryResourceName = "AssessmentTool.App.CommandPacks.Builtin.DatabaseHostDiscoveryLinux.json";
     private const string DatabaseDiscoverySha256 = "15ca85ad86624e1e0bfd244b480445614ec39497bf1ecfc869c62922ac4e8761";
+    private const string HuaweiVrpPackId = "huawei-vrp";
+    private const string HuaweiVrpRelativePath = "command-packs/builtin/huawei-vrp.json";
+    private const string HuaweiVrpResourceName = "AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json";
+    private const string HuaweiVrpSha256 = "3b1780c370e8c4bf69761a37bc271f496d5c686b82f352d3cd0d72c2830a8902";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -43,6 +47,12 @@ public sealed class BuiltinCommandPackCatalog
             "database-host-discovery-linux-docker-containers",
             "database-host-discovery-linux-podman-containers"
         });
+
+    private static readonly IReadOnlyList<string> HuaweiVrpIdentificationIds =
+        new ReadOnlyCollection<string>(new[] { "huawei-vrp-display-version" });
+
+    private static readonly IReadOnlyList<string> HuaweiVrpCollectionIds =
+        new ReadOnlyCollection<string>(new[] { "huawei-vrp-display-aaa-configuration" });
 
     private readonly string releaseDirectory;
     private readonly Assembly resourceAssembly;
@@ -72,6 +82,8 @@ public sealed class BuiltinCommandPackCatalog
 
     public IReadOnlyList<string> GenericLinuxCollectionCommandIds => CollectionIds;
 
+    public IReadOnlyList<string> HuaweiVrpIdentificationCommandIds => HuaweiVrpIdentificationIds;
+
     public CommandPack LoadGenericLinux()
     {
         var packBytes = LoadPackBytes(
@@ -94,6 +106,17 @@ public sealed class BuiltinCommandPackCatalog
         return pack;
     }
 
+    public CommandPack LoadHuaweiVrp()
+    {
+        var packBytes = LoadPackBytes(
+            HuaweiVrpRelativePath,
+            HuaweiVrpResourceName,
+            "华为 VRP 命令包");
+        var pack = new CommandPackLoader().Load(packBytes, HuaweiVrpSha256);
+        EnsureHuaweiVrpLayout(pack);
+        return pack;
+    }
+
     public IReadOnlyList<CommandDefinition> SelectGenericLinuxIdentificationCommands(CommandPack pack)
     {
         return SelectCommands(pack, IdentificationIds);
@@ -108,6 +131,18 @@ public sealed class BuiltinCommandPackCatalog
     {
         EnsureGenericLinuxLayout(pack);
         return pack.SelectCommands(CollectionIds);
+    }
+
+    public IReadOnlyList<CommandDefinition> SelectHuaweiVrpIdentificationCommands(CommandPack pack)
+    {
+        EnsureHuaweiVrpLayout(pack);
+        return SelectCommandsUnchecked(pack, HuaweiVrpIdentificationIds);
+    }
+
+    public CommandPack CreateHuaweiVrpCollectionPack(CommandPack pack)
+    {
+        EnsureHuaweiVrpLayout(pack);
+        return pack.SelectCommands(HuaweiVrpCollectionIds);
     }
 
     private byte[] LoadPackBytes(string relativePath, string resourceName, string description)
@@ -186,6 +221,15 @@ public sealed class BuiltinCommandPackCatalog
             commandIds.Select(commandId => commandsById[commandId]).ToArray());
     }
 
+    private static IReadOnlyList<CommandDefinition> SelectCommandsUnchecked(
+        CommandPack pack,
+        IReadOnlyList<string> commandIds)
+    {
+        var commandsById = pack.Commands.ToDictionary(command => command.Id, StringComparer.Ordinal);
+        return new ReadOnlyCollection<CommandDefinition>(
+            commandIds.Select(commandId => commandsById[commandId]).ToArray());
+    }
+
     private static void EnsureGenericLinuxLayout(CommandPack pack)
     {
         if (pack == null)
@@ -228,6 +272,35 @@ public sealed class BuiltinCommandPackCatalog
         if (!DatabaseDiscoveryIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal))
         {
             throw new CommandPackException("Linux 数据库主机发现命令包的命令顺序与受信任目录不一致。");
+        }
+    }
+
+    private static void EnsureHuaweiVrpLayout(CommandPack pack)
+    {
+        if (pack == null)
+        {
+            throw new ArgumentNullException(nameof(pack));
+        }
+
+        if (!string.Equals(pack.Id, HuaweiVrpPackId, StringComparison.Ordinal))
+        {
+            throw new CommandPackException("命令包不是受支持的华为 VRP 内置命令包。");
+        }
+
+        var expectedIds = HuaweiVrpIdentificationIds.Concat(HuaweiVrpCollectionIds).ToArray();
+        if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
+            || pack.Commands.Any(command => command.TargetCategory != TargetCategory.NetworkDevice
+                || !string.Equals(command.Vendor, "Huawei", StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("华为 VRP 内置命令包的命令顺序或对象边界不正确。");
+        }
+
+        if (HuaweiVrpIdentificationIds.Any(commandId =>
+            !string.Equals(pack.Commands.Single(command => command.Id == commandId).CheckItem,
+                "IDENTIFY",
+                StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("华为 VRP 固定识别命令缺少 IDENTIFY 安全标记。");
         }
     }
 }

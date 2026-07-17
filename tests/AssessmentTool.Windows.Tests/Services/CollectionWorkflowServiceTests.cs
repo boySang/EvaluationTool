@@ -28,7 +28,6 @@ public sealed class CollectionWorkflowServiceTests
         yield return new object[] { ConnectionProtocol.Telnet, TargetCategory.Server };
         yield return new object[] { ConnectionProtocol.Serial, TargetCategory.Server };
         yield return new object[] { ConnectionProtocol.WinRm, TargetCategory.Server };
-        yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.NetworkDevice };
         yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.Database };
         yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.Middleware };
         yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.SecurityDevice };
@@ -201,6 +200,80 @@ public sealed class CollectionWorkflowServiceTests
                 },
                 result.CompletedCommands.Select(command => command.CommandId));
             Assert.True(session.Disposed);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Huawei_vrp_collection_requires_human_identity_confirmation_then_runs_only_fixed_read_only_pack()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.NetworkDevice, "192.0.2.60", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        const string versionOutput = "Huawei Versatile Routing Platform Software\n"
+            + "VRP (R) software, Version 8.200 (CloudEngine V200R023C00)";
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["huawei-vrp-display-version"] = Success("huawei-vrp-display-version", versionOutput)
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["huawei-vrp-display-version"] = Success("huawei-vrp-display-version", versionOutput),
+            ["huawei-vrp-display-aaa-configuration"] = Success(
+                "huawei-vrp-display-aaa-configuration",
+                "Administrator user default domain: default_admin\nLocal-user block retry-time: 3")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var evidence = new RecordingEvidenceService();
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.HuaweiVrp", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                evidence,
+                identifications);
+
+            var detected = await service.RunAsync(
+                CreateRequest(project, device, trust),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, detected.Outcome);
+            var candidate = Assert.Single(detected.DetectionCandidates);
+            Assert.Equal(TargetCategory.NetworkDevice, candidate.Category);
+            Assert.Equal("Huawei", candidate.Vendor);
+            Assert.Equal(0.85, candidate.Confidence);
+            var pending = Assert.Single(identifications.PendingBatches);
+            Assert.Equal(new[] { "huawei-vrp-display-version" }, firstSession.ExecutedIds);
+            Assert.Empty(identifications.Tasks);
+
+            var completed = await service.RunAsync(
+                CreateRequest(project, device, trust, candidate, pending.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, completed.Outcome);
+            Assert.Equal(
+                new[] { "huawei-vrp-display-version", "huawei-vrp-display-aaa-configuration" },
+                secondSession.ExecutedIds);
+            Assert.Equal(
+                new[] { "huawei-vrp-display-aaa-configuration" },
+                completed.CompletedCommands.Select(command => command.CommandId));
+            var identification = Assert.Single(identifications.Records);
+            Assert.True(identification.WasUserConfirmed);
+            Assert.Equal("Huawei", identification.Vendor);
+            var task = Assert.Single(identifications.Tasks);
+            Assert.Equal(2, task.Commands.Count);
+            Assert.All(task.Commands, command => Assert.Equal("huawei-vrp", command.CommandPackId));
+            Assert.Equal(CollectionTaskState.Completed, identifications.TaskEvents[task.Id].Last().State);
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("generic-linux", StringComparison.Ordinal));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("database-host-discovery", StringComparison.Ordinal));
         }
         finally
         {
