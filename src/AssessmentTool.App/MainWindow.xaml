@@ -459,7 +459,54 @@
                   <TextBlock Text="03  保存与连接测试" Style="{StaticResource SectionTitleStyle}" />
                   <TextBlock Text="请确认设备资料。保存后进入：自动探测指纹 → 人工确认 → 无命令测试登录。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
                   <Border Background="{DynamicResource Brush.SurfaceSubtle}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="7" Padding="18">
-                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><TextBlock Text="设备名称" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Grid.Column="1" Text="{Binding DeviceEditor.DisplayName}" FontWeight="SemiBold" /><TextBlock Grid.Row="1" Text="主机地址" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeviceEditor.Host}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Text="SSH 账户" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceEditor.UserName}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Text="设备类别" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DeviceEditor.Category, Converter={StaticResource DeviceMetadataConverter}}" Margin="0,10,0,0" /><TextBlock Grid.Row="4" Text="身份验证" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DeviceEditor.AuthenticationMethod}" Margin="0,10,0,0" /><TextBlock Grid.Row="5" Text="私钥文件" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DeviceEditor.PrivateKeyFileName}" Margin="0,10,0,0"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="150" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+                      <TextBlock Text="设备名称" Style="{StaticResource SecondaryTextStyle}" />
+                      <TextBlock Grid.Column="1" Text="{Binding DeviceEditor.DisplayName}" FontWeight="SemiBold" />
+                      <TextBlock Grid.Row="1" Text="主机地址" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeviceEditor.Host}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="2" Text="SSH 账户" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceEditor.UserName}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="3" Text="设备类别" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DeviceEditor.Category, Converter={StaticResource DeviceMetadataConverter}}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="4" Text="身份验证" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DeviceEditor.AuthenticationMethod, Converter={StaticResource DeviceMetadataConverter}}" Margin="0,10,0,0" />
+                      <TextBlock Grid.Row="5" Text="私钥文件" Margin="0,10,0,0">
+                        <TextBlock.Style>
+                          <Style TargetType="TextBlock" BasedOn="{StaticResource SecondaryTextStyle}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </TextBlock.Style>
+                      </TextBlock>
+                      <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DeviceEditor.PrivateKeyFileName}" Margin="0,10,0,0">
+                        <TextBlock.Style>
+                          <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </TextBlock.Style>
+                      </TextBlock>
+                    </Grid>
                   </Border>
                 </StackPanel>
               </Grid>
