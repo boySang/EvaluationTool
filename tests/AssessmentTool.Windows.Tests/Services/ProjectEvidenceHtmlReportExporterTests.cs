@@ -31,13 +31,13 @@ public sealed class ProjectEvidenceHtmlReportExporterTests
             "cat /etc/login.defs <safe>",
             DateTimeOffset.Parse("2026-07-17T09:00:00Z"),
             DateTimeOffset.Parse("2026-07-17T09:00:01Z"),
-            ExecutionStatus.Succeeded,
-            0,
+            ExecutionStatus.Failed,
+            1,
             null,
             null,
             Array.Empty<string>(),
             new Dictionary<string, string>(),
-            null);
+            "测试连接失败");
         var document = CreateDocument(project, execution);
         var provider = new FakeDocumentProvider(new ProjectEvidenceManifestDocument(
             project,
