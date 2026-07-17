@@ -53,10 +53,29 @@ public sealed class MainWindowBindingTests
         Assert.Contains("组件中心", text);
         Assert.Contains("自动识别（推荐）", text);
         Assert.Contains("SSH 用户名 *", text);
+        Assert.Contains("密码验证", text);
+        Assert.Contains("PuTTY PPK 私钥", text);
         Assert.Contains("自动探测指纹 → 人工确认 → 无命令测试登录", text);
         Assert.Contains("确认并测试登录", text);
         Assert.DoesNotContain("扫描内网", text);
         Assert.DoesNotContain("漏洞扫描", text);
+    }
+
+    [Fact]
+    public void Device_editor_exposes_private_key_picker_without_binding_a_local_path()
+    {
+        var xaml = File.ReadAllText(FindMainWindowXaml());
+        var codeBehind = File.ReadAllText(Path.ChangeExtension(FindMainWindowXaml(), ".xaml.cs"));
+
+        Assert.Contains("DeviceEditor.AuthenticationMethod", xaml);
+        Assert.Contains("DeviceEditor.PrivateKeyFileName", xaml);
+        Assert.Contains("SelectPrivateKey_Click", xaml);
+        Assert.Contains("不保存原始路径", xaml);
+        Assert.Contains("PpkPrivateKeyMaterial.MaximumEncodedBytes", codeBehind);
+        Assert.Contains("StrictUtf8.GetChars", codeBehind);
+        Assert.Contains("GetSafeFileName(dialog.FileName)", codeBehind);
+        Assert.DoesNotContain("PrivateKeyPath", xaml);
+        Assert.DoesNotContain("privateKeyPath", codeBehind);
     }
 
     [Fact]

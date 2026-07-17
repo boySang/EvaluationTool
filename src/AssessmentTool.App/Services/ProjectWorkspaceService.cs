@@ -174,6 +174,108 @@ public sealed class ProjectWorkspaceService : IProjectWorkspaceService
         }
     }
 
+    public async Task<DeviceId> AddSshPrivateKeyDeviceAsync(
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        char[] privateKeyMaterial,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            ValidateProjectId(projectId);
+            ValidateSafeText(displayName, nameof(displayName), "设备名称", 128);
+            ValidateSafeText(host, nameof(host), "设备地址", 255);
+            ValidateSafeText(userName, nameof(userName), "SSH 用户名", 128);
+            if (!Enum.IsDefined(typeof(TargetCategory), category))
+            {
+                throw new ArgumentOutOfRangeException(nameof(category), category, "请选择有效的设备类别后重试。");
+            }
+
+            if (port < 1 || port > 65535)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(port), port, "请输入 1 到 65535 之间的连接端口后重试。");
+            }
+
+            if (privateKeyMaterial == null || privateKeyMaterial.Length == 0)
+            {
+                throw new ArgumentException("请选择 PuTTY PPK 私钥文件后重试。", nameof(privateKeyMaterial));
+            }
+
+            PpkPrivateKeyMaterial.Validate(privateKeyMaterial);
+            var endpoint = new SshEndpointIdentity(host.Trim(), port);
+            cancellationToken.ThrowIfCancellationRequested();
+            var credentialReference = credentialVault.Store(privateKeyMaterial, cancellationToken);
+            var privateKeyReference = PrivateKeyReference.Parse(credentialReference.ToString());
+            try
+            {
+                return await repository.AddDeviceAsync(
+                    projectId,
+                    displayName.Trim(),
+                    endpoint.Host,
+                    endpoint.Port,
+                    userName.Trim(),
+                    category,
+                    ConnectionProtocol.Ssh,
+                    SshAuthenticationMethod.PrivateKey,
+                    credentialReference,
+                    privateKeyReference,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception repositoryError)
+            {
+                IReadOnlyList<DeviceRecord> devices;
+                try
+                {
+                    devices = await repository.GetDevicesAsync(projectId, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    throw new ProjectWorkspaceException(
+                        ProjectWorkspaceFailure.DeviceSaveResultUnknown,
+                        "设备保存结果无法确认。为避免破坏可能已保存的设备，私钥凭据已保留；请重新启动软件并检查设备列表。");
+                }
+
+                var persisted = FindByCredentialReference(devices, credentialReference);
+                if (persisted != null)
+                {
+                    return persisted.Id;
+                }
+
+                try
+                {
+                    credentialVault.Delete(credentialReference);
+                }
+                catch (Exception)
+                {
+                    throw new ProjectWorkspaceException(
+                        ProjectWorkspaceFailure.CredentialCleanupFailed,
+                        "设备未保存，且临时私钥凭据未能自动清理。请关闭软件并联系管理员检查本机凭据目录。");
+                }
+
+                if (repositoryError is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
+
+                throw new ProjectWorkspaceException(
+                    ProjectWorkspaceFailure.DeviceNotSaved,
+                    "设备未保存。临时私钥凭据已安全清理，请检查项目数据库后重试。");
+            }
+        }
+        finally
+        {
+            if (privateKeyMaterial != null)
+            {
+                Array.Clear(privateKeyMaterial, 0, privateKeyMaterial.Length);
+            }
+        }
+    }
+
     private static void ValidateProjectId(ProjectId projectId)
     {
         if (projectId.Equals(default(ProjectId)))

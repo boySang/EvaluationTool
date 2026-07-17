@@ -56,4 +56,14 @@ public interface IProjectWorkspaceService
         TargetCategory category,
         char[] password,
         CancellationToken cancellationToken = default);
+
+    Task<DeviceId> AddSshPrivateKeyDeviceAsync(
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        char[] privateKeyMaterial,
+        CancellationToken cancellationToken = default);
 }

@@ -441,6 +441,7 @@ public sealed class EvidenceCenterServiceTests
         public Task<ProjectId> CreateProjectAsync(string customerName, string projectName, string evidenceRoot, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port, CredentialReference credentialReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port, string userName, TargetCategory category, ConnectionProtocol protocol, CredentialReference credentialReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DeviceId> AddDeviceAsync(ProjectId projectId, string displayName, string host, int port, string userName, TargetCategory category, ConnectionProtocol protocol, SshAuthenticationMethod authenticationMethod, CredentialReference credentialReference, PrivateKeyReference? privateKeyReference, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task SaveExecutionAsync(ExecutionRecord record, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ProjectRecord>> GetProjectsAsync(CancellationToken cancellationToken = default)
         {

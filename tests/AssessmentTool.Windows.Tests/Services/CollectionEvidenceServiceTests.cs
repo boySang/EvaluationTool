@@ -268,6 +268,19 @@ public sealed class CollectionEvidenceServiceTests : IDisposable
             string userName,
             TargetCategory category,
             ConnectionProtocol protocol,
+            SshAuthenticationMethod authenticationMethod,
+            CredentialReference credentialReference,
+            PrivateKeyReference? privateKeyReference,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<DeviceId> AddDeviceAsync(
+            ProjectId projectId,
+            string displayName,
+            string host,
+            int port,
+            string userName,
+            TargetCategory category,
+            ConnectionProtocol protocol,
             CredentialReference credentialReference,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 

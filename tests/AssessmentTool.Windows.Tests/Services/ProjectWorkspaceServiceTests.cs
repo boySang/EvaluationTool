@@ -122,6 +122,43 @@ public sealed class ProjectWorkspaceServiceTests
     }
 
     [Fact]
+    public async Task Add_private_key_device_validates_encrypts_and_persists_only_opaque_references()
+    {
+        var repository = new FakeProjectRepository();
+        var vault = new FakeCredentialVault();
+        var service = new ProjectWorkspaceService(repository, vault);
+        var privateKey = CreatePpk().ToCharArray();
+
+        await service.AddSshPrivateKeyDeviceAsync(
+            ProjectId.New(), "核心交换机", "192.0.2.10", 22, " audit-reader ",
+            TargetCategory.NetworkDevice, privateKey);
+
+        Assert.Equal(SshAuthenticationMethod.PrivateKey, repository.AuthenticationMethod);
+        Assert.True(repository.PrivateKeyReference.HasValue);
+        Assert.Equal(vault.ReferenceToReturn.ToString(), repository.PrivateKeyReference.Value.ToString());
+        Assert.Equal(CreatePpk(), vault.StoredSecretSnapshot);
+        Assert.All(privateKey, character => Assert.Equal('\0', character));
+    }
+
+    [Fact]
+    public async Task Add_private_key_device_rejects_encrypted_ppk_before_vault_write_and_clears_input()
+    {
+        var repository = new FakeProjectRepository();
+        var vault = new FakeCredentialVault();
+        var service = new ProjectWorkspaceService(repository, vault);
+        var privateKey = CreatePpk().Replace("Encryption: none", "Encryption: aes256-cbc").ToCharArray();
+
+        var error = await Assert.ThrowsAsync<PpkPrivateKeyException>(() =>
+            service.AddSshPrivateKeyDeviceAsync(
+                ProjectId.New(), "核心交换机", "192.0.2.10", 22, "audit-reader",
+                TargetCategory.NetworkDevice, privateKey));
+
+        Assert.Equal(PpkPrivateKeyFailure.Encrypted, error.Failure);
+        Assert.Null(vault.StoredSecretSnapshot);
+        Assert.All(privateKey, character => Assert.Equal('\0', character));
+    }
+
+    [Fact]
     public async Task Add_device_deletes_stored_credential_when_repository_write_fails()
     {
         var calls = new List<string>();
@@ -319,6 +356,18 @@ public sealed class ProjectWorkspaceServiceTests
             DeviceId.New(), projectId, "设备", "192.0.2.10", 22, CredentialReference.New(), DateTimeOffset.UtcNow);
     }
 
+    private static string CreatePpk()
+    {
+        return "PuTTY-User-Key-File-3: ssh-rsa\r\n"
+            + "Encryption: none\r\n"
+            + "Comment: test\r\n"
+            + "Public-Lines: 1\r\n"
+            + "QUJDRA==\r\n"
+            + "Private-Lines: 1\r\n"
+            + "RUZHSA==\r\n"
+            + "Private-MAC: " + new string('0', 64) + "\r\n";
+    }
+
     private sealed class FakeCredentialVault : ICredentialVault
     {
         private readonly IList<string>? calls;
@@ -389,6 +438,8 @@ public sealed class ProjectWorkspaceServiceTests
         public string? UserName { get; private set; }
         public TargetCategory? Category { get; private set; }
         public ConnectionProtocol? Protocol { get; private set; }
+        public SshAuthenticationMethod? AuthenticationMethod { get; private set; }
+        public PrivateKeyReference? PrivateKeyReference { get; private set; }
         public Exception? AddDeviceError { get; set; }
         public Exception? GetDevicesError { get; set; }
         public bool PersistDeviceBeforeThrow { get; set; }
@@ -435,11 +486,30 @@ public sealed class ProjectWorkspaceServiceTests
             CredentialReference credentialReference,
             CancellationToken cancellationToken = default)
         {
+            return AddDeviceAsync(projectId, displayName, host, port, userName, category, protocol,
+                SshAuthenticationMethod.Password, credentialReference, null, cancellationToken);
+        }
+
+        public Task<DeviceId> AddDeviceAsync(
+            ProjectId projectId,
+            string displayName,
+            string host,
+            int port,
+            string userName,
+            TargetCategory category,
+            ConnectionProtocol protocol,
+            SshAuthenticationMethod authenticationMethod,
+            CredentialReference credentialReference,
+            PrivateKeyReference? privateKeyReference,
+            CancellationToken cancellationToken = default)
+        {
             calls?.Add("repository.add");
             CredentialReference = credentialReference;
             UserName = userName;
             Category = category;
             Protocol = protocol;
+            AuthenticationMethod = authenticationMethod;
+            PrivateKeyReference = privateKeyReference;
             if (PersistDeviceBeforeThrow)
             {
                 Devices = new[]
@@ -453,18 +523,17 @@ public sealed class ProjectWorkspaceServiceTests
                         userName,
                         category,
                         protocol,
+                        authenticationMethod,
                         credentialReference,
+                        privateKeyReference,
                         DateTimeOffset.UtcNow)
                 };
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (AddDeviceError != null)
-            {
-                return Task.FromException<DeviceId>(AddDeviceError);
-            }
-
-            return Task.FromResult(DeviceIdToReturn);
+            return AddDeviceError == null
+                ? Task.FromResult(DeviceIdToReturn)
+                : Task.FromException<DeviceId>(AddDeviceError);
         }
 
         public Task<IReadOnlyList<ProjectRecord>> GetProjectsAsync(CancellationToken cancellationToken = default)

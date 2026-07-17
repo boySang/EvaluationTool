@@ -17,6 +17,7 @@ namespace AssessmentTool.Windows.Tests.Sessions;
 public sealed class PlinkNoCommandLoginTesterTests
 {
     private const string CredentialPath = @"C:\AssessmentTool\CredentialLeases\login-test\pw.tmp";
+    private const string PrivateKeyPath = @"C:\AssessmentTool\PrivateKeyLeases\login-test\key.ppk";
 
     [Fact]
     public async Task Confirmed_profile_uses_N_and_zero_standard_input_then_accepts_explicit_success_marker()
@@ -78,6 +79,33 @@ public sealed class PlinkNoCommandLoginTesterTests
         }
     }
 
+    [Fact]
+    public async Task Confirmed_private_key_profile_uses_controlled_key_without_reading_password()
+    {
+        var runner = new RecordingRunner(ProcessRunResult.Stopped(
+            ProcessRunOutcome.TimedOut,
+            Array.Empty<byte>(),
+            Encoding.UTF8.GetBytes("Access granted\r\nOpening main session")));
+        var credentials = new RecordingCredentialFactory();
+        var privateKeys = new RecordingPrivateKeyFactory();
+        using (var candidate = CreateCandidate())
+        {
+            var result = await new PlinkNoCommandLoginTester(
+                    credentials, privateKeys, runner, Encoding.UTF8)
+                .TestAsync(candidate, ConfirmedPrivateKeyProfile(), CancellationToken.None);
+
+            Assert.Equal(NoCommandLoginOutcome.Succeeded, result.Outcome);
+            Assert.Equal(0, credentials.CreateCount);
+            Assert.Equal(1, privateKeys.CreateCount);
+            Assert.True(privateKeys.Lease.Disposed);
+            Assert.Contains("-i", runner.ArgumentTokens);
+            Assert.Contains(PrivateKeyPath, runner.ArgumentTokens);
+            Assert.DoesNotContain("-pwfile", runner.ArgumentTokens);
+            Assert.Contains("-N", runner.ArgumentTokens);
+            Assert.Empty(runner.Request!.GetStandardInputBytes());
+        }
+    }
+
     private static ConnectionProfile ConfirmedProfile()
     {
         var endpoint = new SshEndpointIdentity("router.example.test", 22);
@@ -95,6 +123,31 @@ public sealed class PlinkNoCommandLoginTesterTests
     {
         var endpoint = new SshEndpointIdentity("router.example.test", 22);
         return Profile(HostKeyTrust.Unconfigured(endpoint));
+    }
+
+    private static ConnectionProfile ConfirmedPrivateKeyProfile()
+    {
+        var endpoint = new SshEndpointIdentity("router.example.test", 22);
+        var coordinator = HostKeyTrustServices.CreateCoordinator();
+        var observedAt = new DateTimeOffset(2026, 7, 18, 8, 0, 0, TimeSpan.Zero);
+        var observed = coordinator.RecordObservation(
+            coordinator.BeginProbe(HostKeyTrust.Unconfigured(endpoint)),
+            "ssh-ed25519",
+            "ssh-ed25519 255 SHA256:fixture",
+            observedAt);
+        var trust = coordinator.Confirm(observed, observedAt.AddMinutes(1), "客户控制台核对");
+        return new ConnectionProfile(
+            "核心交换机",
+            endpoint.Host,
+            endpoint.Port,
+            ConnectionProtocol.Ssh,
+            new SshConnectionOptions(
+                endpoint,
+                "audit-user",
+                SshAuthenticationMethod.PrivateKey,
+                CredentialReference.New(),
+                PrivateKeyReference.New(),
+                trust));
     }
 
     private static ConnectionProfile Profile(HostKeyTrust trust)
@@ -172,6 +225,37 @@ public sealed class PlinkNoCommandLoginTesterTests
     {
         public string Path => CredentialPath;
         public string RedactedIdentifier => "login-test-credential";
+        internal bool Disposed { get; private set; }
+
+        public void Dispose()
+        {
+            Disposed = true;
+        }
+    }
+
+    private sealed class RecordingPrivateKeyFactory : IPrivateKeyFileLeaseFactory
+    {
+        internal RecordingPrivateKeyFactory()
+        {
+            Lease = new RecordingPrivateKeyLease();
+        }
+
+        internal int CreateCount { get; private set; }
+        internal RecordingPrivateKeyLease Lease { get; }
+
+        public IPrivateKeyFileLease Create(
+            PrivateKeyReference privateKeyReference,
+            CancellationToken cancellationToken)
+        {
+            CreateCount++;
+            return Lease;
+        }
+    }
+
+    private sealed class RecordingPrivateKeyLease : IPrivateKeyFileLease
+    {
+        public string Path => PrivateKeyPath;
+        public string RedactedIdentifier => "login-test-private-key";
         internal bool Disposed { get; private set; }
 
         public void Dispose()

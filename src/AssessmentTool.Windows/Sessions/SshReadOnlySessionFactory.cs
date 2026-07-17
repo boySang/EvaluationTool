@@ -45,6 +45,7 @@ public sealed class SshReadOnlySessionFactory
                 profile,
                 candidate,
                 new CredentialFileLeaseFactory(credentialVault),
+                new PrivateKeyFileLeaseFactory(credentialVault),
                 new WindowsProcessRunner(),
                 new NullDiagnostics(),
                 new UTF8Encoding(false, true),

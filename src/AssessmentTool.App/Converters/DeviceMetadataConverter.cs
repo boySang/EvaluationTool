@@ -43,6 +43,17 @@ public sealed class DeviceMetadataConverter : IValueConverter
             }
         }
 
+        if (value is SshAuthenticationMethod authenticationMethod)
+        {
+            switch (authenticationMethod)
+            {
+                case SshAuthenticationMethod.Password:
+                    return "密码验证";
+                case SshAuthenticationMethod.PrivateKey:
+                    return "PuTTY PPK 私钥";
+            }
+        }
+
         return "未知";
     }
 

@@ -164,9 +164,19 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
 
     public async Task AddDeviceAsync(char[] password)
     {
+        await AddSshDeviceCoreAsync(password, SshAuthenticationMethod.Password);
+    }
+
+    public async Task AddPrivateKeyDeviceAsync(char[] privateKeyMaterial)
+    {
+        await AddSshDeviceCoreAsync(privateKeyMaterial, SshAuthenticationMethod.PrivateKey);
+    }
+
+    private async Task AddSshDeviceCoreAsync(char[] secretMaterial, SshAuthenticationMethod authenticationMethod)
+    {
         if (!TryBeginExclusive(ProjectWorkspaceState.AddingDevice))
         {
-            Clear(password);
+            Clear(secretMaterial);
             return;
         }
 
@@ -182,14 +192,23 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
                 throw new ArgumentException("请输入 1 到 65535 之间的连接端口。", nameof(DevicePortText));
             }
 
-            var createdId = await service.AddSshDeviceAsync(
-                selectedProject.Id,
-                DeviceDisplayName,
-                DeviceHost,
-                port,
-                DeviceUserName,
-                DeviceCategory,
-                password);
+            var createdId = authenticationMethod == SshAuthenticationMethod.PrivateKey
+                ? await service.AddSshPrivateKeyDeviceAsync(
+                    selectedProject.Id,
+                    DeviceDisplayName,
+                    DeviceHost,
+                    port,
+                    DeviceUserName,
+                    DeviceCategory,
+                    secretMaterial)
+                : await service.AddSshDeviceAsync(
+                    selectedProject.Id,
+                    DeviceDisplayName,
+                    DeviceHost,
+                    port,
+                    DeviceUserName,
+                    DeviceCategory,
+                    secretMaterial);
             var refreshed = await service.GetDevicesAsync(selectedProject.Id);
             SetDevices(refreshed);
             SelectedDevice = refreshed.Single(device => device.Id.Equals(createdId));
@@ -201,7 +220,7 @@ public sealed class ProjectWorkspaceViewModel : INotifyPropertyChanged
         }
         finally
         {
-            Clear(password);
+            Clear(secretMaterial);
             exclusiveOperation = false;
         }
     }

@@ -42,6 +42,7 @@ internal sealed class PlinkNoCommandLoginTester
     private static readonly TimeSpan LoginObservationTimeout = TimeSpan.FromSeconds(8);
 
     private readonly ICredentialLeaseFactory credentialLeaseFactory;
+    private readonly IPrivateKeyFileLeaseFactory? privateKeyLeaseFactory;
     private readonly IProcessRunner processRunner;
     private readonly Encoding encoding;
 
@@ -49,9 +50,19 @@ internal sealed class PlinkNoCommandLoginTester
         ICredentialLeaseFactory credentialLeaseFactory,
         IProcessRunner processRunner,
         Encoding encoding)
+        : this(credentialLeaseFactory, null, processRunner, encoding)
+    {
+    }
+
+    internal PlinkNoCommandLoginTester(
+        ICredentialLeaseFactory credentialLeaseFactory,
+        IPrivateKeyFileLeaseFactory? privateKeyLeaseFactory,
+        IProcessRunner processRunner,
+        Encoding encoding)
     {
         this.credentialLeaseFactory = credentialLeaseFactory
             ?? throw new ArgumentNullException(nameof(credentialLeaseFactory));
+        this.privateKeyLeaseFactory = privateKeyLeaseFactory;
         this.processRunner = processRunner ?? throw new ArgumentNullException(nameof(processRunner));
         this.encoding = Encoding.GetEncoding(
             (encoding ?? throw new ArgumentNullException(nameof(encoding))).CodePage,
@@ -69,15 +80,36 @@ internal sealed class PlinkNoCommandLoginTester
             throw new ArgumentNullException(nameof(executable));
         }
 
-        var options = RequireConfirmedPasswordProfile(profile);
-        ICredentialFileLease? credentialLease = null;
+        var options = RequireConfirmedProfile(profile);
+        IDisposable? authenticationLease = null;
         try
         {
-            credentialLease = credentialLeaseFactory.Create(
-                options.CredentialReference,
-                cancellationToken);
+            string? passwordFilePath = null;
+            string? privateKeyPath = null;
+            if (options.AuthenticationMethod == SshAuthenticationMethod.Password)
+            {
+                var credentialLease = credentialLeaseFactory.Create(
+                    options.CredentialReference,
+                    cancellationToken);
+                authenticationLease = credentialLease;
+                passwordFilePath = credentialLease.Path;
+            }
+            else
+            {
+                if (!options.PrivateKeyReference.HasValue || privateKeyLeaseFactory == null)
+                {
+                    throw new InvalidOperationException("当前未安装受信任的私钥文件提供组件。");
+                }
+
+                var privateKeyLease = privateKeyLeaseFactory.Create(
+                    options.PrivateKeyReference.Value,
+                    cancellationToken);
+                authenticationLease = privateKeyLease;
+                privateKeyPath = privateKeyLease.Path;
+            }
+
             var commandPlan = new PlinkArgumentsBuilder().Build(
-                new PlinkArgumentsBuildRequest(profile, credentialLease.Path, null));
+                new PlinkArgumentsBuildRequest(profile, passwordFilePath, privateKeyPath));
             var request = ProcessRunRequest.CreateWithoutStandardInput(
                 PlinkNoCommandLoginPlan.Create(commandPlan),
                 LoginObservationTimeout,
@@ -96,11 +128,11 @@ internal sealed class PlinkNoCommandLoginTester
         }
         finally
         {
-            credentialLease?.Dispose();
+            authenticationLease?.Dispose();
         }
     }
 
-    private static SshConnectionOptions RequireConfirmedPasswordProfile(ConnectionProfile profile)
+    private static SshConnectionOptions RequireConfirmedProfile(ConnectionProfile profile)
     {
         if (profile == null)
         {
@@ -114,9 +146,10 @@ internal sealed class PlinkNoCommandLoginTester
             throw new InvalidOperationException("SSH 主机指纹尚未确认，已阻止读取密码和登录。");
         }
 
-        if (profile.SshOptions.AuthenticationMethod != SshAuthenticationMethod.Password)
+        if (profile.SshOptions.AuthenticationMethod != SshAuthenticationMethod.Password
+            && profile.SshOptions.AuthenticationMethod != SshAuthenticationMethod.PrivateKey)
         {
-            throw new NotSupportedException("当前登录测试仅支持密码认证，私钥认证将在安装对应安全组件后启用。");
+            throw new NotSupportedException("当前登录测试不支持该 SSH 认证方式。");
         }
 
         return profile.SshOptions;
@@ -141,7 +174,7 @@ internal sealed class PlinkNoCommandLoginTester
 
         if (ContainsAny(transcript, "Access denied", "Authentication failed", "Wrong passphrase"))
         {
-            return new NoCommandLoginResult(NoCommandLoginOutcome.AuthenticationFailed, "SSH 身份验证失败，请检查用户名和密码。");
+            return new NoCommandLoginResult(NoCommandLoginOutcome.AuthenticationFailed, "SSH 身份验证失败，请检查用户名以及密码或私钥。");
         }
 
         if (ContainsAny(transcript, "Host key did not match", "Host key verification failed"))

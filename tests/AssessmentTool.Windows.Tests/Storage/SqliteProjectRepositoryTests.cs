@@ -115,8 +115,8 @@ public sealed class SqliteProjectRepositoryTests
             await Task.WhenAll(repositories.Select(repository => repository.InitializeAsync()));
 
             var versions = await Task.WhenAll(repositories.Select(repository => repository.GetSchemaVersionAsync()));
-            Assert.All(versions, version => Assert.Equal(5, version));
-            Assert.Equal(5, database.ReadSchemaVersionRowCount());
+            Assert.All(versions, version => Assert.Equal(6, version));
+            Assert.Equal(6, database.ReadSchemaVersionRowCount());
             Assert.Equal(0, SqliteProjectRepository.InitializationLockCount);
         }
     }
@@ -144,7 +144,67 @@ public sealed class SqliteProjectRepositoryTests
             Assert.Equal("audit-reader", device.UserName);
             Assert.Equal(TargetCategory.NetworkDevice, device.Category);
             Assert.Equal(ConnectionProtocol.Ssh, device.Protocol);
-            Assert.Equal(5, await repository.GetSchemaVersionAsync());
+            Assert.Equal(6, await repository.GetSchemaVersionAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Ssh_authentication_and_private_key_reference_round_trip_without_key_material()
+    {
+        const string privateKeyMaterial = "PuTTY-User-Key-File-3: ssh-ed25519\nEncryption: none\nprivate-key-secret";
+        using (var database = new TemporaryDatabase())
+        {
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+            var projectId = await repository.CreateProjectAsync("客户", "密钥项目", @"C:\Evidence");
+            var vault = new FakeCredentialVault();
+            var credentialReference = vault.Store(privateKeyMaterial);
+            var privateKeyReference = PrivateKeyReference.Parse(credentialReference.ToString());
+
+            await repository.AddDeviceAsync(
+                projectId,
+                "密钥服务器",
+                "192.0.2.88",
+                22,
+                "audit-reader",
+                TargetCategory.Server,
+                ConnectionProtocol.Ssh,
+                SshAuthenticationMethod.PrivateKey,
+                credentialReference,
+                privateKeyReference);
+
+            var device = Assert.Single(await repository.GetDevicesAsync(projectId));
+            Assert.Equal(SshAuthenticationMethod.PrivateKey, device.AuthenticationMethod);
+            Assert.Equal(credentialReference, device.CredentialReference);
+            Assert.Equal(privateKeyReference, device.PrivateKeyReference);
+            Assert.Equal(privateKeyMaterial, vault.Get(credentialReference));
+            Assert.All(database.GetDatabaseArtifacts(), artifact =>
+            {
+                var contents = File.ReadAllBytes(artifact);
+                Assert.False(ContainsSequence(contents, Encoding.UTF8.GetBytes(privateKeyMaterial)));
+                Assert.False(ContainsSequence(contents, Encoding.Unicode.GetBytes(privateKeyMaterial)));
+            });
+        }
+    }
+
+    [Fact]
+    public async Task Migration_six_defaults_existing_devices_to_password_authentication()
+    {
+        using (var database = new TemporaryDatabase())
+        {
+            var projectId = ProjectId.New();
+            var deviceId = DeviceId.New();
+            var credentialReference = CredentialReference.New();
+            database.CreateVersionFiveDatabase(projectId, deviceId, credentialReference);
+
+            var repository = new SqliteProjectRepository(database.ConnectionString);
+            await repository.InitializeAsync();
+
+            var device = Assert.Single(await repository.GetDevicesAsync(projectId));
+            Assert.Equal(deviceId, device.Id);
+            Assert.Equal(SshAuthenticationMethod.Password, device.AuthenticationMethod);
+            Assert.Null(device.PrivateKeyReference);
+            Assert.Equal(6, await repository.GetSchemaVersionAsync());
         }
     }
 
@@ -413,7 +473,7 @@ public sealed class SqliteProjectRepositoryTests
     [Fact]
     public void Built_in_migration_versions_must_be_unique_and_contiguous_from_one()
     {
-        MigrationSequence.Validate(new[] { 1, 2, 3, 4, 5 });
+        MigrationSequence.Validate(new[] { 1, 2, 3, 4, 5, 6 });
 
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(Array.Empty<int>()));
         Assert.Throws<InvalidDataException>(() => MigrationSequence.Validate(new[] { 2 }));
@@ -893,6 +953,61 @@ public sealed class SqliteProjectRepositoryTests
             {
                 command.CommandText = "SELECT COUNT(*) FROM schema_version;";
                 return Convert.ToInt32(command.ExecuteScalar());
+            }
+        }
+
+        public void CreateVersionFiveDatabase(
+            ProjectId projectId,
+            DeviceId deviceId,
+            CredentialReference credentialReference)
+        {
+            using (var connection = OpenConnection())
+            using (var transaction = connection.BeginTransaction())
+            {
+                for (var version = 1; version <= 5; version++)
+                {
+                    var resourceName = version switch
+                    {
+                        1 => "AssessmentTool.Windows.Storage.Migrations.001_initial.sql",
+                        2 => "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql",
+                        3 => "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql",
+                        4 => "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql",
+                        5 => "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql",
+                        _ => throw new InvalidOperationException()
+                    };
+                    using (var stream = typeof(SqliteProjectRepository).Assembly.GetManifestResourceStream(resourceName))
+                    using (var reader = new StreamReader(stream ?? throw new InvalidOperationException(resourceName)))
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = reader.ReadToEnd();
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = "CREATE TABLE schema_version (version INTEGER NOT NULL PRIMARY KEY, applied_at_utc TEXT NOT NULL);";
+                    command.ExecuteNonQuery();
+                    command.CommandText = "INSERT INTO schema_version(version, applied_at_utc) VALUES(1, @time), (2, @time), (3, @time), (4, @time), (5, @time);";
+                    command.Parameters.AddWithValue("@time", DateTimeOffset.UtcNow.ToString("O"));
+                    command.ExecuteNonQuery();
+                    command.Parameters.Clear();
+                    command.CommandText = "INSERT INTO projects(id, customer_name, project_name, evidence_root, created_at_utc) VALUES(@projectId, '客户', '旧项目', 'C:\\Evidence', @time);";
+                    command.Parameters.AddWithValue("@projectId", projectId.ToString());
+                    command.Parameters.AddWithValue("@time", DateTimeOffset.UtcNow.ToString("O"));
+                    command.ExecuteNonQuery();
+                    command.Parameters.Clear();
+                    command.CommandText = "INSERT INTO devices(id, project_id, display_name, host, port, credential_reference, created_at_utc, user_name, target_category, connection_protocol) VALUES(@deviceId, @projectId, '旧设备', '192.0.2.90', 22, @credentialReference, @time, 'audit-reader', 2, 0);";
+                    command.Parameters.AddWithValue("@deviceId", deviceId.ToString());
+                    command.Parameters.AddWithValue("@projectId", projectId.ToString());
+                    command.Parameters.AddWithValue("@credentialReference", credentialReference.ToString());
+                    command.Parameters.AddWithValue("@time", DateTimeOffset.UtcNow.ToString("O"));
+                    command.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
             }
         }
 

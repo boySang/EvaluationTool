@@ -128,6 +128,36 @@ public sealed class ProjectWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task Add_private_key_device_uses_private_key_service_then_clears_material()
+    {
+        var project = CreateProject("项目");
+        var createdDevice = CreateDevice(project, "服务器");
+        var service = new FakeProjectWorkspaceService { CreatedDeviceId = createdDevice.Id };
+        service.DeviceLoads[project.Id] = Task.FromResult<IReadOnlyList<DeviceRecord>>(Array.Empty<DeviceRecord>());
+        service.AfterAdd = () => service.DeviceLoads[project.Id] =
+            Task.FromResult<IReadOnlyList<DeviceRecord>>(new[] { createdDevice });
+        var viewModel = new ProjectWorkspaceViewModel(service)
+        {
+            DeviceDisplayName = "服务器",
+            DeviceHost = "192.0.2.20",
+            DevicePortText = "22",
+            DeviceUserName = "audit-reader",
+            DeviceCategory = TargetCategory.Server
+        };
+        await viewModel.SelectProjectAsync(project);
+        var privateKeyMaterial = "private-key-material".ToCharArray();
+
+        await viewModel.AddPrivateKeyDeviceAsync(privateKeyMaterial);
+
+        Assert.Equal(
+            (project.Id, "服务器", "192.0.2.20", 22, "audit-reader", TargetCategory.Server),
+            service.PrivateKeyAddArguments);
+        Assert.Equal(1, service.PrivateKeyAddCallCount);
+        Assert.Same(createdDevice, viewModel.SelectedDevice);
+        Assert.All(privateKeyMaterial, value => Assert.Equal('\0', value));
+    }
+
+    [Fact]
     public async Task Operations_reject_duplicate_submission_while_busy()
     {
         var createGate = new TaskCompletionSource<ProjectId>();
@@ -265,6 +295,8 @@ public sealed class ProjectWorkspaceViewModelTests
         public int CreateCallCount { get; private set; }
         public (string Customer, string Project, string Root) CreateArguments { get; private set; }
         public (ProjectId Project, string Name, string Host, int Port, string UserName, TargetCategory Category) AddArguments { get; private set; }
+        public (ProjectId Project, string Name, string Host, int Port, string UserName, TargetCategory Category) PrivateKeyAddArguments { get; private set; }
+        public int PrivateKeyAddCallCount { get; private set; }
 
         public Task InitializeAsync(CancellationToken cancellationToken = default)
         {
@@ -313,6 +345,23 @@ public sealed class ProjectWorkspaceViewModelTests
             CancellationToken cancellationToken = default)
         {
             AddArguments = (projectId, displayName, host, port, userName, category);
+            var id = AddGate == null ? CreatedDeviceId : await AddGate;
+            AfterAdd?.Invoke();
+            return id;
+        }
+
+        public async Task<DeviceId> AddSshPrivateKeyDeviceAsync(
+            ProjectId projectId,
+            string displayName,
+            string host,
+            int port,
+            string userName,
+            TargetCategory category,
+            char[] privateKeyMaterial,
+            CancellationToken cancellationToken = default)
+        {
+            PrivateKeyAddCallCount++;
+            PrivateKeyAddArguments = (projectId, displayName, host, port, userName, category);
             var id = AddGate == null ? CreatedDeviceId : await AddGate;
             AfterAdd?.Invoke();
             return id;

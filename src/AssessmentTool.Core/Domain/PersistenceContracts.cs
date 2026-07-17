@@ -260,7 +260,9 @@ public sealed class DeviceRecord
             "未设置",
             TargetCategory.Automatic,
             ConnectionProtocol.Ssh,
+            SshAuthenticationMethod.Password,
             credentialReference,
+            null,
             createdAt)
     {
     }
@@ -275,6 +277,35 @@ public sealed class DeviceRecord
         TargetCategory category,
         ConnectionProtocol protocol,
         CredentialReference credentialReference,
+        DateTimeOffset createdAt)
+        : this(
+            id,
+            projectId,
+            displayName,
+            host,
+            port,
+            userName,
+            category,
+            protocol,
+            SshAuthenticationMethod.Password,
+            credentialReference,
+            null,
+            createdAt)
+    {
+    }
+
+    public DeviceRecord(
+        DeviceId id,
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        ConnectionProtocol protocol,
+        SshAuthenticationMethod authenticationMethod,
+        CredentialReference credentialReference,
+        PrivateKeyReference? privateKeyReference,
         DateTimeOffset createdAt)
     {
         if (!id.IsValid)
@@ -313,9 +344,31 @@ public sealed class DeviceRecord
             throw new ArgumentOutOfRangeException(nameof(protocol), protocol, "Connection protocol is invalid.");
         }
 
+        if (!Enum.IsDefined(typeof(SshAuthenticationMethod), authenticationMethod))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(authenticationMethod), authenticationMethod, "SSH authentication method is invalid.");
+        }
+
+        if (authenticationMethod == SshAuthenticationMethod.Password && privateKeyReference.HasValue)
+        {
+            throw new ArgumentException(
+                "Password authentication cannot contain a private key reference.", nameof(privateKeyReference));
+        }
+
+        if (authenticationMethod == SshAuthenticationMethod.PrivateKey &&
+            (!privateKeyReference.HasValue || !privateKeyReference.Value.IsValid))
+        {
+            throw new ArgumentException(
+                "Private-key authentication requires an initialized private key reference.",
+                nameof(privateKeyReference));
+        }
+
         Category = category;
         Protocol = protocol;
+        AuthenticationMethod = authenticationMethod;
         CredentialReference = credentialReference;
+        PrivateKeyReference = privateKeyReference;
         CreatedAt = createdAt.ToUniversalTime();
     }
 
@@ -327,7 +380,9 @@ public sealed class DeviceRecord
     public string UserName { get; }
     public TargetCategory Category { get; }
     public ConnectionProtocol Protocol { get; }
+    public SshAuthenticationMethod AuthenticationMethod { get; }
     public CredentialReference CredentialReference { get; }
+    public PrivateKeyReference? PrivateKeyReference { get; }
     public DateTimeOffset CreatedAt { get; }
 
     private static string ValidateRequiredText(string value, string parameterName)

@@ -29,7 +29,8 @@ public sealed class SqliteProjectRepository :
         new Migration(2, "AssessmentTool.Windows.Storage.Migrations.002_device_connection_identity.sql"),
         new Migration(3, "AssessmentTool.Windows.Storage.Migrations.003_ssh_host_key_trust.sql"),
         new Migration(4, "AssessmentTool.Windows.Storage.Migrations.004_database_confirmations.sql"),
-        new Migration(5, "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql")
+        new Migration(5, "AssessmentTool.Windows.Storage.Migrations.005_command_drafts.sql"),
+        new Migration(6, "AssessmentTool.Windows.Storage.Migrations.006_device_ssh_authentication.sql")
     };
 
     private static readonly KeyedAsyncLock InitializationLock =
@@ -121,7 +122,9 @@ public sealed class SqliteProjectRepository :
             "未设置",
             TargetCategory.Automatic,
             ConnectionProtocol.Ssh,
+            SshAuthenticationMethod.Password,
             credentialReference,
+            null,
             cancellationToken);
     }
 
@@ -136,19 +139,46 @@ public sealed class SqliteProjectRepository :
         CredentialReference credentialReference,
         CancellationToken cancellationToken = default)
     {
+        return AddDeviceAsync(
+            projectId,
+            displayName,
+            host,
+            port,
+            userName,
+            category,
+            protocol,
+            SshAuthenticationMethod.Password,
+            credentialReference,
+            null,
+            cancellationToken);
+    }
+
+    public Task<DeviceId> AddDeviceAsync(
+        ProjectId projectId,
+        string displayName,
+        string host,
+        int port,
+        string userName,
+        TargetCategory category,
+        ConnectionProtocol protocol,
+        SshAuthenticationMethod authenticationMethod,
+        CredentialReference credentialReference,
+        PrivateKeyReference? privateKeyReference,
+        CancellationToken cancellationToken = default)
+    {
         return RunDatabaseOperationAsync(
             token =>
             {
                 var device = new DeviceRecord(
                     DeviceId.New(), projectId, displayName, host, port, userName, category, protocol,
-                    credentialReference, DateTimeOffset.UtcNow);
+                    authenticationMethod, credentialReference, privateKeyReference, DateTimeOffset.UtcNow);
                 using (var connection = OpenConnection())
                 using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
                 using (var command = connection.CreateCommand())
                 {
                     token.ThrowIfCancellationRequested();
                     command.Transaction = transaction;
-                    command.CommandText = "INSERT INTO devices(id, project_id, display_name, host, port, user_name, target_category, connection_protocol, credential_reference, created_at_utc) VALUES(@id, @projectId, @displayName, @host, @port, @userName, @targetCategory, @connectionProtocol, @credentialReference, @createdAtUtc);";
+                    command.CommandText = "INSERT INTO devices(id, project_id, display_name, host, port, user_name, target_category, connection_protocol, ssh_authentication_method, credential_reference, private_key_reference, created_at_utc) VALUES(@id, @projectId, @displayName, @host, @port, @userName, @targetCategory, @connectionProtocol, @authenticationMethod, @credentialReference, @privateKeyReference, @createdAtUtc);";
                     command.Parameters.AddWithValue("@id", device.Id.ToString());
                     command.Parameters.AddWithValue("@projectId", device.ProjectId.ToString());
                     command.Parameters.AddWithValue("@displayName", device.DisplayName);
@@ -157,7 +187,13 @@ public sealed class SqliteProjectRepository :
                     command.Parameters.AddWithValue("@userName", device.UserName);
                     command.Parameters.AddWithValue("@targetCategory", (int)device.Category);
                     command.Parameters.AddWithValue("@connectionProtocol", (int)device.Protocol);
+                    command.Parameters.AddWithValue("@authenticationMethod", (int)device.AuthenticationMethod);
                     command.Parameters.AddWithValue("@credentialReference", device.CredentialReference.ToString());
+                    command.Parameters.AddWithValue(
+                        "@privateKeyReference",
+                        device.PrivateKeyReference.HasValue
+                            ? (object)device.PrivateKeyReference.Value.ToString()
+                            : DBNull.Value);
                     command.Parameters.AddWithValue("@createdAtUtc", FormatUtc(device.CreatedAt));
                     command.ExecuteNonQuery();
                     token.ThrowIfCancellationRequested();
@@ -239,7 +275,7 @@ public sealed class SqliteProjectRepository :
                 using (var connection = OpenConnection())
                 using (var command = connection.CreateCommand())
                 {
-                    command.CommandText = "SELECT id, project_id, display_name, host, port, user_name, target_category, connection_protocol, credential_reference, created_at_utc FROM devices WHERE project_id = @projectId ORDER BY created_at_utc, id;";
+                    command.CommandText = "SELECT id, project_id, display_name, host, port, user_name, target_category, connection_protocol, ssh_authentication_method, credential_reference, private_key_reference, created_at_utc FROM devices WHERE project_id = @projectId ORDER BY created_at_utc, id;";
                     command.Parameters.AddWithValue("@projectId", projectId.ToString());
                     using (var reader = command.ExecuteReader())
                     {
@@ -255,8 +291,12 @@ public sealed class SqliteProjectRepository :
                                 reader.GetString(5),
                                 ReadEnum<TargetCategory>(reader.GetInt32(6), "target category"),
                                 ReadEnum<ConnectionProtocol>(reader.GetInt32(7), "connection protocol"),
-                                CredentialReference.Parse(reader.GetString(8)),
-                                ParseUtc(reader.GetString(9))));
+                                ReadEnum<SshAuthenticationMethod>(reader.GetInt32(8), "SSH authentication method"),
+                                CredentialReference.Parse(reader.GetString(9)),
+                                reader.IsDBNull(10)
+                                    ? (PrivateKeyReference?)null
+                                    : PrivateKeyReference.Parse(reader.GetString(10)),
+                                ParseUtc(reader.GetString(11))));
                         }
                     }
                 }

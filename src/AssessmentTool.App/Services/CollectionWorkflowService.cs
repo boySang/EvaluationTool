@@ -234,9 +234,9 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             new SshConnectionOptions(
                 trust.Endpoint,
                 device.UserName,
-                SshAuthenticationMethod.Password,
+                device.AuthenticationMethod,
                 device.CredentialReference,
-                null,
+                device.PrivateKeyReference,
                 trust));
     }
 

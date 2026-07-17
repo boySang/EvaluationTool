@@ -414,17 +414,52 @@
                   <TextBlock Text="首版先接通 SSH；其他方式后续按插件启用，不会影响核心软件启动。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,18" />
                   <Border Background="{DynamicResource Brush.AccentSoft}" BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1" CornerRadius="7" Padding="14" Margin="0,0,0,16"><StackPanel Orientation="Horizontal"><TextBlock Text="&gt;_" FontWeight="Bold" FontSize="18" Width="42" /><StackPanel><TextBlock Text="SSH" FontWeight="SemiBold" /><TextBlock Text="加密连接 · 首次必须确认主机指纹" Style="{StaticResource SecondaryTextStyle}" FontSize="11" /></StackPanel></StackPanel></Border>
                   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="SSH 用户名 *" /><TextBox Text="{Binding DeviceEditor.UserName, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 用户名" /></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="端口 *" /><TextBox Text="{Binding DeviceEditor.PortText, UpdateSourceTrigger=PropertyChanged}" automation:AutomationProperties.Name="SSH 端口" /></StackPanel></Grid>
-                  <TextBlock Text="登录密码 *" />
-                  <PasswordBox x:Name="DevicePasswordBox" automation:AutomationProperties.Name="连接密码" />
-                  <TextBlock Text="密码仅在保存时复制到安全缓冲区，随后使用当前 Windows 用户的 DPAPI 加密。" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
+                  <TextBlock Text="身份验证方式 *" />
+                  <ComboBox x:Name="DeviceAuthenticationSelector"
+                            SelectedValue="{Binding DeviceEditor.AuthenticationMethod, Mode=TwoWay}"
+                            SelectedValuePath="Tag"
+                            SelectionChanged="DeviceAuthentication_Changed"
+                            Margin="0,4,0,12"
+                            automation:AutomationProperties.Name="SSH 身份验证方式">
+                    <ComboBoxItem Content="密码验证" Tag="{x:Static core:SshAuthenticationMethod.Password}" />
+                    <ComboBoxItem Content="PuTTY PPK 私钥" Tag="{x:Static core:SshAuthenticationMethod.PrivateKey}" />
+                  </ComboBox>
+                  <StackPanel>
+                    <StackPanel.Style>
+                      <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsPasswordAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                      </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="登录密码 *" />
+                    <PasswordBox x:Name="DevicePasswordBox" PasswordChanged="DevicePassword_Changed" automation:AutomationProperties.Name="连接密码" />
+                    <TextBlock Text="密码仅在保存时复制到安全缓冲区，随后使用当前 Windows 用户的 DPAPI 加密。" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
+                  </StackPanel>
+                  <StackPanel>
+                    <StackPanel.Style>
+                      <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                      </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="PuTTY PPK 私钥 *" />
+                    <Grid Margin="0,4,0,0">
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                      <Border Background="{DynamicResource Brush.SurfaceSubtle}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="6" Padding="12,8" Margin="0,0,10,0">
+                        <TextBlock Text="{Binding DeviceEditor.PrivateKeyFileName, TargetNullValue=尚未选择私钥文件, FallbackValue=尚未选择私钥文件}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DeviceEditor.PrivateKeyFileName}" automation:AutomationProperties.Name="已选择的私钥安全文件名" />
+                      </Border>
+                      <Button Grid.Column="1" Content="选择 PPK 文件" Style="{StaticResource FluentSecondaryButtonStyle}" Click="SelectPrivateKey_Click" automation:AutomationProperties.Name="选择 PuTTY PPK 私钥文件" />
+                    </Grid>
+                    <TextBlock Text="仅接受不超过 256 KB、严格 UTF-8 编码且未设置口令的 PuTTY PPK v2/v3；界面和项目数据只保留文件名，不保存原始路径。" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,0" />
+                  </StackPanel>
                 </StackPanel>
 
                 <StackPanel>
                   <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.Step}" Value="{x:Static viewModels:DeviceEditorStep.SaveAndTest}"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
                   <TextBlock Text="03  保存与连接测试" Style="{StaticResource SectionTitleStyle}" />
-                  <TextBlock Text="请确认设备资料。保存后，下一阶段先探测 SSH 主机指纹，不会直接使用密码登录。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
+                  <TextBlock Text="请确认设备资料。保存后进入：自动探测指纹 → 人工确认 → 无命令测试登录。" Style="{StaticResource SecondaryTextStyle}" Margin="0,0,0,20" />
                   <Border Background="{DynamicResource Brush.SurfaceSubtle}" BorderBrush="{DynamicResource Brush.Border}" BorderThickness="1" CornerRadius="7" Padding="18">
-                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><TextBlock Text="设备名称" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Grid.Column="1" Text="{Binding DeviceEditor.DisplayName}" FontWeight="SemiBold" /><TextBlock Grid.Row="1" Text="主机地址" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeviceEditor.Host}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Text="SSH 账户" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceEditor.UserName}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Text="设备类别" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DeviceEditor.Category, Converter={StaticResource DeviceMetadataConverter}}" Margin="0,10,0,0" /></Grid>
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><TextBlock Text="设备名称" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Grid.Column="1" Text="{Binding DeviceEditor.DisplayName}" FontWeight="SemiBold" /><TextBlock Grid.Row="1" Text="主机地址" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeviceEditor.Host}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Text="SSH 账户" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeviceEditor.UserName}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Text="设备类别" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DeviceEditor.Category, Converter={StaticResource DeviceMetadataConverter}}" Margin="0,10,0,0" /><TextBlock Grid.Row="4" Text="身份验证" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0" /><TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding DeviceEditor.AuthenticationMethod}" Margin="0,10,0,0" /><TextBlock Grid.Row="5" Text="私钥文件" Style="{StaticResource SecondaryTextStyle}" Margin="0,10,0,0"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding DeviceEditor.PrivateKeyFileName}" Margin="0,10,0,0"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding DeviceEditor.IsPrivateKeyAuthentication}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Grid>
                   </Border>
                 </StackPanel>
               </Grid>

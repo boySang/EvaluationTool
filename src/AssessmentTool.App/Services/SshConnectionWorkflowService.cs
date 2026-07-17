@@ -188,9 +188,9 @@ public sealed class SshConnectionWorkflowService : ISshConnectionWorkflowService
             new SshConnectionOptions(
                 verified.Endpoint,
                 device.UserName,
-                SshAuthenticationMethod.Password,
+                device.AuthenticationMethod,
                 device.CredentialReference,
-                null,
+                device.PrivateKeyReference,
                 verified));
     }
 

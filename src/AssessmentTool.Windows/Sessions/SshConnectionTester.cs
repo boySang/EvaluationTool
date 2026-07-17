@@ -58,6 +58,7 @@ public sealed class SshConnectionTester
         hostKeyProbe = new PlinkHostKeyProbe(processRunner, encoding);
         loginTester = new PlinkNoCommandLoginTester(
             new CredentialFileLeaseFactory(credentialVault),
+            new PrivateKeyFileLeaseFactory(credentialVault),
             processRunner,
             encoding);
     }

@@ -227,6 +227,9 @@ public sealed class MainViewModelTests
         public Task<DeviceId> AddSshDeviceAsync(ProjectId projectId, string displayName, string host, int port,
             string userName, TargetCategory category, char[] password,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<DeviceId> AddSshPrivateKeyDeviceAsync(ProjectId projectId, string displayName, string host,
+            int port, string userName, TargetCategory category, char[] privateKeyMaterial,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FakeCollectionWorkflowService : ICollectionWorkflowService
