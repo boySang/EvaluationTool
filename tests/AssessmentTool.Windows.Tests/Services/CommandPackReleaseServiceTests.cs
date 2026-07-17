@@ -121,7 +121,7 @@ public sealed class CommandPackReleaseServiceTests
             string version,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(Published.SingleOrDefault(item =>
+            return Task.FromResult<PublishedCommandPackRecord?>(Published.SingleOrDefault(item =>
                 item.PackId == packId && item.Version == version));
         }
 
@@ -160,7 +160,7 @@ public sealed class CommandPackReleaseServiceTests
             string packId,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(Locks.LastOrDefault(item =>
+            return Task.FromResult<ProjectCommandPackLockRecord?>(Locks.LastOrDefault(item =>
                 item.ProjectId.Equals(projectId) && item.PackId == packId));
         }
 
