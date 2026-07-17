@@ -119,6 +119,7 @@ public sealed class CollectionRunner
             detection = string.IsNullOrWhiteSpace(transcript)
                 ? new DetectionResult(Array.Empty<DetectionCandidate>())
                 : detectionEngine.Detect(transcript, identificationRules);
+            detection = new LinuxOsReleaseVersionEnricher().Enrich(transcript, detection);
 
             if (request.ConfirmedCandidate != null)
             {

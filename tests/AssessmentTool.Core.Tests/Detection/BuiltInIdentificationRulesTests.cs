@@ -24,4 +24,40 @@ public sealed class BuiltInIdentificationRulesTests
         Assert.Null(candidate.Version);
         Assert.Equal(0.95, candidate.Confidence);
     }
+
+    [Theory]
+    [InlineData("ID=ubuntu\nVERSION_ID=24.04", "ubuntu", "24.04")]
+    [InlineData("ID=\"kylin\"\r\nVERSION_ID=\"10.1\"", "kylin", "10.1")]
+    public void Linux_os_release_enricher_uses_explicit_version_id(
+        string transcript,
+        string expectedVendor,
+        string expectedVersion)
+    {
+        var detected = new DetectionEngine().Detect(
+            transcript,
+            new[] { BuiltInIdentificationRules.LinuxOsReleaseId });
+
+        var result = new LinuxOsReleaseVersionEnricher().Enrich(transcript, detected);
+
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(expectedVendor, candidate.Vendor);
+        Assert.Equal(expectedVersion, candidate.Version);
+        Assert.Contains("VERSION_ID=" + expectedVersion, candidate.Evidence);
+    }
+
+    [Theory]
+    [InlineData("ID=ubuntu\nVERSION_ID=24.04\nVERSION_ID=22.04")]
+    [InlineData("ID=ubuntu\nVERSION_ID=latest")]
+    [InlineData("ID=ubuntu\nVERSION_ID=\"24.04")]
+    public void Linux_os_release_enricher_fails_closed_for_conflicting_or_invalid_versions(
+        string transcript)
+    {
+        var detected = new DetectionEngine().Detect(
+            transcript,
+            new[] { BuiltInIdentificationRules.LinuxOsReleaseId });
+
+        var result = new LinuxOsReleaseVersionEnricher().Enrich(transcript, detected);
+
+        Assert.Null(Assert.Single(result.Candidates).Version);
+    }
 }
