@@ -422,12 +422,22 @@ jobs:
 
           function Find-UiElement([IntPtr] $windowHandle, [string] $name) {
             $root = [System.Windows.Automation.AutomationElement]::FromHandle($windowHandle)
-            $condition = [System.Windows.Automation.PropertyCondition]::new(
-              [System.Windows.Automation.AutomationElement]::NameProperty,
-              $name)
-            return $root.FindFirst(
-              [System.Windows.Automation.TreeScope]::Descendants,
-              $condition)
+            $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+            $pending = New-Object 'System.Collections.Generic.Stack[System.Windows.Automation.AutomationElement]'
+            $pending.Push($root)
+            while ($pending.Count -gt 0) {
+              $element = $pending.Pop()
+              if ($element.Current.Name -eq $name) {
+                return $element
+              }
+
+              $child = $walker.GetFirstChild($element)
+              while ($null -ne $child) {
+                $pending.Push($child)
+                $child = $walker.GetNextSibling($child)
+              }
+            }
+            return $null
           }
 
           function Wait-UiElement([IntPtr] $windowHandle, [string] $name) {
@@ -444,16 +454,22 @@ jobs:
 
           function Write-UiAutomationTree([IntPtr] $windowHandle, [string] $path) {
             $root = [System.Windows.Automation.AutomationElement]::FromHandle($windowHandle)
-            $elements = $root.FindAll(
-              [System.Windows.Automation.TreeScope]::Descendants,
-              [System.Windows.Automation.Condition]::TrueCondition)
+            $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+            $pending = New-Object 'System.Collections.Generic.Stack[System.Windows.Automation.AutomationElement]'
+            $pending.Push($root)
             $lines = New-Object System.Collections.Generic.List[string]
-            for ($index = 0; $index -lt $elements.Count; $index++) {
-              $element = $elements.Item($index)
+            while ($pending.Count -gt 0) {
+              $element = $pending.Pop()
               $lines.Add(('{0}`t{1}`t{2}' -f
                   $element.Current.ControlType.ProgrammaticName,
                   $element.Current.Name,
                   $element.Current.AutomationId))
+
+              $child = $walker.GetFirstChild($element)
+              while ($null -ne $child) {
+                $pending.Push($child)
+                $child = $walker.GetNextSibling($child)
+              }
             }
             $lines | Set-Content -LiteralPath $path -Encoding UTF8
           }
