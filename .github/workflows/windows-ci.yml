@@ -430,31 +430,50 @@ jobs:
               $condition)
           }
 
-          function Select-UiItem([IntPtr] $windowHandle, [string] $name) {
-            $element = Find-UiElement $windowHandle $name
-            if ($null -eq $element) {
-              throw "UI capture could not find selection item: $name"
+          function Wait-UiElement([IntPtr] $windowHandle, [string] $name) {
+            $deadline = (Get-Date).AddSeconds(10)
+            while ((Get-Date) -lt $deadline) {
+              $element = Find-UiElement $windowHandle $name
+              if ($null -ne $element) {
+                return $element
+              }
+              Start-Sleep -Milliseconds 200
             }
+            throw "UI capture could not find element within 10 seconds: $name"
+          }
+
+          function Write-UiAutomationTree([IntPtr] $windowHandle, [string] $path) {
+            $root = [System.Windows.Automation.AutomationElement]::FromHandle($windowHandle)
+            $elements = $root.FindAll(
+              [System.Windows.Automation.TreeScope]::Descendants,
+              [System.Windows.Automation.Condition]::TrueCondition)
+            $lines = New-Object System.Collections.Generic.List[string]
+            for ($index = 0; $index -lt $elements.Count; $index++) {
+              $element = $elements.Item($index)
+              $lines.Add(('{0}`t{1}`t{2}' -f
+                  $element.Current.ControlType.ProgrammaticName,
+                  $element.Current.Name,
+                  $element.Current.AutomationId))
+            }
+            $lines | Set-Content -LiteralPath $path -Encoding UTF8
+          }
+
+          function Select-UiItem([IntPtr] $windowHandle, [string] $name) {
+            $element = Wait-UiElement $windowHandle $name
             $pattern = $element.GetCurrentPattern(
               [System.Windows.Automation.SelectionItemPattern]::Pattern)
             ([System.Windows.Automation.SelectionItemPattern]$pattern).Select()
           }
 
           function Set-UiValue([IntPtr] $windowHandle, [string] $name, [string] $value) {
-            $element = Find-UiElement $windowHandle $name
-            if ($null -eq $element) {
-              throw "UI capture could not find input: $name"
-            }
+            $element = Wait-UiElement $windowHandle $name
             $pattern = $element.GetCurrentPattern(
               [System.Windows.Automation.ValuePattern]::Pattern)
             ([System.Windows.Automation.ValuePattern]$pattern).SetValue($value)
           }
 
           function Invoke-UiButton([IntPtr] $windowHandle, [string] $name) {
-            $element = Find-UiElement $windowHandle $name
-            if ($null -eq $element) {
-              throw "UI capture could not find button: $name"
-            }
+            $element = Wait-UiElement $windowHandle $name
             $pattern = $element.GetCurrentPattern(
               [System.Windows.Automation.InvokePattern]::Pattern)
             ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
@@ -524,29 +543,36 @@ jobs:
               Write-Host "$description displayed the main window successfully."
               if ($captureScreens) {
                 $windowHandle = Get-MainWindowHandle $process
-                Save-WindowScreenshot `
-                  $windowHandle `
-                  (Join-Path $uiScreenshotDirectory '01-home-dashboard.png')
+                try {
+                  Save-WindowScreenshot `
+                    $windowHandle `
+                    (Join-Path $uiScreenshotDirectory '01-home-dashboard.png')
 
-                Select-UiItem $windowHandle '导航：项目'
-                Start-Sleep -Milliseconds 300
-                Set-UiValue $windowHandle '客户名称' 'CI 视觉验证客户'
-                Set-UiValue $windowHandle '项目名称' 'CI 视觉验证项目'
-                Set-UiValue $windowHandle '证据保存目录' $uiEvidenceDirectory
-                Invoke-UiButton $windowHandle '创建并保存项目'
-                Start-Sleep -Seconds 1
+                  Select-UiItem $windowHandle '导航：项目'
+                  Set-UiValue $windowHandle '客户名称' 'CI 视觉验证客户'
+                  Set-UiValue $windowHandle '项目名称' 'CI 视觉验证项目'
+                  Set-UiValue $windowHandle '证据保存目录' $uiEvidenceDirectory
+                  Invoke-UiButton $windowHandle '创建并保存项目'
+                  Start-Sleep -Seconds 1
 
-                Select-UiItem $windowHandle '导航：设备'
-                Wait-UiElementEnabled $windowHandle '打开添加设备向导'
-                Save-WindowScreenshot `
-                  $windowHandle `
-                  (Join-Path $uiScreenshotDirectory '02-device-list.png')
+                  Select-UiItem $windowHandle '导航：设备'
+                  Wait-UiElementEnabled $windowHandle '打开添加设备向导'
+                  Save-WindowScreenshot `
+                    $windowHandle `
+                    (Join-Path $uiScreenshotDirectory '02-device-list.png')
 
-                Invoke-UiButton $windowHandle '打开添加设备向导'
-                Start-Sleep -Milliseconds 500
-                Save-WindowScreenshot `
-                  $windowHandle `
-                  (Join-Path $uiScreenshotDirectory '03-add-device.png')
+                  Invoke-UiButton $windowHandle '打开添加设备向导'
+                  Wait-UiElement $windowHandle '设备名称' | Out-Null
+                  Save-WindowScreenshot `
+                    $windowHandle `
+                    (Join-Path $uiScreenshotDirectory '03-add-device.png')
+                }
+                catch {
+                  Write-UiAutomationTree `
+                    $windowHandle `
+                    (Join-Path $uiScreenshotDirectory 'automation-tree.txt')
+                  throw
+                }
               }
             }
             finally {
