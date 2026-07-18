@@ -24,6 +24,11 @@ public partial class MainWindow : Window
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;
 
+    private void NavigateToProjects_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        ShellNavigation.SelectedIndex = 1;
+    }
+
     private void NavigateToDevices_Click(object sender, RoutedEventArgs eventArgs)
     {
         ShellNavigation.SelectedIndex = 2;
@@ -251,6 +256,11 @@ public partial class MainWindow : Window
         if (ViewModel.Workspace != null)
         {
             await ViewModel.Workspace.CreateProjectAsync();
+            if (ViewModel.Workspace.State == ProjectWorkspaceState.Ready
+                && ViewModel.Workspace.SelectedProject != null)
+            {
+                ShellNavigation.SelectedIndex = 2;
+            }
         }
     }
 

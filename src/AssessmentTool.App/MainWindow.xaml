@@ -147,8 +147,8 @@
                 </StackPanel>
                 <TextBlock Text="管理当前项目设备、只读采集任务和测评证据。所有自动命令在执行前都要通过安全策略校验。" Style="{StaticResource SecondaryTextStyle}" />
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                  <Button Content="＋  添加设备" Click="NavigateToDevices_Click" automation:AutomationProperties.Name="转到设备页面添加设备" />
-                  <Button Content="创建采集任务" Style="{StaticResource FluentSecondaryButtonStyle}" Click="NavigateToCollection_Click" automation:AutomationProperties.Name="转到采集任务页面" />
+                  <Button Content="＋  新建项目" Click="NavigateToProjects_Click" automation:AutomationProperties.Name="转到项目页面新建项目" />
+                  <Button Content="添加设备" Style="{StaticResource FluentSecondaryButtonStyle}" Click="NavigateToDevices_Click" automation:AutomationProperties.Name="转到设备页面添加设备" />
                 </StackPanel>
               </StackPanel>
               <Border Grid.Column="1" Background="{DynamicResource Brush.SurfaceMuted}" CornerRadius="0,10,10,0" Margin="18,-18,-18,-18" ClipToBounds="True">

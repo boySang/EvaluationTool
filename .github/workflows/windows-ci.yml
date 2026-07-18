@@ -548,14 +548,13 @@ jobs:
                     $windowHandle `
                     (Join-Path $uiScreenshotDirectory '01-home-dashboard.png')
 
-                  Select-UiItem $windowHandle '导航：项目'
+                  Invoke-UiButton $windowHandle '转到项目页面新建项目'
                   Set-UiValue $windowHandle '客户名称' 'CI 视觉验证客户'
                   Set-UiValue $windowHandle '项目名称' 'CI 视觉验证项目'
                   Set-UiValue $windowHandle '证据保存目录' $uiEvidenceDirectory
                   Invoke-UiButton $windowHandle '创建并保存项目'
                   Start-Sleep -Seconds 1
 
-                  Select-UiItem $windowHandle '导航：设备'
                   Wait-UiElementEnabled $windowHandle '打开添加设备向导'
                   Save-WindowScreenshot `
                     $windowHandle `

@@ -92,6 +92,18 @@ public sealed class MainWindowBindingTests
     }
 
     [Fact]
+    public void Project_creation_flow_can_start_from_home_and_continue_to_devices()
+    {
+        var xaml = File.ReadAllText(FindMainWindowXaml());
+        var codeBehind = File.ReadAllText(Path.ChangeExtension(FindMainWindowXaml(), ".xaml.cs"));
+
+        Assert.Contains("转到项目页面新建项目", xaml);
+        Assert.Contains("NavigateToProjects_Click", codeBehind);
+        Assert.Contains("Workspace.State == ProjectWorkspaceState.Ready", codeBehind);
+        Assert.Contains("ShellNavigation.SelectedIndex = 2", codeBehind);
+    }
+
+    [Fact]
     public void Device_page_binds_latest_persisted_identification_and_refreshes_on_selection()
     {
         var mainWindowPath = FindMainWindowXaml();
