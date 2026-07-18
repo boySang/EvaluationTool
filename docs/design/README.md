@@ -32,3 +32,9 @@
 6. 实现 SSH 指纹确认和无命令登录测试界面。
 7. 补充加载、空状态、失败提示、键盘焦点和高 DPI 验证。
 
+## 实机验证
+
+- `qa/01-home-dashboard-windows.png`：Windows Runner 首页实际渲染。
+- `qa/02-device-list-windows.png`：项目创建后的设备列表空状态。
+- `qa/03-add-device-windows.png`：添加设备三步向导第 1 步。
+- 完整对比结论见仓库根目录 `design-qa.md`。
