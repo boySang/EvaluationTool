@@ -105,6 +105,8 @@ public sealed class BuiltinCommandPackCatalogTests
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.H3cComware.json\"", project);
         Assert.Contains("Link=\"command-packs/builtin/windows-server-ssh.json\"", project);
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json\"", project);
+        Assert.Contains("Link=\"command-packs/builtin/nginx-linux-ssh.json\"", project);
+        Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.NginxLinuxSsh.json\"", project);
     }
 
     [Fact]
@@ -134,6 +136,40 @@ public sealed class BuiltinCommandPackCatalogTests
                 Assert.True(command.IsEligibleForAutomaticExecution);
                 Assert.True(new AssessmentTool.Core.Security.CommandSafetyPolicy().Validate(command).Allowed);
             });
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LoadNginxLinuxSsh_uses_fixed_hash_layout_and_version_only_read_only_groups()
+    {
+        var releaseDirectory = CreateReleaseDirectory();
+        try
+        {
+            var catalog = new BuiltinCommandPackCatalog(releaseDirectory);
+            var pack = catalog.LoadNginxLinuxSsh();
+            var identification = catalog.SelectNginxLinuxSshIdentificationCommands(pack);
+            var collection = catalog.CreateNginxLinuxSshCollectionPack(pack);
+
+            Assert.Equal("nginx-linux-ssh", pack.Id);
+            Assert.Equal("1.0.0", pack.Version);
+            Assert.Equal(new[] { "nginx-linux-ssh-version" }, identification.Select(command => command.Id));
+            Assert.Equal(new[] { "nginx-linux-ssh-build-options" }, collection.Commands.Select(command => command.Id));
+            Assert.All(pack.Commands, command =>
+            {
+                Assert.Equal(AssessmentTool.Core.Domain.TargetCategory.Middleware, command.TargetCategory);
+                Assert.Equal("NGINX", command.Vendor);
+                Assert.Equal("Nginx", command.ProductFamily);
+                Assert.True(command.IsEligibleForAutomaticExecution);
+                Assert.True(new AssessmentTool.Core.Security.CommandSafetyPolicy().Validate(command).Allowed);
+            });
+            Assert.DoesNotContain(pack.Commands, command =>
+                command.CommandText.IndexOf("-t", StringComparison.Ordinal) >= 0
+                || command.CommandText.IndexOf("-T", StringComparison.Ordinal) >= 0
+                || command.CommandText.IndexOf("nginx.conf", StringComparison.OrdinalIgnoreCase) >= 0);
         }
         finally
         {

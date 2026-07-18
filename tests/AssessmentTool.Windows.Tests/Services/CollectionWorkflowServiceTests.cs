@@ -29,7 +29,6 @@ public sealed class CollectionWorkflowServiceTests
         yield return new object[] { ConnectionProtocol.Serial, TargetCategory.Server };
         yield return new object[] { ConnectionProtocol.WinRm, TargetCategory.Server };
         yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.Database };
-        yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.Middleware };
         yield return new object[] { ConnectionProtocol.Ssh, TargetCategory.SecurityDevice };
     }
 
@@ -481,6 +480,122 @@ public sealed class CollectionWorkflowServiceTests
             Assert.Equal(
                 new[] { "windows-server-ssh-product-name", "windows-server-ssh-build-number" },
                 session.ExecutedIds);
+            Assert.Empty(identifications.PendingBatches);
+            Assert.Empty(identifications.Tasks);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Nginx_linux_ssh_requires_human_confirmation_then_runs_only_build_query()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Middleware, "192.0.2.66", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        const string versionOutput = "nginx version: nginx/1.24.0";
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["nginx-linux-ssh-version"] = SuccessOnStandardError("nginx-linux-ssh-version", versionOutput)
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["nginx-linux-ssh-version"] = SuccessOnStandardError("nginx-linux-ssh-version", versionOutput),
+            ["nginx-linux-ssh-build-options"] = SuccessOnStandardError(
+                "nginx-linux-ssh-build-options",
+                "nginx version: nginx/1.24.0\nbuilt with OpenSSL 3.0.13\nconfigure arguments: --with-http_ssl_module")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.Nginx", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                new RecordingEvidenceService(),
+                identifications);
+            var selection = new CollectionDeviceSelection(device, true, trust);
+
+            var detected = await service.RunAsync(
+                new CollectionWorkflowRequest(project, selection, CollectionAdapterId.NginxLinuxSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, detected.Outcome);
+            var candidate = Assert.Single(detected.DetectionCandidates);
+            Assert.Equal(TargetCategory.Middleware, candidate.Category);
+            Assert.Equal("NGINX", candidate.Vendor);
+            Assert.Equal("Nginx", candidate.ProductFamily);
+            Assert.Equal("1.24.0", candidate.Version);
+            var pending = Assert.Single(identifications.PendingBatches);
+            Assert.Equal(new[] { "nginx-linux-ssh-version" }, firstSession.ExecutedIds);
+
+            var completed = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    selection,
+                    CollectionAdapterId.NginxLinuxSsh,
+                    candidate,
+                    pending.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, completed.Outcome);
+            Assert.Equal(
+                new[] { "nginx-linux-ssh-version", "nginx-linux-ssh-build-options" },
+                secondSession.ExecutedIds);
+            Assert.Equal(
+                new[] { "nginx-linux-ssh-build-options" },
+                completed.CompletedCommands.Select(command => command.CommandId));
+            var task = Assert.Single(identifications.Tasks);
+            Assert.All(task.Commands, command => Assert.Equal("nginx-linux-ssh", command.CommandPackId));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("generic-linux", StringComparison.Ordinal));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("database-host-discovery", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Nginx_adapter_rejects_openresty_without_empty_confirmation_dead_end()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Middleware, "192.0.2.67", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var session = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["nginx-linux-ssh-version"] = SuccessOnStandardError(
+                "nginx-linux-ssh-version",
+                "nginx version: openresty/1.21.4.1")
+        });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.OpenResty", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => session,
+                new RecordingEvidenceService(),
+                identifications);
+
+            var result = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    new CollectionDeviceSelection(device, true, trust),
+                    CollectionAdapterId.NginxLinuxSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Failed, result.Outcome);
+            Assert.Equal("NginxLinuxIdentityNotDetected", result.Error!.TechnicalDetails);
+            Assert.Equal(new[] { "nginx-linux-ssh-version" }, session.ExecutedIds);
             Assert.Empty(identifications.PendingBatches);
             Assert.Empty(identifications.Tasks);
         }
@@ -978,6 +1093,20 @@ public sealed class CollectionWorkflowServiceTests
             127,
             RemoteExecutionOutcome.Failed,
             RemoteFailureCategory.ProcessFailed,
+            now,
+            now);
+    }
+
+    private static CommandOutput SuccessOnStandardError(string commandId, string errorOutput)
+    {
+        var now = new DateTimeOffset(2026, 7, 18, 0, 3, 0, TimeSpan.Zero);
+        return new CommandOutput(
+            commandId,
+            string.Empty,
+            errorOutput,
+            0,
+            RemoteExecutionOutcome.Succeeded,
+            null,
             now,
             now);
     }

@@ -32,6 +32,10 @@ public sealed class BuiltinCommandPackCatalog
     private const string WindowsServerSshRelativePath = "command-packs/builtin/windows-server-ssh.json";
     private const string WindowsServerSshResourceName = "AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json";
     private const string WindowsServerSshSha256 = "70fb04f8bf8cb146880fc40bbc8da5a495a2df764cc1a82e65ea3097b3d0a822";
+    private const string NginxLinuxSshPackId = "nginx-linux-ssh";
+    private const string NginxLinuxSshRelativePath = "command-packs/builtin/nginx-linux-ssh.json";
+    private const string NginxLinuxSshResourceName = "AssessmentTool.App.CommandPacks.Builtin.NginxLinuxSsh.json";
+    private const string NginxLinuxSshSha256 = "930f9489cb1c7fbd6fcea93a1b903d3e2c6aff2b82b153ecb970de56b15b6bf0";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -78,6 +82,12 @@ public sealed class BuiltinCommandPackCatalog
     private static readonly IReadOnlyList<string> WindowsServerSshCollectionIds =
         new ReadOnlyCollection<string>(new[] { "windows-server-ssh-account-policy" });
 
+    private static readonly IReadOnlyList<string> NginxLinuxSshIdentificationIds =
+        new ReadOnlyCollection<string>(new[] { "nginx-linux-ssh-version" });
+
+    private static readonly IReadOnlyList<string> NginxLinuxSshCollectionIds =
+        new ReadOnlyCollection<string>(new[] { "nginx-linux-ssh-build-options" });
+
     private readonly string releaseDirectory;
     private readonly Assembly resourceAssembly;
 
@@ -111,6 +121,8 @@ public sealed class BuiltinCommandPackCatalog
     public IReadOnlyList<string> H3cComwareIdentificationCommandIds => H3cComwareIdentificationIds;
 
     public IReadOnlyList<string> WindowsServerSshIdentificationCommandIds => WindowsServerSshIdentificationIds;
+
+    public IReadOnlyList<string> NginxLinuxSshIdentificationCommandIds => NginxLinuxSshIdentificationIds;
 
     public CommandPack LoadGenericLinux()
     {
@@ -167,6 +179,17 @@ public sealed class BuiltinCommandPackCatalog
         return pack;
     }
 
+    public CommandPack LoadNginxLinuxSsh()
+    {
+        var packBytes = LoadPackBytes(
+            NginxLinuxSshRelativePath,
+            NginxLinuxSshResourceName,
+            "Nginx Linux SSH 命令包");
+        var pack = new CommandPackLoader().Load(packBytes, NginxLinuxSshSha256);
+        EnsureNginxLinuxSshLayout(pack);
+        return pack;
+    }
+
     public IReadOnlyList<CommandDefinition> SelectGenericLinuxIdentificationCommands(CommandPack pack)
     {
         return SelectCommands(pack, IdentificationIds);
@@ -217,6 +240,18 @@ public sealed class BuiltinCommandPackCatalog
     {
         EnsureWindowsServerSshLayout(pack);
         return pack.SelectCommands(WindowsServerSshCollectionIds);
+    }
+
+    public IReadOnlyList<CommandDefinition> SelectNginxLinuxSshIdentificationCommands(CommandPack pack)
+    {
+        EnsureNginxLinuxSshLayout(pack);
+        return SelectCommandsUnchecked(pack, NginxLinuxSshIdentificationIds);
+    }
+
+    public CommandPack CreateNginxLinuxSshCollectionPack(CommandPack pack)
+    {
+        EnsureNginxLinuxSshLayout(pack);
+        return pack.SelectCommands(NginxLinuxSshCollectionIds);
     }
 
     private byte[] LoadPackBytes(string relativePath, string resourceName, string description)
@@ -437,6 +472,38 @@ public sealed class BuiltinCommandPackCatalog
                 StringComparison.Ordinal)))
         {
             throw new CommandPackException("Windows Server SSH 固定识别命令缺少 IDENTIFY 安全标记。");
+        }
+    }
+
+    private static void EnsureNginxLinuxSshLayout(CommandPack pack)
+    {
+        if (pack == null)
+        {
+            throw new ArgumentNullException(nameof(pack));
+        }
+
+        if (!string.Equals(pack.Id, NginxLinuxSshPackId, StringComparison.Ordinal))
+        {
+            throw new CommandPackException("命令包不是受支持的 Nginx Linux SSH 内置命令包。");
+        }
+
+        var expectedIds = NginxLinuxSshIdentificationIds
+            .Concat(NginxLinuxSshCollectionIds)
+            .ToArray();
+        if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
+            || pack.Commands.Any(command => command.TargetCategory != TargetCategory.Middleware
+                || !string.Equals(command.Vendor, "NGINX", StringComparison.Ordinal)
+                || !string.Equals(command.ProductFamily, "Nginx", StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("Nginx Linux SSH 内置命令包的命令顺序或对象边界不正确。");
+        }
+
+        if (NginxLinuxSshIdentificationIds.Any(commandId =>
+            !string.Equals(pack.Commands.Single(command => command.Id == commandId).CheckItem,
+                "IDENTIFY",
+                StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("Nginx Linux SSH 固定识别命令缺少 IDENTIFY 安全标记。");
         }
     }
 }

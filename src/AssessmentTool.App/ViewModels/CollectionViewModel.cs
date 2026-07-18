@@ -49,6 +49,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         CollectionAdapterId.WindowsServerSsh,
         "Windows Server（SSH）",
         "仅适用于已开通 OpenSSH 且由管理员确认不是域控制器的 Windows Server 2016/2019/2022/2025 成员服务器；软件当前不能自动判定服务器角色，初版不支持域控制器。");
+    private static readonly CollectionAdapterOption NginxLinuxSshAdapter = new CollectionAdapterOption(
+        CollectionAdapterId.NginxLinuxSsh,
+        "Nginx（Linux SSH）",
+        "仅适用于可通过 /usr/sbin/nginx 访问的官方 Nginx Linux 安装；只查询 -v/-V 版本和构建参数，不测试、读取或重载配置，不适用于 OpenResty、自定义路径或容器内实例。");
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
@@ -827,6 +831,12 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                         ? H3cComwareAdapter
                         : null;
                 break;
+            case TargetCategory.Middleware:
+                nextOptions = new[] { NginxLinuxSshAdapter };
+                nextSelection = selectedAdapterOption?.Id == CollectionAdapterId.NginxLinuxSsh
+                    ? NginxLinuxSshAdapter
+                    : null;
+                break;
             default:
                 nextOptions = Array.Empty<CollectionAdapterOption>();
                 nextSelection = null;
@@ -872,6 +882,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                     && !string.Equals(candidate.Vendor, "Microsoft", StringComparison.OrdinalIgnoreCase))
                     ? GenericLinuxAdapter
                     : null;
+        }
+        else if (category == TargetCategory.Middleware)
+        {
+            selectedAdapterOption = candidates.Any(candidate =>
+                    string.Equals(candidate.Vendor, "NGINX", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(candidate.ProductFamily, "Nginx", StringComparison.OrdinalIgnoreCase))
+                ? NginxLinuxSshAdapter
+                : null;
         }
 
         if (selectedAdapterOption == null)

@@ -76,6 +76,7 @@ public sealed class MainWindowBindingTests
         Assert.Contains("H3C Comware 网络设备", text);
         Assert.Contains("Windows Server", text);
         Assert.Contains("域控制器", text);
+        Assert.Contains("固定路径 Nginx", text);
         Assert.Contains("SSH 用户名 *", text);
         Assert.Contains("密码验证", text);
         Assert.Contains("PuTTY PPK 私钥", text);

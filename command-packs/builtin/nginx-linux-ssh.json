@@ -1,0 +1,50 @@
+{
+  "id": "nginx-linux-ssh",
+  "name": "Nginx Linux SSH 只读识别与采集",
+  "version": "1.0.0",
+  "officialSource": "https://nginx.org/en/docs/switches.html",
+  "commands": [
+    {
+      "id": "nginx-linux-ssh-version",
+      "title": "读取 Nginx 版本",
+      "targetCategory": "Middleware",
+      "commandText": "/usr/sbin/nginx -v",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "NGINX",
+      "productFamily": "Nginx",
+      "minimumVersion": null,
+      "maximumVersion": null,
+      "checkItem": "IDENTIFY",
+      "modelRange": "*",
+      "accountRequirement": "可执行 /usr/sbin/nginx 的最小权限账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 30,
+      "pagingBehavior": "NotApplicable",
+      "resultDescription": "使用官方 -v 参数仅输出 Nginx 版本，不测试配置、不发送信号、不改变运行状态。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://nginx.org/en/docs/switches.html"
+    },
+    {
+      "id": "nginx-linux-ssh-build-options",
+      "title": "读取 Nginx 构建参数",
+      "targetCategory": "Middleware",
+      "commandText": "/usr/sbin/nginx -V",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "NGINX",
+      "productFamily": "Nginx",
+      "minimumVersion": null,
+      "maximumVersion": null,
+      "checkItem": "软件版本与安全模块",
+      "modelRange": "*",
+      "accountRequirement": "可执行 /usr/sbin/nginx 的最小权限账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 30,
+      "pagingBehavior": "NotApplicable",
+      "resultDescription": "使用官方 -V 参数输出版本、编译器和 configure 参数，用于核对 TLS、日志及模块构建能力。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://nginx.org/en/docs/switches.html"
+    }
+  ]
+}

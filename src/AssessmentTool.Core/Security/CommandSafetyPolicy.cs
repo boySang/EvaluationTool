@@ -17,6 +17,8 @@ public sealed class CommandSafetyPolicy
         "cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v CurrentBuildNumber";
     private const string WindowsServerAccountPolicyCommand =
         "cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts";
+    private const string NginxVersionCommand = "/usr/sbin/nginx -v";
+    private const string NginxBuildOptionsCommand = "/usr/sbin/nginx -V";
 
     private static readonly Regex RecognizedReadOnlyRoot = new Regex(
         @"^(?:(?:show|display)\b|uname\b|hostname\b|cat\b|ps\b|systemctl\s+list-units\b|(?:docker|podman)\s+ps\b|Get-ComputerInfo$|(?:select|with)\b)",
@@ -49,14 +51,16 @@ public sealed class CommandSafetyPolicy
         var commandText = command.CommandText?.Trim();
         if (ForbiddenSyntax.IsMatch(commandText)
             && !IsAllowedNetworkNoMore(commandText)
-            && !IsAllowedWindowsServerCommand(commandText))
+            && !IsAllowedWindowsServerCommand(commandText)
+            && !IsAllowedNginxCommand(commandText))
         {
             return SafetyDecision.Reject("unsafe-command", "命令包含可能修改目标或组合执行的语法。");
         }
 
         var isAllowedWindowsServerCommand = IsAllowedWindowsServerCommand(commandText);
+        var isAllowedNginxCommand = IsAllowedNginxCommand(commandText);
         if (string.IsNullOrEmpty(commandText)
-            || (!isAllowedWindowsServerCommand
+            || (!isAllowedWindowsServerCommand && !isAllowedNginxCommand
                 && (!RecognizedReadOnlyRoot.IsMatch(commandText)
                     || (!AllowedReadOnlyShape.IsMatch(commandText)
                 && !AllowedSqlMetadataTemplate.IsMatch(commandText)
@@ -87,6 +91,12 @@ public sealed class CommandSafetyPolicy
         return string.Equals(commandText, WindowsServerProductNameCommand, StringComparison.Ordinal)
             || string.Equals(commandText, WindowsServerBuildNumberCommand, StringComparison.Ordinal)
             || string.Equals(commandText, WindowsServerAccountPolicyCommand, StringComparison.Ordinal);
+    }
+
+    private static bool IsAllowedNginxCommand(string? commandText)
+    {
+        return string.Equals(commandText, NginxVersionCommand, StringComparison.Ordinal)
+            || string.Equals(commandText, NginxBuildOptionsCommand, StringComparison.Ordinal);
     }
 }
 

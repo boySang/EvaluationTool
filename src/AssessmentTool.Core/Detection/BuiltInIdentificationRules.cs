@@ -32,6 +32,15 @@ public static class BuiltInIdentificationRules
             "Microsoft",
             "Windows Server");
 
+    private static readonly IdentificationRule NginxLinuxRule =
+        IdentificationRule.CreateVerifiedWithFixedIdentity(
+            Domain.TargetCategory.Middleware,
+            "^nginx version: nginx/(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:[A-Za-z0-9._-]*)?)$",
+            0.85,
+            "https://nginx.org/en/docs/switches.html",
+            "NGINX",
+            "Nginx");
+
     public static IdentificationRule LinuxOsReleaseId => LinuxOsReleaseIdRule;
 
     public static IdentificationRule HuaweiVrp => HuaweiVrpRule;
@@ -39,4 +48,6 @@ public static class BuiltInIdentificationRules
     public static IdentificationRule H3cComware => H3cComwareRule;
 
     public static IdentificationRule WindowsServer => WindowsServerRule;
+
+    public static IdentificationRule NginxLinux => NginxLinuxRule;
 }

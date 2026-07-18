@@ -29,6 +29,24 @@ public sealed class CollectionRunnerTests
     }
 
     [Fact]
+    public async Task Successful_identification_can_use_standard_error_without_shell_redirection()
+    {
+        var session = new FakeSession("VendorA Network OS 7.2 Model X100")
+        {
+            IdentificationOnStandardError = true
+        };
+
+        var result = await Runner(session, confidence: 0.80).RunAsync(
+            Request(CollectionCommand("collect-version", "show version")),
+            new ProgressRecorder(),
+            CancellationToken.None);
+
+        Assert.Equal(CollectionOutcome.NeedsUserConfirmation, result.Outcome);
+        Assert.Equal("VendorA", Assert.Single(result.Detection!.Candidates).Vendor);
+        Assert.DoesNotContain(session.CommandTexts, command => command.IndexOf("2>&1", StringComparison.Ordinal) >= 0);
+    }
+
+    [Fact]
     public async Task Unsafe_command_is_rejected_before_session_receives_it()
     {
         var session = new FakeSession("VendorA Network OS 7.2 Model X100");
@@ -489,6 +507,7 @@ public sealed class CollectionRunnerTests
         public string? TimedOutCommandId { get; set; }
         public string? EmptyOutputCommandId { get; set; }
         public string? FailedCommandId { get; set; }
+        public bool IdentificationOnStandardError { get; set; }
         public int FailedExitCode { get; set; } = 1;
         public IReadOnlyList<CommandDefinition> Commands => commands;
         public IReadOnlyList<string> CommandTexts => commands.Select(command => command.CommandText).ToArray();
@@ -510,10 +529,16 @@ public sealed class CollectionRunnerTests
             var timestamp = new DateTimeOffset(2026, 7, 16, 8, 0, 0, TimeSpan.Zero);
             var timedOut = string.Equals(command.Id, TimedOutCommandId, StringComparison.Ordinal);
             var failed = string.Equals(command.Id, FailedCommandId, StringComparison.Ordinal);
+            var identificationOnStandardError = command.Id == "identify-version"
+                && IdentificationOnStandardError;
             var result = new CommandOutput(
                 ReturnedCommandId?.Invoke(command) ?? command.Id,
-                timedOut ? "partial:" + command.Id : output,
-                failed ? "command not found" : string.Empty,
+                timedOut
+                    ? "partial:" + command.Id
+                    : identificationOnStandardError ? string.Empty : output,
+                failed
+                    ? "command not found"
+                    : identificationOnStandardError ? output : string.Empty,
                 timedOut ? null : failed ? FailedExitCode : 0,
                 timedOut
                     ? RemoteExecutionOutcome.Stopped

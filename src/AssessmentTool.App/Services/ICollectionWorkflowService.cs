@@ -25,7 +25,8 @@ public enum CollectionAdapterId
     GenericLinux = 1,
     HuaweiVrp = 2,
     H3cComware = 3,
-    WindowsServerSsh = 4
+    WindowsServerSsh = 4,
+    NginxLinuxSsh = 5
 }
 
 public sealed class CollectionAdapterOption

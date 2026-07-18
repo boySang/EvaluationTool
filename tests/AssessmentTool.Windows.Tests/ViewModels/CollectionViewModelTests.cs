@@ -95,6 +95,33 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Middleware_requires_explicit_nginx_adapter_selection_before_collection()
+    {
+        var service = new FakeCollectionWorkflowService();
+        var project = CreateProject();
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
+        viewModel.SelectProject(project);
+        var device = CreateDevice(project, TargetCategory.Middleware);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        Assert.True(viewModel.IsAdapterSelectionVisible);
+        var option = Assert.Single(viewModel.AdapterOptions);
+        Assert.Equal(CollectionAdapterId.NginxLinuxSsh, option.Id);
+        Assert.Null(viewModel.SelectedAdapterOption);
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+
+        viewModel.SelectedAdapterOption = option;
+        await viewModel.StartAsync();
+
+        Assert.Equal(CollectionAdapterId.NginxLinuxSsh, Assert.Single(service.Requests).AdapterId);
+        Assert.Contains("OpenResty", viewModel.AdapterScopeNotice);
+        Assert.Contains("不测试", viewModel.AdapterScopeNotice);
+    }
+
+    [Fact]
     public void Switching_network_device_clears_previous_adapter_confirmation()
     {
         var project = CreateProject();
@@ -313,6 +340,42 @@ public sealed class CollectionViewModelTests
         Assert.Equal(CollectionAdapterId.WindowsServerSsh, viewModel.SelectedAdapterOption!.Id);
         Assert.Equal(CollectionViewModelState.AwaitingConfirmation, viewModel.State);
         Assert.Contains("域控制器", viewModel.AdapterScopeNotice);
+    }
+
+    [Fact]
+    public async Task Restored_nginx_candidate_selects_nginx_adapter_without_running_commands()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, TargetCategory.Middleware);
+        var candidate = new DetectionCandidate(
+            TargetCategory.Middleware,
+            "NGINX",
+            "Nginx",
+            null,
+            "1.24.0",
+            "nginx version: nginx/1.24.0",
+            0.85);
+        var pending = new PendingDeviceIdentificationBatch(
+            Guid.NewGuid(),
+            device.Id,
+            1,
+            new[] { candidate },
+            DateTimeOffset.UtcNow);
+        var viewModel = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService(),
+            new FakePendingIdentificationRepository(pending));
+        viewModel.SelectProject(project);
+
+        await viewModel.RestorePendingIdentificationAsync(device);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        Assert.Equal(CollectionAdapterId.NginxLinuxSsh, viewModel.SelectedAdapterOption!.Id);
+        Assert.Equal(CollectionViewModelState.AwaitingConfirmation, viewModel.State);
+        Assert.Contains("/usr/sbin/nginx", viewModel.AdapterScopeNotice);
     }
 
     [Fact]

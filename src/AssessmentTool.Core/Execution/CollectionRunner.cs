@@ -351,15 +351,26 @@ public sealed class CollectionRunner
                 continue;
             }
 
-            if (transcript.Length > 0)
-            {
-                transcript.AppendLine();
-            }
-
-            transcript.Append(output.StandardOutput);
+            AppendIdentificationOutput(transcript, output.StandardOutput);
+            AppendIdentificationOutput(transcript, output.StandardError);
         }
 
         return transcript.ToString();
+    }
+
+    private static void AppendIdentificationOutput(StringBuilder transcript, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (transcript.Length > 0)
+        {
+            transcript.AppendLine();
+        }
+
+        transcript.Append(value);
     }
 
     private static bool IsOutputFor(CommandDefinition command, CommandOutput output)

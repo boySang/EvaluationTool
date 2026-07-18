@@ -90,6 +90,40 @@ public sealed class BuiltInIdentificationRulesTests
     }
 
     [Theory]
+    [InlineData("nginx version: nginx/1.24.0", "1.24.0")]
+    [InlineData("nginx version: nginx/1.29.8", "1.29.8")]
+    public void Nginx_version_output_creates_middleware_candidate_for_human_confirmation(
+        string output,
+        string expectedVersion)
+    {
+        var result = new DetectionEngine().Detect(
+            output,
+            new[] { BuiltInIdentificationRules.NginxLinux });
+
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(TargetCategory.Middleware, candidate.Category);
+        Assert.Equal("NGINX", candidate.Vendor);
+        Assert.Equal("Nginx", candidate.ProductFamily);
+        Assert.Equal(expectedVersion, candidate.Version);
+        Assert.Equal(0.85, candidate.Confidence);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Theory]
+    [InlineData("nginx version: openresty/1.21.4.1")]
+    [InlineData("nginx version: nginx/unknown")]
+    [InlineData("Apache/2.4.62")]
+    public void Nginx_rule_rejects_other_products_and_unusable_versions(string output)
+    {
+        var result = new DetectionEngine().Detect(
+            output,
+            new[] { BuiltInIdentificationRules.NginxLinux });
+
+        Assert.Empty(result.Candidates);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Theory]
     [InlineData("ID=ubuntu", "ubuntu")]
     [InlineData("ID=\"kylin\"", "kylin")]
     [InlineData("ID=uos", "uos")]

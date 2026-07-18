@@ -210,6 +210,33 @@ public sealed class CommandSafetyPolicyTests
     }
 
     [Theory]
+    [InlineData("/usr/sbin/nginx -v")]
+    [InlineData("/usr/sbin/nginx -V")]
+    public void Allows_only_exact_nginx_version_query_templates(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.True(result.Allowed);
+        Assert.Equal("allowed", result.Code);
+    }
+
+    [Theory]
+    [InlineData("nginx -v")]
+    [InlineData("/usr/local/nginx/sbin/nginx -V")]
+    [InlineData("/usr/sbin/nginx -t")]
+    [InlineData("/usr/sbin/nginx -T")]
+    [InlineData("/usr/sbin/nginx -s reload")]
+    [InlineData("/usr/sbin/nginx -V 2>&1")]
+    [InlineData("sudo /usr/sbin/nginx -V")]
+    [InlineData("/usr/sbin/nginx -V | cat")]
+    public void Rejects_nginx_variants_outside_exact_allowlist(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.False(result.Allowed);
+    }
+
+    [Theory]
     [InlineData("docker exec db ps", "unsafe-command")]
     [InlineData("podman exec db ps", "unsafe-command")]
     [InlineData("systemctl restart sshd", "unsafe-command")]
