@@ -19,6 +19,8 @@ public sealed class CommandSafetyPolicy
         "cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts";
     private const string NginxVersionCommand = "/usr/sbin/nginx -v";
     private const string NginxBuildOptionsCommand = "/usr/sbin/nginx -V";
+    private const string ApacheHttpdVersionCommand = "/usr/sbin/httpd -v";
+    private const string ApacheHttpdBuildOptionsCommand = "/usr/sbin/httpd -V";
 
     private static readonly Regex RecognizedReadOnlyRoot = new Regex(
         @"^(?:(?:show|display)\b|uname\b|hostname\b|cat\b|ps\b|systemctl\s+list-units\b|(?:docker|podman)\s+ps\b|Get-ComputerInfo$|(?:select|with)\b)",
@@ -52,15 +54,17 @@ public sealed class CommandSafetyPolicy
         if (ForbiddenSyntax.IsMatch(commandText)
             && !IsAllowedNetworkNoMore(commandText)
             && !IsAllowedWindowsServerCommand(commandText)
-            && !IsAllowedNginxCommand(commandText))
+            && !IsAllowedNginxCommand(commandText)
+            && !IsAllowedApacheHttpdCommand(commandText))
         {
             return SafetyDecision.Reject("unsafe-command", "命令包含可能修改目标或组合执行的语法。");
         }
 
         var isAllowedWindowsServerCommand = IsAllowedWindowsServerCommand(commandText);
         var isAllowedNginxCommand = IsAllowedNginxCommand(commandText);
+        var isAllowedApacheHttpdCommand = IsAllowedApacheHttpdCommand(commandText);
         if (string.IsNullOrEmpty(commandText)
-            || (!isAllowedWindowsServerCommand && !isAllowedNginxCommand
+            || (!isAllowedWindowsServerCommand && !isAllowedNginxCommand && !isAllowedApacheHttpdCommand
                 && (!RecognizedReadOnlyRoot.IsMatch(commandText)
                     || (!AllowedReadOnlyShape.IsMatch(commandText)
                 && !AllowedSqlMetadataTemplate.IsMatch(commandText)
@@ -97,6 +101,12 @@ public sealed class CommandSafetyPolicy
     {
         return string.Equals(commandText, NginxVersionCommand, StringComparison.Ordinal)
             || string.Equals(commandText, NginxBuildOptionsCommand, StringComparison.Ordinal);
+    }
+
+    private static bool IsAllowedApacheHttpdCommand(string? commandText)
+    {
+        return string.Equals(commandText, ApacheHttpdVersionCommand, StringComparison.Ordinal)
+            || string.Equals(commandText, ApacheHttpdBuildOptionsCommand, StringComparison.Ordinal);
     }
 }
 

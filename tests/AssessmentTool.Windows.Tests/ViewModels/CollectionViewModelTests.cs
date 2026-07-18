@@ -81,6 +81,8 @@ public sealed class CollectionViewModelTests
 
         Assert.True(viewModel.IsAdapterSelectionVisible);
         Assert.Contains(viewModel.AdapterOptions, item => item.Id == CollectionAdapterId.GenericLinux);
+        Assert.Contains(viewModel.AdapterOptions, item => item.Id == CollectionAdapterId.NginxLinuxSsh);
+        Assert.Contains(viewModel.AdapterOptions, item => item.Id == CollectionAdapterId.ApacheHttpdLinuxSsh);
         var windowsOption = Assert.Single(
             viewModel.AdapterOptions,
             item => item.Id == CollectionAdapterId.WindowsServerSsh);
@@ -95,20 +97,25 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
-    public async Task Middleware_requires_explicit_nginx_adapter_selection_before_collection()
+    public async Task Automatic_target_requires_explicit_product_adapter_selection_before_collection()
     {
         var service = new FakeCollectionWorkflowService();
         var project = CreateProject();
         var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         viewModel.SelectProject(project);
-        var device = CreateDevice(project, TargetCategory.Middleware);
+        var device = CreateDevice(project, TargetCategory.Automatic);
         viewModel.SelectDevice(new CollectionDeviceSelection(
             device,
             true,
             CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
 
         Assert.True(viewModel.IsAdapterSelectionVisible);
-        var option = Assert.Single(viewModel.AdapterOptions);
+        var option = Assert.Single(
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.NginxLinuxSsh);
+        Assert.Contains(
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.ApacheHttpdLinuxSsh);
         Assert.Equal(CollectionAdapterId.NginxLinuxSsh, option.Id);
         Assert.Null(viewModel.SelectedAdapterOption);
         Assert.False(viewModel.StartCommand.CanExecute(null));
@@ -119,6 +126,30 @@ public sealed class CollectionViewModelTests
         Assert.Equal(CollectionAdapterId.NginxLinuxSsh, Assert.Single(service.Requests).AdapterId);
         Assert.Contains("OpenResty", viewModel.AdapterScopeNotice);
         Assert.Contains("不测试", viewModel.AdapterScopeNotice);
+    }
+
+    [Fact]
+    public async Task Middleware_can_explicitly_select_apache_httpd_adapter()
+    {
+        var service = new FakeCollectionWorkflowService();
+        var project = CreateProject();
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
+        viewModel.SelectProject(project);
+        var device = CreateDevice(project, TargetCategory.Middleware);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+        var option = Assert.Single(
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.ApacheHttpdLinuxSsh);
+
+        viewModel.SelectedAdapterOption = option;
+        await viewModel.StartAsync();
+
+        Assert.Equal(CollectionAdapterId.ApacheHttpdLinuxSsh, Assert.Single(service.Requests).AdapterId);
+        Assert.Contains("/usr/sbin/httpd", viewModel.AdapterScopeNotice);
+        Assert.Contains("apache2", viewModel.AdapterScopeNotice);
     }
 
     [Fact]
@@ -379,6 +410,42 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Restored_apache_httpd_candidate_selects_apache_adapter_without_running_commands()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, TargetCategory.Automatic);
+        var candidate = new DetectionCandidate(
+            TargetCategory.Middleware,
+            "Apache Software Foundation",
+            "Apache HTTP Server",
+            null,
+            "2.4.62",
+            "Server version: Apache/2.4.62 (Unix)",
+            0.85);
+        var pending = new PendingDeviceIdentificationBatch(
+            Guid.NewGuid(),
+            device.Id,
+            1,
+            new[] { candidate },
+            DateTimeOffset.UtcNow);
+        var viewModel = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService(),
+            new FakePendingIdentificationRepository(pending));
+        viewModel.SelectProject(project);
+
+        await viewModel.RestorePendingIdentificationAsync(device);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        Assert.Equal(CollectionAdapterId.ApacheHttpdLinuxSsh, viewModel.SelectedAdapterOption!.Id);
+        Assert.Equal(CollectionViewModelState.AwaitingConfirmation, viewModel.State);
+        Assert.Contains("/usr/sbin/httpd", viewModel.AdapterScopeNotice);
+    }
+
+    [Fact]
     public async Task Pending_identification_restore_blocks_collection_until_local_lookup_finishes()
     {
         var project = CreateProject();
@@ -533,6 +600,110 @@ public sealed class CollectionViewModelTests
         Assert.Single(confirmations.Confirmed);
         Assert.Single(confirmations.Rejected);
         Assert.Contains("不是本次测评目标", confirmations.Rejected[0].Reason);
+    }
+
+    [Fact]
+    public async Task Confirmed_local_nginx_candidate_recommends_fixed_path_adapter_without_executing_it()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, TargetCategory.Automatic);
+        var batchId = Guid.NewGuid();
+        var taskId = CollectionTaskId.New();
+        var candidate = CreateStoredHostSoftwareCandidate(
+            batchId,
+            taskId,
+            0,
+            HostSoftwareCategory.Middleware,
+            "Nginx",
+            "1.24.0",
+            "nginx.service");
+        var batch = new HostSoftwareDiscoveryBatchRecord(
+            batchId,
+            project.Id,
+            device.Id,
+            taskId,
+            1,
+            null,
+            "test-read-only-discovery",
+            new[] { candidate },
+            DateTimeOffset.UtcNow);
+        var workflow = new FakeCollectionWorkflowService(
+            CollectionWorkflowResult.RequiresHostSoftwareConfirmation(
+                Array.Empty<DatabaseInstanceCandidate>(),
+                Array.Empty<MiddlewareInstanceCandidate>(),
+                batch));
+        var confirmations = new FakeHostSoftwareConfirmationService();
+        var viewModel = new CollectionViewModel(
+            workflow,
+            new FakeDatabaseConfirmationService(),
+            null,
+            confirmations);
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+        SelectGenericLinuxAdapter(viewModel);
+
+        await viewModel.StartAsync();
+        await viewModel.ConfirmHostSoftwareAsync(candidate);
+
+        Assert.Equal(CollectionAdapterId.NginxLinuxSsh, viewModel.SelectedAdapterOption!.Id);
+        Assert.Equal(CollectionViewModelState.DatabaseConfirmed, viewModel.State);
+        Assert.Contains("核对固定程序路径", viewModel.ProgressMessage);
+        Assert.Single(confirmations.Confirmed);
+        Assert.Single(workflow.Requests);
+    }
+
+    [Fact]
+    public async Task Confirmed_container_nginx_candidate_does_not_recommend_local_path_adapter()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, TargetCategory.Automatic);
+        var batchId = Guid.NewGuid();
+        var taskId = CollectionTaskId.New();
+        var candidate = CreateStoredHostSoftwareCandidate(
+            batchId,
+            taskId,
+            0,
+            HostSoftwareCategory.Middleware,
+            "Nginx",
+            "1.24.0",
+            "nginx-container",
+            HostSoftwareInstallationType.Container);
+        var batch = new HostSoftwareDiscoveryBatchRecord(
+            batchId,
+            project.Id,
+            device.Id,
+            taskId,
+            1,
+            null,
+            "test-read-only-discovery",
+            new[] { candidate },
+            DateTimeOffset.UtcNow);
+        var workflow = new FakeCollectionWorkflowService(
+            CollectionWorkflowResult.RequiresHostSoftwareConfirmation(
+                Array.Empty<DatabaseInstanceCandidate>(),
+                Array.Empty<MiddlewareInstanceCandidate>(),
+                batch));
+        var viewModel = new CollectionViewModel(
+            workflow,
+            new FakeDatabaseConfirmationService(),
+            null,
+            new FakeHostSoftwareConfirmationService());
+        viewModel.SelectProject(project);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+        SelectGenericLinuxAdapter(viewModel);
+
+        await viewModel.StartAsync();
+        await viewModel.ConfirmHostSoftwareAsync(candidate);
+
+        Assert.Equal(CollectionAdapterId.GenericLinux, viewModel.SelectedAdapterOption!.Id);
+        Assert.DoesNotContain("推荐采集适配器", viewModel.ProgressMessage);
+        Assert.Single(workflow.Requests);
     }
 
     [Fact]
@@ -794,7 +965,8 @@ public sealed class CollectionViewModelTests
         HostSoftwareCategory category,
         string product,
         string version,
-        string instanceName)
+        string instanceName,
+        HostSoftwareInstallationType installationType = HostSoftwareInstallationType.LocalService)
     {
         var candidateId = Guid.NewGuid();
         var source = new HostSoftwareDiscoveryEvidenceRecord(
@@ -803,7 +975,9 @@ public sealed class CollectionViewModelTests
             0,
             taskId,
             ordinal,
-            HostSoftwareEvidenceKind.Service,
+            installationType == HostSoftwareInstallationType.Container
+                ? HostSoftwareEvidenceKind.Container
+                : HostSoftwareEvidenceKind.Service,
             "database-host-discovery-linux-services",
             instanceName + " loaded active running",
             new string('a', 64));
@@ -814,7 +988,7 @@ public sealed class CollectionViewModelTests
             category,
             product,
             version,
-            HostSoftwareInstallationType.LocalService,
+            installationType,
             instanceName,
             null,
             0.9,

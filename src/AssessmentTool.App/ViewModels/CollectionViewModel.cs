@@ -53,6 +53,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         CollectionAdapterId.NginxLinuxSsh,
         "Nginx（Linux SSH）",
         "仅适用于可通过 /usr/sbin/nginx 访问的官方 Nginx Linux 安装；只查询 -v/-V 版本和构建参数，不测试、读取或重载配置，不适用于 OpenResty、自定义路径或容器内实例。");
+    private static readonly CollectionAdapterOption ApacheHttpdLinuxSshAdapter = new CollectionAdapterOption(
+        CollectionAdapterId.ApacheHttpdLinuxSsh,
+        "Apache HTTP Server（Linux SSH）",
+        "仅适用于可通过 /usr/sbin/httpd 访问的 Apache HTTP Server 2.4 Linux 安装；只查询 -v/-V 版本和构建参数，不解析配置、不列出运行时模块、不控制服务，不适用于 apache2、自定义路径或容器内实例。");
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
@@ -521,11 +525,13 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         SetState(CollectionViewModelState.ConfirmingDatabase);
         try
         {
+            var adapterRecommended = false;
             if (confirm)
             {
                 await hostSoftwareConfirmationService
                     .ConfirmAsync(candidate, CancellationToken.None)
                     .ConfigureAwait(true);
+                adapterRecommended = TryRecommendAdapterForConfirmedHostSoftware(candidate);
             }
             else
             {
@@ -546,6 +552,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 pendingHostSoftwareBatchId = null;
                 pendingHostSoftwareDeviceId = default(DeviceId);
                 progressMessage = "所有发现的数据库和中间件候选均已完成人工处理。";
+                if (adapterRecommended)
+                {
+                    progressMessage += " 已根据本地中间件候选推荐采集适配器，执行前请核对固定程序路径。";
+                }
                 OnPropertyChanged(nameof(ProgressMessage));
                 SetState(CollectionViewModelState.DatabaseConfirmed);
             }
@@ -553,6 +563,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             {
                 progressMessage = (confirm ? "已确认" : "已排除")
                     + "一个候选，仍有 " + remaining.Length + " 个需要处理。";
+                if (adapterRecommended)
+                {
+                    progressMessage += " 已推荐对应的固定路径采集适配器。";
+                }
                 OnPropertyChanged(nameof(ProgressMessage));
                 SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
             }
@@ -566,6 +580,32 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                 exception.GetType().Name));
             SetState(CollectionViewModelState.AwaitingDatabaseConfirmation);
         }
+    }
+
+    private bool TryRecommendAdapterForConfirmedHostSoftware(HostSoftwareDiscoveryCandidateRecord candidate)
+    {
+        if (candidate.Category != HostSoftwareCategory.Middleware
+            || candidate.InstallationType != HostSoftwareInstallationType.LocalService)
+        {
+            return false;
+        }
+
+        var recommendation = string.Equals(candidate.Product, "Nginx", StringComparison.OrdinalIgnoreCase)
+            ? NginxLinuxSshAdapter
+            : string.Equals(candidate.Product, "Apache HTTP Server", StringComparison.OrdinalIgnoreCase)
+                ? ApacheHttpdLinuxSshAdapter
+                : null;
+        if (recommendation == null
+            || !adapterOptions.Any(option => option.Id == recommendation.Id))
+        {
+            return false;
+        }
+
+        selectedAdapterOption = recommendation;
+        OnPropertyChanged(nameof(SelectedAdapterOption));
+        OnPropertyChanged(nameof(AdapterScopeNotice));
+        RaiseCommandStates();
+        return true;
     }
 
     private bool CanStart()
@@ -816,11 +856,21 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         {
             case TargetCategory.Automatic:
             case TargetCategory.Server:
-                nextOptions = new[] { GenericLinuxAdapter, WindowsServerSshAdapter };
+                nextOptions = new[]
+                {
+                    GenericLinuxAdapter,
+                    WindowsServerSshAdapter,
+                    NginxLinuxSshAdapter,
+                    ApacheHttpdLinuxSshAdapter
+                };
                 nextSelection = selectedAdapterOption?.Id == CollectionAdapterId.GenericLinux
                     ? GenericLinuxAdapter
                     : selectedAdapterOption?.Id == CollectionAdapterId.WindowsServerSsh
                         ? WindowsServerSshAdapter
+                        : selectedAdapterOption?.Id == CollectionAdapterId.NginxLinuxSsh
+                            ? NginxLinuxSshAdapter
+                            : selectedAdapterOption?.Id == CollectionAdapterId.ApacheHttpdLinuxSsh
+                                ? ApacheHttpdLinuxSshAdapter
                         : null;
                 break;
             case TargetCategory.NetworkDevice:
@@ -832,9 +882,11 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                         : null;
                 break;
             case TargetCategory.Middleware:
-                nextOptions = new[] { NginxLinuxSshAdapter };
+                nextOptions = new[] { NginxLinuxSshAdapter, ApacheHttpdLinuxSshAdapter };
                 nextSelection = selectedAdapterOption?.Id == CollectionAdapterId.NginxLinuxSsh
                     ? NginxLinuxSshAdapter
+                    : selectedAdapterOption?.Id == CollectionAdapterId.ApacheHttpdLinuxSsh
+                        ? ApacheHttpdLinuxSshAdapter
                     : null;
                 break;
             default:
@@ -878,6 +930,14 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                     && string.Equals(candidate.ProductFamily, "Windows Server", StringComparison.OrdinalIgnoreCase))
                 ? WindowsServerSshAdapter
                 : candidates.Any(candidate =>
+                    string.Equals(candidate.Vendor, "NGINX", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(candidate.ProductFamily, "Nginx", StringComparison.OrdinalIgnoreCase))
+                    ? NginxLinuxSshAdapter
+                    : candidates.Any(candidate =>
+                        string.Equals(candidate.Vendor, "Apache Software Foundation", StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(candidate.ProductFamily, "Apache HTTP Server", StringComparison.OrdinalIgnoreCase))
+                        ? ApacheHttpdLinuxSshAdapter
+                : candidates.Any(candidate =>
                     candidate.Category == TargetCategory.Server
                     && !string.Equals(candidate.Vendor, "Microsoft", StringComparison.OrdinalIgnoreCase))
                     ? GenericLinuxAdapter
@@ -889,7 +949,11 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
                     string.Equals(candidate.Vendor, "NGINX", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(candidate.ProductFamily, "Nginx", StringComparison.OrdinalIgnoreCase))
                 ? NginxLinuxSshAdapter
-                : null;
+                : candidates.Any(candidate =>
+                    string.Equals(candidate.Vendor, "Apache Software Foundation", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(candidate.ProductFamily, "Apache HTTP Server", StringComparison.OrdinalIgnoreCase))
+                    ? ApacheHttpdLinuxSshAdapter
+                    : null;
         }
 
         if (selectedAdapterOption == null)

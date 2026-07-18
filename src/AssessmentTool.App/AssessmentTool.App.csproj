@@ -29,5 +29,7 @@
     <EmbeddedResource Include="../../command-packs/builtin/windows-server-ssh.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json" />
     <Content Include="../../command-packs/builtin/nginx-linux-ssh.json" Link="command-packs/builtin/nginx-linux-ssh.json" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="../../command-packs/builtin/nginx-linux-ssh.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.NginxLinuxSsh.json" />
+    <Content Include="../../command-packs/builtin/apache-httpd-linux-ssh.json" Link="command-packs/builtin/apache-httpd-linux-ssh.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../command-packs/builtin/apache-httpd-linux-ssh.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.ApacheHttpdLinuxSsh.json" />
   </ItemGroup>
 </Project>

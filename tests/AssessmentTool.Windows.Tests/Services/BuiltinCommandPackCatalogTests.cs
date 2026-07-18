@@ -107,6 +107,8 @@ public sealed class BuiltinCommandPackCatalogTests
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json\"", project);
         Assert.Contains("Link=\"command-packs/builtin/nginx-linux-ssh.json\"", project);
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.NginxLinuxSsh.json\"", project);
+        Assert.Contains("Link=\"command-packs/builtin/apache-httpd-linux-ssh.json\"", project);
+        Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.ApacheHttpdLinuxSsh.json\"", project);
     }
 
     [Fact]
@@ -170,6 +172,43 @@ public sealed class BuiltinCommandPackCatalogTests
                 command.CommandText.IndexOf("-t", StringComparison.Ordinal) >= 0
                 || command.CommandText.IndexOf("-T", StringComparison.Ordinal) >= 0
                 || command.CommandText.IndexOf("nginx.conf", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LoadApacheHttpdLinuxSsh_uses_fixed_hash_layout_and_version_only_read_only_groups()
+    {
+        var releaseDirectory = CreateReleaseDirectory();
+        try
+        {
+            var catalog = new BuiltinCommandPackCatalog(releaseDirectory);
+            var pack = catalog.LoadApacheHttpdLinuxSsh();
+            var identification = catalog.SelectApacheHttpdLinuxSshIdentificationCommands(pack);
+            var collection = catalog.CreateApacheHttpdLinuxSshCollectionPack(pack);
+
+            Assert.Equal("apache-httpd-linux-ssh", pack.Id);
+            Assert.Equal("1.0.0", pack.Version);
+            Assert.Equal(new[] { "apache-httpd-linux-ssh-version" }, identification.Select(command => command.Id));
+            Assert.Equal(new[] { "apache-httpd-linux-ssh-build-options" }, collection.Commands.Select(command => command.Id));
+            Assert.All(pack.Commands, command =>
+            {
+                Assert.Equal(AssessmentTool.Core.Domain.TargetCategory.Middleware, command.TargetCategory);
+                Assert.Equal("Apache Software Foundation", command.Vendor);
+                Assert.Equal("Apache HTTP Server", command.ProductFamily);
+                Assert.Equal("2.4.0", command.MinimumVersion);
+                Assert.Equal("2.4.9999", command.MaximumVersion);
+                Assert.True(command.IsEligibleForAutomaticExecution);
+                Assert.True(new AssessmentTool.Core.Security.CommandSafetyPolicy().Validate(command).Allowed);
+            });
+            Assert.DoesNotContain(pack.Commands, command =>
+                command.CommandText.IndexOf("-t", StringComparison.Ordinal) >= 0
+                || command.CommandText.IndexOf("-M", StringComparison.Ordinal) >= 0
+                || command.CommandText.IndexOf("-S", StringComparison.Ordinal) >= 0
+                || command.CommandText.IndexOf("-k", StringComparison.Ordinal) >= 0);
         }
         finally
         {

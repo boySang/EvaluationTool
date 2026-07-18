@@ -1,0 +1,50 @@
+{
+  "id": "apache-httpd-linux-ssh",
+  "name": "Apache HTTP Server Linux SSH 只读识别与采集",
+  "version": "1.0.0",
+  "officialSource": "https://httpd.apache.org/docs/2.4/programs/httpd.html",
+  "commands": [
+    {
+      "id": "apache-httpd-linux-ssh-version",
+      "title": "读取 Apache HTTP Server 版本",
+      "targetCategory": "Middleware",
+      "commandText": "/usr/sbin/httpd -v",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "Apache Software Foundation",
+      "productFamily": "Apache HTTP Server",
+      "minimumVersion": "2.4.0",
+      "maximumVersion": "2.4.9999",
+      "checkItem": "IDENTIFY",
+      "modelRange": "*",
+      "accountRequirement": "可执行 /usr/sbin/httpd 的最小权限账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 30,
+      "pagingBehavior": "NotApplicable",
+      "resultDescription": "使用官方 -v 参数打印 Apache HTTP Server 版本并退出，不读取配置、不启动或控制服务。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://httpd.apache.org/docs/2.4/programs/httpd.html"
+    },
+    {
+      "id": "apache-httpd-linux-ssh-build-options",
+      "title": "读取 Apache HTTP Server 构建参数",
+      "targetCategory": "Middleware",
+      "commandText": "/usr/sbin/httpd -V",
+      "verificationStatus": "Verified",
+      "isReadOnly": true,
+      "vendor": "Apache Software Foundation",
+      "productFamily": "Apache HTTP Server",
+      "minimumVersion": "2.4.0",
+      "maximumVersion": "2.4.9999",
+      "checkItem": "软件版本与构建参数",
+      "modelRange": "*",
+      "accountRequirement": "可执行 /usr/sbin/httpd 的最小权限账户",
+      "riskLevel": "Low",
+      "timeoutSeconds": 30,
+      "pagingBehavior": "NotApplicable",
+      "resultDescription": "使用官方 -V 参数打印版本和构建参数并退出，不解析配置、不列出运行时模块、不改变服务状态。",
+      "verificationDate": "2026-07-18",
+      "officialSource": "https://httpd.apache.org/docs/2.4/programs/httpd.html"
+    }
+  ]
+}

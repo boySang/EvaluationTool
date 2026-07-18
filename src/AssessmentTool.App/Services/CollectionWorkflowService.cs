@@ -150,6 +150,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
         var isH3cComwareWorkflow = request.AdapterId == CollectionAdapterId.H3cComware;
         var isWindowsServerSshWorkflow = request.AdapterId == CollectionAdapterId.WindowsServerSsh;
         var isNginxLinuxSshWorkflow = request.AdapterId == CollectionAdapterId.NginxLinuxSsh;
+        var isApacheHttpdLinuxSshWorkflow = request.AdapterId == CollectionAdapterId.ApacheHttpdLinuxSsh;
+        var isDedicatedMiddlewareWorkflow = isNginxLinuxSshWorkflow || isApacheHttpdLinuxSshWorkflow;
         var isNetworkDeviceWorkflow = isHuaweiVrpWorkflow || isH3cComwareWorkflow;
         var workflowStage = isHuaweiVrpWorkflow
             ? "加载华为 VRP 命令包"
@@ -159,6 +161,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     ? "加载 Windows Server SSH 命令包"
                     : isNginxLinuxSshWorkflow
                         ? "加载 Nginx Linux SSH 命令包"
+                        : isApacheHttpdLinuxSshWorkflow
+                            ? "加载 Apache HTTP Server Linux SSH 命令包"
                         : "加载通用 Linux 命令包";
         WorkflowExecutionObserver? executionObserver = null;
         try
@@ -171,6 +175,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                         ? commandCatalog.LoadWindowsServerSsh()
                         : isNginxLinuxSshWorkflow
                             ? commandCatalog.LoadNginxLinuxSsh()
+                            : isApacheHttpdLinuxSshWorkflow
+                                ? commandCatalog.LoadApacheHttpdLinuxSsh()
                             : commandCatalog.LoadGenericLinux();
             var collectionPack = isHuaweiVrpWorkflow
                 ? await LoadHuaweiVrpProjectCollectionPackAsync(
@@ -192,12 +198,17 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                                 request.Project.Id,
                                 fullPack,
                                 cancellationToken).ConfigureAwait(false)
+                            : isApacheHttpdLinuxSshWorkflow
+                                ? await LoadApacheHttpdLinuxSshProjectCollectionPackAsync(
+                                    request.Project.Id,
+                                    fullPack,
+                                    cancellationToken).ConfigureAwait(false)
                             : await LoadProjectCollectionPackAsync(
                                 request.Project.Id,
                                 fullPack,
                                 cancellationToken).ConfigureAwait(false);
             CommandPack? databaseDiscoveryPack = null;
-            if (!isNetworkDeviceWorkflow && !isWindowsServerSshWorkflow && !isNginxLinuxSshWorkflow)
+            if (!isNetworkDeviceWorkflow && !isWindowsServerSshWorkflow && !isDedicatedMiddlewareWorkflow)
             {
                 workflowStage = "加载数据库发现命令包";
                 databaseDiscoveryPack = commandCatalog.LoadDatabaseHostDiscoveryLinux();
@@ -227,6 +238,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                                 ? commandCatalog.SelectWindowsServerSshIdentificationCommands(fullPack)
                                 : isNginxLinuxSshWorkflow
                                     ? commandCatalog.SelectNginxLinuxSshIdentificationCommands(fullPack)
+                                    : isApacheHttpdLinuxSshWorkflow
+                                        ? commandCatalog.SelectApacheHttpdLinuxSshIdentificationCommands(fullPack)
                                     : commandCatalog.SelectGenericLinuxIdentificationCommands(fullPack),
                     isHuaweiVrpWorkflow
                         ? new[] { BuiltInIdentificationRules.HuaweiVrp }
@@ -236,6 +249,8 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                                 ? new[] { BuiltInIdentificationRules.WindowsServer }
                                 : isNginxLinuxSshWorkflow
                                     ? new[] { BuiltInIdentificationRules.NginxLinux }
+                                    : isApacheHttpdLinuxSshWorkflow
+                                        ? new[] { BuiltInIdentificationRules.ApacheHttpdLinux }
                                     : identificationRules,
                     new DetectionEngine(),
                     new CommandMatcher(),
@@ -248,31 +263,39 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
 
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
-                    if ((isNetworkDeviceWorkflow || isWindowsServerSshWorkflow || isNginxLinuxSshWorkflow)
+                    if ((isNetworkDeviceWorkflow || isWindowsServerSshWorkflow || isDedicatedMiddlewareWorkflow)
                         && result.Outcome == CollectionOutcome.NeedsUserConfirmation
                         && (result.Detection == null || result.Detection.Candidates.Count == 0))
                     {
                         return CollectionWorkflowResult.Failed(new CollectionError(
-                            isNginxLinuxSshWorkflow
+                            isApacheHttpdLinuxSshWorkflow
+                                ? "未识别为受支持路径中的 Apache HTTP Server"
+                                : isNginxLinuxSshWorkflow
                                 ? "未识别为受支持路径中的 Nginx"
                                 : isWindowsServerSshWorkflow
                                 ? "未识别为受支持的 Windows Server"
                                 : isHuaweiVrpWorkflow
                                     ? "未识别为华为 VRP 网络设备"
                                     : "未识别为 H3C Comware 网络设备",
-                            isNginxLinuxSshWorkflow
+                            isApacheHttpdLinuxSshWorkflow
+                                ? "固定 /usr/sbin/httpd -v 查询没有返回 Apache HTTP Server 版本特征"
+                                : isNginxLinuxSshWorkflow
                                 ? "固定 /usr/sbin/nginx -v 查询没有返回官方 Nginx 版本特征"
                                 : isWindowsServerSshWorkflow
                                 ? "固定注册表查询没有返回 Windows Server 2016/2019/2022/2025 产品特征"
                                 : "固定 display version 查询没有返回可由所选厂商官方特征规则确认的结果",
-                            isNginxLinuxSshWorkflow
+                            isApacheHttpdLinuxSshWorkflow
+                                ? "请核对产品和安装路径；apache2、自定义路径或无法确认身份的实例不会继续采集"
+                                : isNginxLinuxSshWorkflow
                                 ? "请核对产品和安装路径；OpenResty、自定义路径或无法确认身份的实例不会继续采集"
                                 : isWindowsServerSshWorkflow
                                 ? "请核对操作系统和适配器；Windows 客户端、旧版本及无法确认身份的服务器不会继续采集"
                                 : isHuaweiVrpWorkflow
                                     ? "请核对设备厂商；H3C、Cisco、锐捷等设备不得选择华为 VRP 适配器"
                                     : "请核对设备厂商；华为、Cisco、锐捷等设备不得选择 H3C Comware 适配器",
-                            isNginxLinuxSshWorkflow
+                            isApacheHttpdLinuxSshWorkflow
+                                ? "ApacheHttpdLinuxIdentityNotDetected"
+                                : isNginxLinuxSshWorkflow
                                 ? "NginxLinuxIdentityNotDetected"
                                 : isWindowsServerSshWorkflow
                                 ? "WindowsServerIdentityNotDetected"
@@ -298,7 +321,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                     return MapResult(result, identification.PendingBatchId);
                 }
 
-                if (isNetworkDeviceWorkflow || isWindowsServerSshWorkflow || isNginxLinuxSshWorkflow)
+                if (isNetworkDeviceWorkflow || isWindowsServerSshWorkflow || isDedicatedMiddlewareWorkflow)
                 {
                     await executionObserver.FinalizeAsync(
                         CollectionTaskState.Completed,
@@ -401,7 +424,13 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
                 return category == TargetCategory.Automatic
                     || category == TargetCategory.Server;
             case CollectionAdapterId.NginxLinuxSsh:
-                return category == TargetCategory.Middleware;
+                return category == TargetCategory.Automatic
+                    || category == TargetCategory.Server
+                    || category == TargetCategory.Middleware;
+            case CollectionAdapterId.ApacheHttpdLinuxSsh:
+                return category == TargetCategory.Automatic
+                    || category == TargetCategory.Server
+                    || category == TargetCategory.Middleware;
             default:
                 return false;
         }
@@ -465,19 +494,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return commandCatalog.CreateHuaweiVrpCollectionPack(builtinFullPack);
         }
 
-        var fixedIdentificationIds = new HashSet<string>(
-            commandCatalog.HuaweiVrpIdentificationCommandIds,
-            StringComparer.Ordinal);
-        var collectionIds = selected.Commands
-            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
-            .Select(command => command.Id)
-            .ToArray();
-        if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
-        {
-            throw new CommandPackException("项目锁定的华为 VRP 命令包缺少安全采集命令或与固定识别命令冲突。");
-        }
-
-        return selected.SelectCommands(collectionIds);
+        return commandCatalog.CreateHuaweiVrpCollectionPack(selected);
     }
 
     private async Task<CommandPack> LoadH3cComwareProjectCollectionPackAsync(
@@ -499,19 +516,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return commandCatalog.CreateH3cComwareCollectionPack(builtinFullPack);
         }
 
-        var fixedIdentificationIds = new HashSet<string>(
-            commandCatalog.H3cComwareIdentificationCommandIds,
-            StringComparer.Ordinal);
-        var collectionIds = selected.Commands
-            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
-            .Select(command => command.Id)
-            .ToArray();
-        if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
-        {
-            throw new CommandPackException("项目锁定的 H3C Comware 命令包缺少安全采集命令或与固定识别命令冲突。");
-        }
-
-        return selected.SelectCommands(collectionIds);
+        return commandCatalog.CreateH3cComwareCollectionPack(selected);
     }
 
     private async Task<CommandPack> LoadWindowsServerSshProjectCollectionPackAsync(
@@ -533,19 +538,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return commandCatalog.CreateWindowsServerSshCollectionPack(builtinFullPack);
         }
 
-        var fixedIdentificationIds = new HashSet<string>(
-            commandCatalog.WindowsServerSshIdentificationCommandIds,
-            StringComparer.Ordinal);
-        var collectionIds = selected.Commands
-            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
-            .Select(command => command.Id)
-            .ToArray();
-        if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
-        {
-            throw new CommandPackException("项目锁定的 Windows Server SSH 命令包缺少安全采集命令或与固定识别命令冲突。");
-        }
-
-        return selected.SelectCommands(collectionIds);
+        return commandCatalog.CreateWindowsServerSshCollectionPack(selected);
     }
 
     private async Task<CommandPack> LoadNginxLinuxSshProjectCollectionPackAsync(
@@ -567,19 +560,29 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
             return commandCatalog.CreateNginxLinuxSshCollectionPack(builtinFullPack);
         }
 
-        var fixedIdentificationIds = new HashSet<string>(
-            commandCatalog.NginxLinuxSshIdentificationCommandIds,
-            StringComparer.Ordinal);
-        var collectionIds = selected.Commands
-            .Where(command => !string.Equals(command.CheckItem, "IDENTIFY", StringComparison.Ordinal))
-            .Select(command => command.Id)
-            .ToArray();
-        if (collectionIds.Length == 0 || collectionIds.Any(fixedIdentificationIds.Contains))
+        return commandCatalog.CreateNginxLinuxSshCollectionPack(selected);
+    }
+
+    private async Task<CommandPack> LoadApacheHttpdLinuxSshProjectCollectionPackAsync(
+        ProjectId projectId,
+        CommandPack builtinFullPack,
+        CancellationToken cancellationToken)
+    {
+        if (commandPackReleaseService == null)
         {
-            throw new CommandPackException("项目锁定的 Nginx Linux SSH 命令包缺少安全采集命令或与固定识别命令冲突。");
+            return commandCatalog.CreateApacheHttpdLinuxSshCollectionPack(builtinFullPack);
         }
 
-        return selected.SelectCommands(collectionIds);
+        var selected = await commandPackReleaseService.LoadCurrentProjectPackAsync(
+            projectId,
+            builtinFullPack.Id,
+            cancellationToken).ConfigureAwait(false);
+        if (selected == null)
+        {
+            return commandCatalog.CreateApacheHttpdLinuxSshCollectionPack(builtinFullPack);
+        }
+
+        return commandCatalog.CreateApacheHttpdLinuxSshCollectionPack(selected);
     }
 
     private async Task<IdentificationPersistenceResult> SaveIdentificationStateAsync(
@@ -1031,7 +1034,7 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
     {
         return CollectionWorkflowResult.Failed(new CollectionError(
             "当前体验版尚未启用该设备的自动采集",
-            "当前只开放已验证的 SSH Linux、Windows Server、Nginx、华为 VRP 和 H3C Comware 适配器",
+            "当前只开放已验证的 SSH Linux、Windows Server、Nginx、Apache HTTP Server、华为 VRP 和 H3C Comware 适配器",
             "可以继续保存设备和测试登录；请在采集页选择与实际对象一致的已验证适配器",
             "UnsupportedCollectionTarget"));
     }

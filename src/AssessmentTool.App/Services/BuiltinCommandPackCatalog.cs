@@ -36,6 +36,10 @@ public sealed class BuiltinCommandPackCatalog
     private const string NginxLinuxSshRelativePath = "command-packs/builtin/nginx-linux-ssh.json";
     private const string NginxLinuxSshResourceName = "AssessmentTool.App.CommandPacks.Builtin.NginxLinuxSsh.json";
     private const string NginxLinuxSshSha256 = "930f9489cb1c7fbd6fcea93a1b903d3e2c6aff2b82b153ecb970de56b15b6bf0";
+    private const string ApacheHttpdLinuxSshPackId = "apache-httpd-linux-ssh";
+    private const string ApacheHttpdLinuxSshRelativePath = "command-packs/builtin/apache-httpd-linux-ssh.json";
+    private const string ApacheHttpdLinuxSshResourceName = "AssessmentTool.App.CommandPacks.Builtin.ApacheHttpdLinuxSsh.json";
+    private const string ApacheHttpdLinuxSshSha256 = "7cfd10802646b15a25279c8f7d31363d59f6b942b33436f6eb3197b58045824c";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -88,6 +92,12 @@ public sealed class BuiltinCommandPackCatalog
     private static readonly IReadOnlyList<string> NginxLinuxSshCollectionIds =
         new ReadOnlyCollection<string>(new[] { "nginx-linux-ssh-build-options" });
 
+    private static readonly IReadOnlyList<string> ApacheHttpdLinuxSshIdentificationIds =
+        new ReadOnlyCollection<string>(new[] { "apache-httpd-linux-ssh-version" });
+
+    private static readonly IReadOnlyList<string> ApacheHttpdLinuxSshCollectionIds =
+        new ReadOnlyCollection<string>(new[] { "apache-httpd-linux-ssh-build-options" });
+
     private readonly string releaseDirectory;
     private readonly Assembly resourceAssembly;
 
@@ -123,6 +133,8 @@ public sealed class BuiltinCommandPackCatalog
     public IReadOnlyList<string> WindowsServerSshIdentificationCommandIds => WindowsServerSshIdentificationIds;
 
     public IReadOnlyList<string> NginxLinuxSshIdentificationCommandIds => NginxLinuxSshIdentificationIds;
+
+    public IReadOnlyList<string> ApacheHttpdLinuxSshIdentificationCommandIds => ApacheHttpdLinuxSshIdentificationIds;
 
     public CommandPack LoadGenericLinux()
     {
@@ -190,6 +202,17 @@ public sealed class BuiltinCommandPackCatalog
         return pack;
     }
 
+    public CommandPack LoadApacheHttpdLinuxSsh()
+    {
+        var packBytes = LoadPackBytes(
+            ApacheHttpdLinuxSshRelativePath,
+            ApacheHttpdLinuxSshResourceName,
+            "Apache HTTP Server Linux SSH 命令包");
+        var pack = new CommandPackLoader().Load(packBytes, ApacheHttpdLinuxSshSha256);
+        EnsureApacheHttpdLinuxSshLayout(pack);
+        return pack;
+    }
+
     public IReadOnlyList<CommandDefinition> SelectGenericLinuxIdentificationCommands(CommandPack pack)
     {
         return SelectCommands(pack, IdentificationIds);
@@ -252,6 +275,18 @@ public sealed class BuiltinCommandPackCatalog
     {
         EnsureNginxLinuxSshLayout(pack);
         return pack.SelectCommands(NginxLinuxSshCollectionIds);
+    }
+
+    public IReadOnlyList<CommandDefinition> SelectApacheHttpdLinuxSshIdentificationCommands(CommandPack pack)
+    {
+        EnsureApacheHttpdLinuxSshLayout(pack);
+        return SelectCommandsUnchecked(pack, ApacheHttpdLinuxSshIdentificationIds);
+    }
+
+    public CommandPack CreateApacheHttpdLinuxSshCollectionPack(CommandPack pack)
+    {
+        EnsureApacheHttpdLinuxSshLayout(pack);
+        return pack.SelectCommands(ApacheHttpdLinuxSshCollectionIds);
     }
 
     private byte[] LoadPackBytes(string relativePath, string resourceName, string description)
@@ -399,7 +434,9 @@ public sealed class BuiltinCommandPackCatalog
         var expectedIds = HuaweiVrpIdentificationIds.Concat(HuaweiVrpCollectionIds).ToArray();
         if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
             || pack.Commands.Any(command => command.TargetCategory != TargetCategory.NetworkDevice
-                || !string.Equals(command.Vendor, "Huawei", StringComparison.Ordinal)))
+                || !string.Equals(command.Vendor, "Huawei", StringComparison.Ordinal))
+            || !HasExactCommand(pack, "huawei-vrp-display-version", "display version | no-more")
+            || !HasExactCommand(pack, "huawei-vrp-display-aaa-configuration", "display aaa configuration | no-more"))
         {
             throw new CommandPackException("华为 VRP 内置命令包的命令顺序或对象边界不正确。");
         }
@@ -429,7 +466,9 @@ public sealed class BuiltinCommandPackCatalog
         if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
             || pack.Commands.Any(command => command.TargetCategory != TargetCategory.NetworkDevice
                 || !string.Equals(command.Vendor, "H3C", StringComparison.Ordinal)
-                || !string.Equals(command.ProductFamily, "Comware", StringComparison.Ordinal)))
+                || !string.Equals(command.ProductFamily, "Comware", StringComparison.Ordinal))
+            || !HasExactCommand(pack, "h3c-comware-display-version", "display version | no-more")
+            || !HasExactCommand(pack, "h3c-comware-display-password-control", "display password-control | no-more"))
         {
             throw new CommandPackException("H3C Comware 内置命令包的命令顺序或对象边界不正确。");
         }
@@ -461,7 +500,10 @@ public sealed class BuiltinCommandPackCatalog
         if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
             || pack.Commands.Any(command => command.TargetCategory != TargetCategory.Server
                 || !string.Equals(command.Vendor, "Microsoft", StringComparison.Ordinal)
-                || !string.Equals(command.ProductFamily, "Windows Server", StringComparison.Ordinal)))
+                || !string.Equals(command.ProductFamily, "Windows Server", StringComparison.Ordinal))
+            || !HasExactCommand(pack, "windows-server-ssh-product-name", "cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v ProductName")
+            || !HasExactCommand(pack, "windows-server-ssh-build-number", "cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v CurrentBuildNumber")
+            || !HasExactCommand(pack, "windows-server-ssh-account-policy", "cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts"))
         {
             throw new CommandPackException("Windows Server SSH 内置命令包的命令顺序或对象边界不正确。");
         }
@@ -493,7 +535,9 @@ public sealed class BuiltinCommandPackCatalog
         if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
             || pack.Commands.Any(command => command.TargetCategory != TargetCategory.Middleware
                 || !string.Equals(command.Vendor, "NGINX", StringComparison.Ordinal)
-                || !string.Equals(command.ProductFamily, "Nginx", StringComparison.Ordinal)))
+                || !string.Equals(command.ProductFamily, "Nginx", StringComparison.Ordinal))
+            || !HasExactCommand(pack, "nginx-linux-ssh-version", "/usr/sbin/nginx -v")
+            || !HasExactCommand(pack, "nginx-linux-ssh-build-options", "/usr/sbin/nginx -V"))
         {
             throw new CommandPackException("Nginx Linux SSH 内置命令包的命令顺序或对象边界不正确。");
         }
@@ -505,5 +549,49 @@ public sealed class BuiltinCommandPackCatalog
         {
             throw new CommandPackException("Nginx Linux SSH 固定识别命令缺少 IDENTIFY 安全标记。");
         }
+    }
+
+    private static void EnsureApacheHttpdLinuxSshLayout(CommandPack pack)
+    {
+        if (pack == null)
+        {
+            throw new ArgumentNullException(nameof(pack));
+        }
+
+        if (!string.Equals(pack.Id, ApacheHttpdLinuxSshPackId, StringComparison.Ordinal))
+        {
+            throw new CommandPackException("命令包不是受支持的 Apache HTTP Server Linux SSH 内置命令包。");
+        }
+
+        var expectedIds = ApacheHttpdLinuxSshIdentificationIds
+            .Concat(ApacheHttpdLinuxSshCollectionIds)
+            .ToArray();
+        if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
+            || pack.Commands.Any(command => command.TargetCategory != TargetCategory.Middleware
+                || !string.Equals(command.Vendor, "Apache Software Foundation", StringComparison.Ordinal)
+                || !string.Equals(command.ProductFamily, "Apache HTTP Server", StringComparison.Ordinal)
+                || !string.Equals(command.MinimumVersion, "2.4.0", StringComparison.Ordinal)
+                || !string.Equals(command.MaximumVersion, "2.4.9999", StringComparison.Ordinal))
+            || !HasExactCommand(pack, "apache-httpd-linux-ssh-version", "/usr/sbin/httpd -v")
+            || !HasExactCommand(pack, "apache-httpd-linux-ssh-build-options", "/usr/sbin/httpd -V"))
+        {
+            throw new CommandPackException("Apache HTTP Server Linux SSH 内置命令包的命令顺序或对象边界不正确。");
+        }
+
+        if (ApacheHttpdLinuxSshIdentificationIds.Any(commandId =>
+            !string.Equals(pack.Commands.Single(command => command.Id == commandId).CheckItem,
+                "IDENTIFY",
+                StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("Apache HTTP Server Linux SSH 固定识别命令缺少 IDENTIFY 安全标记。");
+        }
+    }
+
+    private static bool HasExactCommand(CommandPack pack, string commandId, string commandText)
+    {
+        return string.Equals(
+            pack.Commands.Single(command => command.Id == commandId).CommandText,
+            commandText,
+            StringComparison.Ordinal);
     }
 }

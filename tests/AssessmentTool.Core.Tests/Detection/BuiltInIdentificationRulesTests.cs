@@ -124,6 +124,40 @@ public sealed class BuiltInIdentificationRulesTests
     }
 
     [Theory]
+    [InlineData("Server version: Apache/2.4.62 (Unix)", "2.4.62")]
+    [InlineData("Server version: Apache/2.4.57", "2.4.57")]
+    public void Apache_httpd_rule_returns_fixed_verified_identity(string output, string expectedVersion)
+    {
+        var result = new DetectionEngine().Detect(
+            output,
+            new[] { BuiltInIdentificationRules.ApacheHttpdLinux });
+
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(TargetCategory.Middleware, candidate.Category);
+        Assert.Equal("Apache Software Foundation", candidate.Vendor);
+        Assert.Equal("Apache HTTP Server", candidate.ProductFamily);
+        Assert.Equal(expectedVersion, candidate.Version);
+        Assert.Equal(0.85, candidate.Confidence);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Theory]
+    [InlineData("Server version: nginx/1.24.0")]
+    [InlineData("Apache/2.4.62 (Unix)")]
+    [InlineData("Server version: Apache Tomcat/9.0.80")]
+    [InlineData("Server version: Apache/2.2.34 (Unix)")]
+    [InlineData("Server version: Apache/3.0.0 (Unix)")]
+    public void Apache_httpd_rule_rejects_other_or_ambiguous_products(string output)
+    {
+        var result = new DetectionEngine().Detect(
+            output,
+            new[] { BuiltInIdentificationRules.ApacheHttpdLinux });
+
+        Assert.Empty(result.Candidates);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Theory]
     [InlineData("ID=ubuntu", "ubuntu")]
     [InlineData("ID=\"kylin\"", "kylin")]
     [InlineData("ID=uos", "uos")]

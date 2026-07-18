@@ -237,6 +237,35 @@ public sealed class CommandSafetyPolicyTests
     }
 
     [Theory]
+    [InlineData("/usr/sbin/httpd -v")]
+    [InlineData("/usr/sbin/httpd -V")]
+    public void Allows_only_exact_apache_httpd_version_query_templates(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.True(result.Allowed);
+        Assert.Equal("allowed", result.Code);
+    }
+
+    [Theory]
+    [InlineData("httpd -v")]
+    [InlineData("/usr/sbin/apache2 -V")]
+    [InlineData("/usr/local/apache2/bin/httpd -V")]
+    [InlineData("/usr/sbin/httpd -t")]
+    [InlineData("/usr/sbin/httpd -M")]
+    [InlineData("/usr/sbin/httpd -S")]
+    [InlineData("/usr/sbin/httpd -k graceful")]
+    [InlineData("/usr/sbin/httpd -V 2>&1")]
+    [InlineData("sudo /usr/sbin/httpd -V")]
+    [InlineData("/usr/sbin/httpd -V | cat")]
+    public void Rejects_apache_httpd_variants_outside_exact_allowlist(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.False(result.Allowed);
+    }
+
+    [Theory]
     [InlineData("docker exec db ps", "unsafe-command")]
     [InlineData("podman exec db ps", "unsafe-command")]
     [InlineData("systemctl restart sshd", "unsafe-command")]

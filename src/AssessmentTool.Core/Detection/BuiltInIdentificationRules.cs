@@ -41,6 +41,15 @@ public static class BuiltInIdentificationRules
             "NGINX",
             "Nginx");
 
+    private static readonly IdentificationRule ApacheHttpdLinuxRule =
+        IdentificationRule.CreateVerifiedWithFixedIdentity(
+            Domain.TargetCategory.Middleware,
+            "^Server version: Apache/(?<version>2\\.4\\.[0-9]+(?:[A-Za-z0-9._-]*)?)(?: \\([^\\r\\n]*\\))?$",
+            0.85,
+            "https://httpd.apache.org/docs/2.4/programs/httpd.html",
+            "Apache Software Foundation",
+            "Apache HTTP Server");
+
     public static IdentificationRule LinuxOsReleaseId => LinuxOsReleaseIdRule;
 
     public static IdentificationRule HuaweiVrp => HuaweiVrpRule;
@@ -50,4 +59,6 @@ public static class BuiltInIdentificationRules
     public static IdentificationRule WindowsServer => WindowsServerRule;
 
     public static IdentificationRule NginxLinux => NginxLinuxRule;
+
+    public static IdentificationRule ApacheHttpdLinux => ApacheHttpdLinuxRule;
 }

@@ -606,6 +606,163 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Apache_httpd_linux_ssh_requires_human_confirmation_then_runs_only_build_query()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Automatic, "192.0.2.68", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        const string versionOutput = "Server version: Apache/2.4.62 (Unix)\nServer built: Jul 17 2026 08:00:00";
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["apache-httpd-linux-ssh-version"] = Success("apache-httpd-linux-ssh-version", versionOutput)
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["apache-httpd-linux-ssh-version"] = Success("apache-httpd-linux-ssh-version", versionOutput),
+            ["apache-httpd-linux-ssh-build-options"] = Success(
+                "apache-httpd-linux-ssh-build-options",
+                "Server version: Apache/2.4.62 (Unix)\nServer MPM: event\n-D HTTPD_ROOT=\"/etc/httpd\"")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.ApacheHttpd", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                new RecordingEvidenceService(),
+                identifications);
+            var selection = new CollectionDeviceSelection(device, true, trust);
+
+            var detected = await service.RunAsync(
+                new CollectionWorkflowRequest(project, selection, CollectionAdapterId.ApacheHttpdLinuxSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, detected.Outcome);
+            var candidate = Assert.Single(detected.DetectionCandidates);
+            Assert.Equal(TargetCategory.Middleware, candidate.Category);
+            Assert.Equal("Apache Software Foundation", candidate.Vendor);
+            Assert.Equal("Apache HTTP Server", candidate.ProductFamily);
+            Assert.Equal("2.4.62", candidate.Version);
+            var pending = Assert.Single(identifications.PendingBatches);
+            Assert.Equal(new[] { "apache-httpd-linux-ssh-version" }, firstSession.ExecutedIds);
+
+            var completed = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    selection,
+                    CollectionAdapterId.ApacheHttpdLinuxSsh,
+                    candidate,
+                    pending.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, completed.Outcome);
+            Assert.Equal(
+                new[] { "apache-httpd-linux-ssh-version", "apache-httpd-linux-ssh-build-options" },
+                secondSession.ExecutedIds);
+            Assert.Equal(
+                new[] { "apache-httpd-linux-ssh-build-options" },
+                completed.CompletedCommands.Select(command => command.CommandId));
+            var task = Assert.Single(identifications.Tasks);
+            Assert.All(task.Commands, command => Assert.Equal("apache-httpd-linux-ssh", command.CommandPackId));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("generic-linux", StringComparison.Ordinal));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("database-host-discovery", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Apache_httpd_adapter_rejects_tomcat_without_empty_confirmation_dead_end()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Middleware, "192.0.2.69", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var session = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["apache-httpd-linux-ssh-version"] = Success(
+                "apache-httpd-linux-ssh-version",
+                "Server version: Apache Tomcat/9.0.80")
+        });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.ApacheTomcat", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => session,
+                new RecordingEvidenceService(),
+                identifications);
+
+            var result = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    new CollectionDeviceSelection(device, true, trust),
+                    CollectionAdapterId.ApacheHttpdLinuxSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Failed, result.Outcome);
+            Assert.Equal("ApacheHttpdLinuxIdentityNotDetected", result.Error!.TechnicalDetails);
+            Assert.Equal(new[] { "apache-httpd-linux-ssh-version" }, session.ExecutedIds);
+            Assert.Empty(identifications.PendingBatches);
+            Assert.Empty(identifications.Tasks);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Apache_project_lock_rejects_cross_adapter_command_before_creating_session()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Middleware, "192.0.2.70", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var sessionCreated = false;
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.ApacheCrossPack", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ =>
+                {
+                    sessionCreated = true;
+                    return new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal));
+                },
+                new RecordingEvidenceService(),
+                new RecordingIdentificationRepository(),
+                null,
+                new FixedCommandPackReleaseService(LoadCrossAdapterApachePack()));
+
+            var result = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    new CollectionDeviceSelection(device, true, trust),
+                    CollectionAdapterId.ApacheHttpdLinuxSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Failed, result.Outcome);
+            Assert.False(sessionCreated);
+            Assert.Contains("CommandPackException", result.Error!.TechnicalDetails);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Network_device_without_matching_adapter_is_rejected_before_session_creation()
     {
         var project = CreateProject();
@@ -1140,6 +1297,33 @@ public sealed class CollectionWorkflowServiceTests
             + "\"riskLevel\":\"Low\",\"timeoutSeconds\":30,\"pagingBehavior\":\"NotApplicable\","
             + "\"resultDescription\":\"主机名\",\"verificationDate\":\"2025-01-01\","
             + "\"officialSource\":\"https://vendor.example/hostname\",\"optional\":false}]}";
+        var bytes = Encoding.UTF8.GetBytes(json);
+        using (var algorithm = SHA256.Create())
+        {
+            var hash = string.Concat(algorithm.ComputeHash(bytes).Select(value => value.ToString("x2")));
+            return new CommandPackLoader().Load(bytes, hash);
+        }
+    }
+
+    private static CommandPack LoadCrossAdapterApachePack()
+    {
+        var json = "{"
+            + "\"id\":\"apache-httpd-linux-ssh\",\"name\":\"伪造 Apache 命令包\",\"version\":\"1.0.1\","
+            + "\"officialSource\":\"https://httpd.apache.org/docs/2.4/programs/httpd.html\",\"commands\":[{"
+            + "\"id\":\"apache-httpd-linux-ssh-version\",\"title\":\"读取版本\",\"targetCategory\":\"Middleware\","
+            + "\"commandText\":\"/usr/sbin/httpd -v\",\"verificationStatus\":\"Verified\",\"isReadOnly\":true,"
+            + "\"vendor\":\"Apache Software Foundation\",\"productFamily\":\"Apache HTTP Server\","
+            + "\"minimumVersion\":\"2.4.0\",\"maximumVersion\":\"2.4.9999\",\"checkItem\":\"IDENTIFY\","
+            + "\"modelRange\":\"*\",\"accountRequirement\":\"只读账户\",\"riskLevel\":\"Low\","
+            + "\"timeoutSeconds\":30,\"pagingBehavior\":\"NotApplicable\",\"resultDescription\":\"版本\","
+            + "\"verificationDate\":\"2026-07-18\",\"officialSource\":\"https://httpd.apache.org/docs/2.4/programs/httpd.html\"},{"
+            + "\"id\":\"apache-httpd-linux-ssh-build-options\",\"title\":\"串包命令\",\"targetCategory\":\"Middleware\","
+            + "\"commandText\":\"/usr/sbin/nginx -V\",\"verificationStatus\":\"Verified\",\"isReadOnly\":true,"
+            + "\"vendor\":\"Apache Software Foundation\",\"productFamily\":\"Apache HTTP Server\","
+            + "\"minimumVersion\":\"2.4.0\",\"maximumVersion\":\"2.4.9999\",\"checkItem\":\"软件版本与构建参数\","
+            + "\"modelRange\":\"*\",\"accountRequirement\":\"只读账户\",\"riskLevel\":\"Low\","
+            + "\"timeoutSeconds\":30,\"pagingBehavior\":\"NotApplicable\",\"resultDescription\":\"串包\","
+            + "\"verificationDate\":\"2026-07-18\",\"officialSource\":\"https://httpd.apache.org/docs/2.4/programs/httpd.html\"}]}";
         var bytes = Encoding.UTF8.GetBytes(json);
         using (var algorithm = SHA256.Create())
         {
