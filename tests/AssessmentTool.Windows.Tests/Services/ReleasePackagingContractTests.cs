@@ -79,6 +79,11 @@ public sealed class ReleasePackagingContractTests
         Assert.Contains("Missing manifest diagnostic", workflow);
         Assert.Contains("Modified application diagnostic", workflow);
         Assert.Contains("Packaged startup checker did not launch", workflow);
+        Assert.Contains("EvaluationTool-ui-screenshots-windows", workflow);
+        Assert.Contains("01-home-dashboard.png", workflow);
+        Assert.Contains("02-device-list.png", workflow);
+        Assert.Contains("03-add-device.png", workflow);
+        Assert.Contains("PrintWindow", workflow);
 
         var measureIndex = workflow.IndexOf("Measure portable package size", StringComparison.Ordinal);
         var manifestIndex = workflow.IndexOf(

@@ -1,25 +1,25 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <SolidColorBrush x:Key="Brush.Window" Color="#F6F7F9" />
+  <SolidColorBrush x:Key="Brush.Window" Color="#F5F6F8" />
   <SolidColorBrush x:Key="Brush.Surface" Color="#FFFFFF" />
-  <SolidColorBrush x:Key="Brush.SurfaceSubtle" Color="#F8FAFC" />
-  <SolidColorBrush x:Key="Brush.SurfaceMuted" Color="#EEF2F6" />
-  <SolidColorBrush x:Key="Brush.Navigation" Color="#EEF2F6" />
-  <SolidColorBrush x:Key="Brush.TextPrimary" Color="#18202A" />
-  <SolidColorBrush x:Key="Brush.TextSecondary" Color="#5E6A78" />
-  <SolidColorBrush x:Key="Brush.Border" Color="#D5DCE5" />
-  <SolidColorBrush x:Key="Brush.Accent" Color="#146CBA" />
-  <SolidColorBrush x:Key="Brush.AccentHover" Color="#0F5B9F" />
-  <SolidColorBrush x:Key="Brush.AccentSoft" Color="#E7F2FC" />
+  <SolidColorBrush x:Key="Brush.SurfaceSubtle" Color="#FAFBFC" />
+  <SolidColorBrush x:Key="Brush.SurfaceMuted" Color="#F0F2F5" />
+  <SolidColorBrush x:Key="Brush.Navigation" Color="#EFF1F4" />
+  <SolidColorBrush x:Key="Brush.TextPrimary" Color="#1B1D21" />
+  <SolidColorBrush x:Key="Brush.TextSecondary" Color="#68707C" />
+  <SolidColorBrush x:Key="Brush.Border" Color="#DFE3E8" />
+  <SolidColorBrush x:Key="Brush.Accent" Color="#0787D1" />
+  <SolidColorBrush x:Key="Brush.AccentHover" Color="#0674B4" />
+  <SolidColorBrush x:Key="Brush.AccentSoft" Color="#E7F4FC" />
   <SolidColorBrush x:Key="Brush.ButtonText" Color="#FFFFFF" />
-  <SolidColorBrush x:Key="Brush.Selection" Color="#DDECF8" />
-  <SolidColorBrush x:Key="Brush.Focus" Color="#146CBA" />
+  <SolidColorBrush x:Key="Brush.Selection" Color="#E2E5E9" />
+  <SolidColorBrush x:Key="Brush.Focus" Color="#0787D1" />
   <SolidColorBrush x:Key="Brush.DisabledText" Color="#9099A4" />
   <SolidColorBrush x:Key="Brush.WarningBackground" Color="#FFF4CE" />
   <SolidColorBrush x:Key="Brush.WarningText" Color="#6D5700" />
   <SolidColorBrush x:Key="Brush.Warning" Color="#B45309" />
-  <SolidColorBrush x:Key="Brush.Success" Color="#137333" />
-  <SolidColorBrush x:Key="Brush.SuccessBackground" Color="#E8F5EC" />
+  <SolidColorBrush x:Key="Brush.Success" Color="#159447" />
+  <SolidColorBrush x:Key="Brush.SuccessBackground" Color="#EAF7EF" />
   <SolidColorBrush x:Key="Brush.InfoBackground" Color="#EAF3FF" />
   <SolidColorBrush x:Key="Brush.Error" Color="#B3261E" />
   <SolidColorBrush x:Key="Brush.ErrorBackground" Color="#FDECEA" />

@@ -347,7 +347,134 @@ jobs:
             }
           }
 
-          function Test-PackagedApplicationStartup([string] $description) {
+          $uiScreenshotDirectory = Join-Path $PWD 'artifacts\ui-screenshots'
+          $uiEvidenceDirectory = Join-Path $env:RUNNER_TEMP 'EvaluationTool-UI-Evidence'
+          New-Item -ItemType Directory -Path $uiScreenshotDirectory -Force | Out-Null
+          New-Item -ItemType Directory -Path $uiEvidenceDirectory -Force | Out-Null
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class EvaluationToolWindowCapture
+          {
+              [StructLayout(LayoutKind.Sequential)]
+              public struct Rect
+              {
+                  public int Left;
+                  public int Top;
+                  public int Right;
+                  public int Bottom;
+              }
+
+              [DllImport("user32.dll")]
+              public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+
+              [DllImport("user32.dll")]
+              public static extern bool PrintWindow(IntPtr window, IntPtr deviceContext, uint flags);
+          }
+          '@
+
+          function Get-MainWindowHandle([System.Diagnostics.Process] $process) {
+            $deadline = (Get-Date).AddSeconds(5)
+            while ((Get-Date) -lt $deadline) {
+              $process.Refresh()
+              if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+                return $process.MainWindowHandle
+              }
+              Start-Sleep -Milliseconds 100
+            }
+            throw 'Packaged application did not expose a main window handle for UI capture.'
+          }
+
+          function Save-WindowScreenshot([IntPtr] $windowHandle, [string] $path) {
+            $rect = New-Object EvaluationToolWindowCapture+Rect
+            if (-not [EvaluationToolWindowCapture]::GetWindowRect($windowHandle, [ref]$rect)) {
+              throw "Cannot read application window bounds for $path."
+            }
+            $width = $rect.Right - $rect.Left
+            $height = $rect.Bottom - $rect.Top
+            if ($width -lt 1100 -or $height -lt 720) {
+              throw "Captured application window is unexpectedly small: ${width}x${height}."
+            }
+
+            $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $deviceContext = $graphics.GetHdc()
+            try {
+              if (-not [EvaluationToolWindowCapture]::PrintWindow($windowHandle, $deviceContext, 2)) {
+                throw "Windows could not render application window to $path."
+              }
+            }
+            finally {
+              $graphics.ReleaseHdc($deviceContext)
+              $graphics.Dispose()
+            }
+            try {
+              $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+            }
+            finally {
+              $bitmap.Dispose()
+            }
+          }
+
+          function Find-UiElement([IntPtr] $windowHandle, [string] $name) {
+            $root = [System.Windows.Automation.AutomationElement]::FromHandle($windowHandle)
+            $condition = [System.Windows.Automation.PropertyCondition]::new(
+              [System.Windows.Automation.AutomationElement]::NameProperty,
+              $name)
+            return $root.FindFirst(
+              [System.Windows.Automation.TreeScope]::Descendants,
+              $condition)
+          }
+
+          function Select-UiItem([IntPtr] $windowHandle, [string] $name) {
+            $element = Find-UiElement $windowHandle $name
+            if ($null -eq $element) {
+              throw "UI capture could not find selection item: $name"
+            }
+            $pattern = $element.GetCurrentPattern(
+              [System.Windows.Automation.SelectionItemPattern]::Pattern)
+            ([System.Windows.Automation.SelectionItemPattern]$pattern).Select()
+          }
+
+          function Set-UiValue([IntPtr] $windowHandle, [string] $name, [string] $value) {
+            $element = Find-UiElement $windowHandle $name
+            if ($null -eq $element) {
+              throw "UI capture could not find input: $name"
+            }
+            $pattern = $element.GetCurrentPattern(
+              [System.Windows.Automation.ValuePattern]::Pattern)
+            ([System.Windows.Automation.ValuePattern]$pattern).SetValue($value)
+          }
+
+          function Invoke-UiButton([IntPtr] $windowHandle, [string] $name) {
+            $element = Find-UiElement $windowHandle $name
+            if ($null -eq $element) {
+              throw "UI capture could not find button: $name"
+            }
+            $pattern = $element.GetCurrentPattern(
+              [System.Windows.Automation.InvokePattern]::Pattern)
+            ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+          }
+
+          function Wait-UiElementEnabled([IntPtr] $windowHandle, [string] $name) {
+            $deadline = (Get-Date).AddSeconds(10)
+            while ((Get-Date) -lt $deadline) {
+              $element = Find-UiElement $windowHandle $name
+              if ($null -ne $element -and $element.Current.IsEnabled) {
+                return
+              }
+              Start-Sleep -Milliseconds 200
+            }
+            throw "UI capture element did not become enabled: $name"
+          }
+
+          function Test-PackagedApplicationStartup(
+              [string] $description,
+              [bool] $captureScreens = $false) {
             $startedAt = Get-Date
             $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup-success.json'
             Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
@@ -395,6 +522,32 @@ jobs:
               }
 
               Write-Host "$description displayed the main window successfully."
+              if ($captureScreens) {
+                $windowHandle = Get-MainWindowHandle $process
+                Save-WindowScreenshot `
+                  $windowHandle `
+                  (Join-Path $uiScreenshotDirectory '01-home-dashboard.png')
+
+                Select-UiItem $windowHandle '导航：项目'
+                Start-Sleep -Milliseconds 300
+                Set-UiValue $windowHandle '客户名称' 'CI 视觉验证客户'
+                Set-UiValue $windowHandle '项目名称' 'CI 视觉验证项目'
+                Set-UiValue $windowHandle '证据保存目录' $uiEvidenceDirectory
+                Invoke-UiButton $windowHandle '创建并保存项目'
+                Start-Sleep -Seconds 1
+
+                Select-UiItem $windowHandle '导航：设备'
+                Wait-UiElementEnabled $windowHandle '打开添加设备向导'
+                Save-WindowScreenshot `
+                  $windowHandle `
+                  (Join-Path $uiScreenshotDirectory '02-device-list.png')
+
+                Invoke-UiButton $windowHandle '打开添加设备向导'
+                Start-Sleep -Milliseconds 500
+                Save-WindowScreenshot `
+                  $windowHandle `
+                  (Join-Path $uiScreenshotDirectory '03-add-device.png')
+              }
             }
             finally {
               $process.Refresh()
@@ -409,7 +562,7 @@ jobs:
             }
           }
 
-          Test-PackagedApplicationStartup 'First packaged startup'
+          Test-PackagedApplicationStartup 'First packaged startup' $true
           Test-PackagedApplicationStartup 'Second packaged startup with existing local data'
 
           $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup-success.json'
@@ -660,6 +813,15 @@ jobs:
         with:
           name: EvaluationTool-startup-diagnostics-windows
           path: artifacts\startup-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload rendered UI screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: EvaluationTool-ui-screenshots-windows
+          path: artifacts/ui-screenshots
           if-no-files-found: warn
           retention-days: 14
 

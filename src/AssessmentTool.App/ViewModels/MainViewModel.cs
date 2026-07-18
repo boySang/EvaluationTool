@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +16,7 @@ namespace AssessmentTool.App.ViewModels;
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly DelegateCommand toggleThemeCommand;
+    private string deviceSearchText = string.Empty;
 
     public MainViewModel(
         CollectionViewModel collection,
@@ -91,6 +93,38 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public ICommand ToggleThemeCommand => toggleThemeCommand;
     public string CurrentProjectName => Workspace?.SelectedProject?.ProjectName ?? "尚未选择项目";
     public string CurrentDeviceName => Workspace?.SelectedDevice?.DisplayName ?? "尚未选择设备";
+    public string DeviceSearchText
+    {
+        get => deviceSearchText;
+        set
+        {
+            var normalized = value ?? string.Empty;
+            if (string.Equals(deviceSearchText, normalized, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            deviceSearchText = normalized;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FilteredDevices));
+            OnPropertyChanged(nameof(FilteredDeviceCount));
+        }
+    }
+    public IReadOnlyList<DeviceRecord> FilteredDevices
+    {
+        get
+        {
+            var devices = Workspace?.Devices ?? Array.Empty<DeviceRecord>();
+            var query = deviceSearchText.Trim();
+            return query.Length == 0
+                ? devices
+                : new ReadOnlyCollection<DeviceRecord>(devices.Where(device =>
+                    device.DisplayName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                    || device.Host.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0
+                    || device.UserName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToArray());
+        }
+    }
+    public int FilteredDeviceCount => FilteredDevices.Count;
     public bool HasSelectedProject => Workspace?.SelectedProject != null;
     public int ProjectDeviceCount => Workspace?.Devices.Count ?? 0;
     public int SuccessfulConnectionTestCount => 0;
@@ -103,6 +137,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         if (eventArgs.PropertyName == nameof(ProjectWorkspaceViewModel.SelectedProject))
         {
+            DeviceSearchText = string.Empty;
             OnPropertyChanged(nameof(CurrentProjectName));
             OnPropertyChanged(nameof(HasSelectedProject));
             if (Workspace?.SelectedProject != null && CanSynchronizeCollectionSelection())
@@ -142,6 +177,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             OnPropertyChanged(nameof(ProjectDeviceCount));
             OnPropertyChanged(nameof(PendingConnectionTestCount));
+            OnPropertyChanged(nameof(FilteredDevices));
+            OnPropertyChanged(nameof(FilteredDeviceCount));
         }
     }
 

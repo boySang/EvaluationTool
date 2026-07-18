@@ -43,6 +43,7 @@ public sealed class MainViewModelTests
         Assert.Equal("等保项目", viewModel.CurrentProjectName);
         Assert.Equal("核心交换机", viewModel.CurrentDeviceName);
         Assert.Equal(1, viewModel.ProjectDeviceCount);
+        Assert.Equal(1, viewModel.FilteredDeviceCount);
         Assert.Equal(1, viewModel.PendingConnectionTestCount);
         Assert.Equal(0, viewModel.CollectionFailureCount);
         Assert.Equal("只读模式已启用", viewModel.ReadOnlyProtectionStatus);
@@ -53,6 +54,13 @@ public sealed class MainViewModelTests
         Assert.Same(componentCenter, viewModel.ComponentCenter);
         Assert.False(viewModel.ComponentCenter.IsSshAvailable);
         Assert.Equal(1, service.IdentificationLoadCount);
+
+        viewModel.DeviceSearchText = "192.0.2";
+        Assert.Single(viewModel.FilteredDevices);
+        viewModel.DeviceSearchText = "不存在";
+        Assert.Empty(viewModel.FilteredDevices);
+        viewModel.DeviceSearchText = "核心";
+        Assert.Same(device, Assert.Single(viewModel.FilteredDevices));
         var essentialNavigation = viewModel.NavigationItems.Where(item =>
             item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
         Assert.Equal(3, essentialNavigation.Length);

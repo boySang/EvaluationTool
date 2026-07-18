@@ -16,6 +16,7 @@
     <ProjectReference Include="../AssessmentTool.Windows/AssessmentTool.Windows.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Resource Include="Assets/network-security-hero.png" />
     <Content Include="../../command-packs/builtin/generic-linux.json" Link="command-packs/builtin/generic-linux.json" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="../../command-packs/builtin/generic-linux.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.GenericLinux.json" />
     <Content Include="../../command-packs/builtin/database-host-discovery-linux.json" Link="command-packs/builtin/database-host-discovery-linux.json" CopyToOutputDirectory="PreserveNewest" />
