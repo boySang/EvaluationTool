@@ -269,6 +269,30 @@ jobs:
           Test-PackagedApplicationStartup 'First packaged startup'
           Test-PackagedApplicationStartup 'Second packaged startup with existing local data'
 
+      - name: Measure portable package size
+        run: |
+          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          & '.\build\Measure-Package.ps1' `
+            -ReleaseRoot $releaseDirectory `
+            -TargetMaximumMegabytes 40
+          $report = Get-Content `
+            -LiteralPath (Join-Path $releaseDirectory 'package-size.json') `
+            -Raw | ConvertFrom-Json
+          if ($report.PackageKind -ne 'portable-windows-x64' -or
+              $report.FileCount -le 0 -or
+              -not $report.WithinTarget) {
+            throw 'Portable package size report is incomplete or outside the target.'
+          }
+
+          @(
+            '### Windows x64 绿色版体积',
+            '',
+            "- 总大小：$($report.TotalMegabytes) MB",
+            "- 文件数：$($report.FileCount)",
+            "- 目标上限：$($report.TargetMaximumMegabytes) MB",
+            "- 是否达标：$($report.WithinTarget)"
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+
       - name: Publish packaged startup diagnostics
         if: ${{ failure() }}
         run: |
