@@ -1,6 +1,6 @@
 #define AppName "EvaluationTool 等级保护测评辅助工具"
 #define AppPublisher "EvaluationTool"
-#define AppExeName "AssessmentTool.App.exe"
+#define AppExeName "EvaluationTool.exe"
 
 #ifndef AppVersion
   #define AppVersion "0.1.0.0"

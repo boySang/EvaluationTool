@@ -196,13 +196,155 @@ jobs:
           New-Item -ItemType Directory -Path $componentDirectory -Force | Out-Null
           Copy-Item -Path $downloadPath -Destination (Join-Path $componentDirectory 'plink.exe') -Force
 
+      - name: Build and test native startup checker
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw 'Visual Studio locator is unavailable on the Windows runner.'
+          }
+          $vsPath = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          if ([string]::IsNullOrWhiteSpace($vsPath)) {
+            throw 'Visual C++ x64 build tools are unavailable on the Windows runner.'
+          }
+
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell `
+            -VsInstallPath $vsPath `
+            -SkipAutomaticLocation `
+            -DevCmdArguments '-arch=x64 -host_arch=x64'
+
+          $sourceDirectory = Join-Path $PWD 'src\AssessmentTool.Bootstrapper'
+          $buildDirectory = Join-Path $PWD 'artifacts\bootstrapper-build'
+          $generatedDirectory = Join-Path $buildDirectory 'generated'
+          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          New-Item -ItemType Directory -Path $generatedDirectory -Force | Out-Null
+
+          Push-Location $buildDirectory
+          try {
+            & cl.exe `
+              /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT `
+              (Join-Path $sourceDirectory 'BootstrapDecision.cpp') `
+              (Join-Path $sourceDirectory 'BootstrapDecisionTests.cpp') `
+              /Fe:BootstrapDecisionTests.exe
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native startup decision tests failed to compile with exit code $LASTEXITCODE."
+            }
+            & .\BootstrapDecisionTests.exe
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native startup decision tests failed with exit code $LASTEXITCODE."
+            }
+
+            Remove-Item -Path *.obj -Force -ErrorAction SilentlyContinue
+            $appPath = Join-Path $releaseDirectory 'AssessmentTool.App.exe'
+            $appHash = (Get-FileHash -LiteralPath $appPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            @(
+              '#pragma once',
+              "#define ASSESSMENTTOOL_APP_SHA256 L`"$appHash`""
+            ) | Set-Content `
+              -LiteralPath (Join-Path $generatedDirectory 'GeneratedHashes.h') `
+              -Encoding ascii
+
+            & cl.exe `
+              /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O1 /MT /DUNICODE /D_UNICODE `
+              "/I$generatedDirectory" `
+              (Join-Path $sourceDirectory 'BootstrapDecision.cpp') `
+              (Join-Path $sourceDirectory 'main.cpp') `
+              /Fe:EvaluationTool.exe `
+              /link /SUBSYSTEM:WINDOWS /OPT:REF /OPT:ICF
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native startup checker failed to compile with exit code $LASTEXITCODE."
+            }
+            & mt.exe -nologo `
+              -manifest (Join-Path $sourceDirectory 'app.manifest') `
+              '-outputresource:EvaluationTool.exe;#1'
+            if ($LASTEXITCODE -ne 0) {
+              throw "Native startup checker manifest embedding failed with exit code $LASTEXITCODE."
+            }
+
+            $headers = (& dumpbin.exe /headers .\EvaluationTool.exe) -join "`n"
+            if ($LASTEXITCODE -ne 0 -or $headers -notmatch 'machine \(x64\)') {
+              throw 'Native startup checker is not an x64 executable.'
+            }
+            Copy-Item `
+              -LiteralPath .\EvaluationTool.exe `
+              -Destination (Join-Path $releaseDirectory 'EvaluationTool.exe') `
+              -Force
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Measure portable package size
+        run: |
+          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          & '.\build\Measure-Package.ps1' `
+            -ReleaseRoot $releaseDirectory `
+            -TargetMaximumMegabytes 40
+          $report = Get-Content `
+            -LiteralPath (Join-Path $releaseDirectory 'package-size.json') `
+            -Raw | ConvertFrom-Json
+          if ($report.PackageKind -ne 'portable-windows-x64' -or
+              $report.FileCount -le 0 -or
+              -not $report.WithinTarget) {
+            throw 'Portable package size report is incomplete or outside the target.'
+          }
+
+          @(
+            '### Windows x64 绿色版体积',
+            '',
+            "- 总大小：$($report.TotalMegabytes) MB",
+            "- 文件数：$($report.FileCount)",
+            "- 目标上限：$($report.TargetMaximumMegabytes) MB",
+            "- 是否达标：$($report.WithinTarget)"
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+
+      - name: Generate and verify Release integrity manifest
+        run: |
+          & '.\build\Write-ReleaseManifest.ps1' `
+            -ReleaseRoot (Join-Path $PWD 'artifacts\release\EvaluationTool') `
+            -GitCommit '${{ github.sha }}'
+
+      - name: Test startup checker package integrity decisions
+        run: |
+          $sourceDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          $testDirectory = Join-Path $env:RUNNER_TEMP 'EvaluationTool-Bootstrapper-Integrity'
+          Remove-Item -LiteralPath $testDirectory -Recurse -Force -ErrorAction SilentlyContinue
+          Copy-Item -LiteralPath $sourceDirectory -Destination $testDirectory -Recurse
+          $launcher = Join-Path $testDirectory 'EvaluationTool.exe'
+          $appPath = Join-Path $testDirectory 'AssessmentTool.App.exe'
+          $manifestPath = Join-Path $testDirectory 'SHA256SUMS.txt'
+
+          function Assert-DiagnosticExitCode([int] $expected, [string] $description) {
+            $process = Start-Process `
+              -FilePath $launcher `
+              -WorkingDirectory $testDirectory `
+              -ArgumentList '--diagnose-exit-code' `
+              -Wait -PassThru
+            if ($process.ExitCode -ne $expected) {
+              throw "$description returned $($process.ExitCode); expected $expected."
+            }
+          }
+
+          Assert-DiagnosticExitCode 0 'Complete package diagnostic'
+          Move-Item -LiteralPath $manifestPath -Destination "$manifestPath.missing"
+          Assert-DiagnosticExitCode 12 'Missing manifest diagnostic'
+          Move-Item -LiteralPath "$manifestPath.missing" -Destination $manifestPath
+          Add-Content -LiteralPath $appPath -Value 'tampered' -Encoding ascii
+          Assert-DiagnosticExitCode 12 'Modified application diagnostic'
+          Remove-Item -LiteralPath $testDirectory -Recurse -Force
+
       - name: Smoke test packaged application startup
         id: packaged_startup
         run: |
           $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
           $appPath = Join-Path $releaseDirectory 'AssessmentTool.App.exe'
-          if (-not (Test-Path -LiteralPath $appPath -PathType Leaf)) {
-            throw "Packaged application is missing: $appPath"
+          $launcherPath = Join-Path $releaseDirectory 'EvaluationTool.exe'
+          foreach ($requiredPath in @($appPath, $launcherPath)) {
+            if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+              throw "Packaged application is missing: $requiredPath"
+            }
           }
 
           function Test-PackagedApplicationStartup([string] $description) {
@@ -270,35 +412,52 @@ jobs:
           Test-PackagedApplicationStartup 'First packaged startup'
           Test-PackagedApplicationStartup 'Second packaged startup with existing local data'
 
-      - name: Measure portable package size
-        run: |
-          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
-          & '.\build\Measure-Package.ps1' `
-            -ReleaseRoot $releaseDirectory `
-            -TargetMaximumMegabytes 40
-          $report = Get-Content `
-            -LiteralPath (Join-Path $releaseDirectory 'package-size.json') `
-            -Raw | ConvertFrom-Json
-          if ($report.PackageKind -ne 'portable-windows-x64' -or
-              $report.FileCount -le 0 -or
-              -not $report.WithinTarget) {
-            throw 'Portable package size report is incomplete or outside the target.'
+          $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup-success.json'
+          Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+          $launcherProcess = Start-Process `
+            -FilePath $launcherPath `
+            -WorkingDirectory $releaseDirectory `
+            -PassThru
+          if (-not $launcherProcess.WaitForExit(5000)) {
+            Stop-Process -Id $launcherProcess.Id -Force -ErrorAction SilentlyContinue
+            throw 'Packaged startup checker did not return within 5 seconds.'
           }
+          if ($launcherProcess.ExitCode -ne 0) {
+            throw "Packaged startup checker exited with code $($launcherProcess.ExitCode)."
+          }
+          $launcherProcess.Dispose()
 
-          @(
-            '### Windows x64 绿色版体积',
-            '',
-            "- 总大小：$($report.TotalMegabytes) MB",
-            "- 文件数：$($report.FileCount)",
-            "- 目标上限：$($report.TargetMaximumMegabytes) MB",
-            "- 是否达标：$($report.WithinTarget)"
-          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
-
-      - name: Generate and verify Release integrity manifest
-        run: |
-          & '.\build\Write-ReleaseManifest.ps1' `
-            -ReleaseRoot (Join-Path $PWD 'artifacts\release\EvaluationTool') `
-            -GitCommit '${{ github.sha }}'
+          $appProcess = $null
+          try {
+            $deadline = (Get-Date).AddSeconds(15)
+            while ((Get-Date) -lt $deadline) {
+              if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+                try {
+                  $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+                  if ($marker.status -eq 'main-window-displayed') {
+                    $appProcess = Get-Process -Id ([int]$marker.processId) -ErrorAction SilentlyContinue
+                    if ($null -ne $appProcess) {
+                      break
+                    }
+                  }
+                }
+                catch {
+                  $appProcess = $null
+                }
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if ($null -eq $appProcess) {
+              throw 'Packaged startup checker did not launch a displayed main window within 15 seconds.'
+            }
+          }
+          finally {
+            if ($null -ne $appProcess) {
+              Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue
+              $appProcess.Dispose()
+            }
+            Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Build per-user Windows installer
         run: |
@@ -364,10 +523,11 @@ jobs:
             throw "Installer smoke test failed with exit code $($install.ExitCode)."
           }
 
+          $installedLauncher = Join-Path $installDirectory 'EvaluationTool.exe'
           $installedApp = Join-Path $installDirectory 'AssessmentTool.App.exe'
           $installedPlink = Join-Path $installDirectory '依赖组件\plink.exe'
           $uninstaller = Join-Path $installDirectory 'unins000.exe'
-          foreach ($requiredPath in @($installedApp, $installedPlink, $uninstaller)) {
+          foreach ($requiredPath in @($installedLauncher, $installedApp, $installedPlink, $uninstaller)) {
             if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
               throw "Installed package is missing required file: $requiredPath"
             }
@@ -375,24 +535,31 @@ jobs:
 
           $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup-success.json'
           Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
-          $installedProcess = Start-Process `
-            -FilePath $installedApp `
+          $launcherProcess = Start-Process `
+            -FilePath $installedLauncher `
             -WorkingDirectory $installDirectory `
             -PassThru
+          if (-not $launcherProcess.WaitForExit(5000)) {
+            Stop-Process -Id $launcherProcess.Id -Force -ErrorAction SilentlyContinue
+            throw 'Installed startup checker did not return within 5 seconds.'
+          }
+          if ($launcherProcess.ExitCode -ne 0) {
+            throw "Installed startup checker exited with code $($launcherProcess.ExitCode)."
+          }
+          $launcherProcess.Dispose()
+          $installedProcess = $null
           try {
             $deadline = (Get-Date).AddSeconds(15)
             $marker = $null
             while ((Get-Date) -lt $deadline) {
-              $installedProcess.Refresh()
-              if ($installedProcess.HasExited) {
-                throw "Installed application exited during startup with code $($installedProcess.ExitCode)."
-              }
               if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
                 try {
                   $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
-                  if ($marker.status -eq 'main-window-displayed' -and
-                      [int]$marker.processId -eq $installedProcess.Id) {
-                    break
+                  if ($marker.status -eq 'main-window-displayed') {
+                    $installedProcess = Get-Process -Id ([int]$marker.processId) -ErrorAction SilentlyContinue
+                    if ($null -ne $installedProcess) {
+                      break
+                    }
                   }
                 }
                 catch {
@@ -401,19 +568,17 @@ jobs:
               }
               Start-Sleep -Milliseconds 250
             }
-            if ($null -eq $marker -or
-                $marker.status -ne 'main-window-displayed' -or
-                [int]$marker.processId -ne $installedProcess.Id) {
+            if ($null -eq $installedProcess -or
+                $null -eq $marker -or
+                $marker.status -ne 'main-window-displayed') {
               throw 'Installed application did not display its main window within 15 seconds.'
             }
           }
           finally {
-            $installedProcess.Refresh()
-            if (-not $installedProcess.HasExited) {
-              Stop-Process -Id $installedProcess.Id -Force
-              $installedProcess.WaitForExit(5000) | Out-Null
+            if ($null -ne $installedProcess) {
+              Stop-Process -Id $installedProcess.Id -Force -ErrorAction SilentlyContinue
+              $installedProcess.Dispose()
             }
-            $installedProcess.Dispose()
             Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
           }
 
@@ -425,7 +590,8 @@ jobs:
             Get-Content -LiteralPath $uninstallLog -ErrorAction SilentlyContinue
             throw "Uninstaller smoke test failed with exit code $($uninstall.ExitCode)."
           }
-          if (Test-Path -LiteralPath $installedApp -PathType Leaf) {
+          if ((Test-Path -LiteralPath $installedLauncher -PathType Leaf) -or
+              (Test-Path -LiteralPath $installedApp -PathType Leaf)) {
             throw 'Uninstaller left the installed application executable behind.'
           }
           if (-not (Test-Path -LiteralPath $sentinelPath -PathType Leaf)) {

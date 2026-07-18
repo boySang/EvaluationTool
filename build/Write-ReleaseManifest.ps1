@@ -17,7 +17,7 @@ $buildInfo = @(
     "Git 提交：$GitCommit",
     "构建时间（UTC）：$([DateTimeOffset]::UtcNow.ToString('O'))",
     '支持系统：Windows 10 / Windows 11 x64',
-    '运行方式：完整解压后运行 AssessmentTool.App.exe',
+    '运行方式：完整解压后运行 EvaluationTool.exe',
     '安全边界：自动采集仅执行内置、已校验的只读命令。',
     '首次 SSH 连接必须人工核对完整主机指纹。'
 )
