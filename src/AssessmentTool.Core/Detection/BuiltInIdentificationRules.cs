@@ -27,7 +27,7 @@ public static class BuiltInIdentificationRules
         IdentificationRule.CreateVerifiedWithFixedIdentity(
             Domain.TargetCategory.Server,
             "^\\s*ProductName\\s+REG_SZ\\s+Windows Server (?<version>2016|2019|2022|2025)(?: (?<model>.+?))?\\s*$",
-            0.98,
+            0.89,
             "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/reg-query",
             "Microsoft",
             "Windows Server");

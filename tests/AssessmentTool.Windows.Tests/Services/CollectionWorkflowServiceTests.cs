@@ -443,6 +443,54 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Windows_adapter_rejects_client_identity_without_empty_confirmation_dead_end()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.65", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        var session = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["windows-server-ssh-product-name"] = Success(
+                "windows-server-ssh-product-name",
+                "ProductName    REG_SZ    Windows 11 Enterprise"),
+            ["windows-server-ssh-build-number"] = Success(
+                "windows-server-ssh-build-number",
+                "CurrentBuildNumber    REG_SZ    26100")
+        });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.NonWindowsServer", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => session,
+                new RecordingEvidenceService(),
+                identifications);
+
+            var result = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    new CollectionDeviceSelection(device, true, trust),
+                    CollectionAdapterId.WindowsServerSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Failed, result.Outcome);
+            Assert.Equal("WindowsServerIdentityNotDetected", result.Error!.TechnicalDetails);
+            Assert.Equal(
+                new[] { "windows-server-ssh-product-name", "windows-server-ssh-build-number" },
+                session.ExecutedIds);
+            Assert.Empty(identifications.PendingBatches);
+            Assert.Empty(identifications.Tasks);
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Network_device_without_matching_adapter_is_rejected_before_session_creation()
     {
         var project = CreateProject();

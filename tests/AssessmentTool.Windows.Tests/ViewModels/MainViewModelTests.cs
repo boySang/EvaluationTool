@@ -83,6 +83,7 @@ public sealed class MainViewModelTests
             CredentialReference.New(), DateTimeOffset.UtcNow);
         collection.SelectProject(project);
         collection.SelectDevice(new CollectionDeviceSelection(device, true, CreateVerifiedHostKeyTrust(device)));
+        SelectGenericLinuxAdapter(collection);
 
         await collection.StartAsync();
 
@@ -100,6 +101,7 @@ public sealed class MainViewModelTests
             new FakeDatabaseConfirmationService());
         collection.SelectProject(project);
         collection.SelectDevice(new CollectionDeviceSelection(device, true, CreateVerifiedHostKeyTrust(device)));
+        SelectGenericLinuxAdapter(collection);
         var componentCenter = new ComponentCenterViewModel(
             new ComponentCenterViewModelTests.FakeComponentStatusService(
                 ComponentCenterViewModelTests.UnavailableStatus(
@@ -140,6 +142,7 @@ public sealed class MainViewModelTests
         collection.SelectProject(project);
         collection.SelectDevice(new CollectionDeviceSelection(
             device, true, CreateVerifiedHostKeyTrust(device)));
+        SelectGenericLinuxAdapter(collection);
         var componentCenter = new ComponentCenterViewModel(
             new ComponentCenterViewModelTests.FakeComponentStatusService(
                 ComponentCenterViewModelTests.AvailableStatus()));
@@ -220,6 +223,13 @@ public sealed class MainViewModelTests
             item.Title == "项目" || item.Title == "设备" || item.Title == "组件中心").ToArray();
         Assert.Equal(3, essentialNavigation.Length);
         Assert.All(essentialNavigation, item => Assert.True(item.IsAvailable));
+    }
+
+    private static void SelectGenericLinuxAdapter(CollectionViewModel collection)
+    {
+        collection.SelectedAdapterOption = Assert.Single(
+            collection.AdapterOptions,
+            item => item.Id == CollectionAdapterId.GenericLinux);
     }
 
     private sealed class FakeWorkspaceService : IProjectWorkspaceService

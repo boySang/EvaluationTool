@@ -48,7 +48,7 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
     private static readonly CollectionAdapterOption WindowsServerSshAdapter = new CollectionAdapterOption(
         CollectionAdapterId.WindowsServerSsh,
         "Windows Server（SSH）",
-        "仅适用于已开通 OpenSSH 的 Windows Server 2016/2019/2022/2025 成员服务器；只查询产品名称、构建号和当前账户策略，不运行 PowerShell 脚本或修改命令，初版不支持域控制器。");
+        "仅适用于已开通 OpenSSH 且由管理员确认不是域控制器的 Windows Server 2016/2019/2022/2025 成员服务器；软件当前不能自动判定服务器角色，初版不支持域控制器。");
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
@@ -208,7 +208,9 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             ClearDeviceTransientState();
         }
 
-        if (deviceChanged)
+        var isRestoredPendingDevice = pendingIdentificationBatchId.HasValue
+            && pendingIdentificationDeviceId.Equals(nextSelection.Device.Id);
+        if (deviceChanged && !isRestoredPendingDevice)
         {
             selectedAdapterOption = null;
         }

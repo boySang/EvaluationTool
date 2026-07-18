@@ -140,8 +140,8 @@ public sealed class IdentificationRule
 
             candidates.Add(new DetectionCandidate(
                 Category,
-                Capture(match, "vendor") ?? fixedVendor,
-                Capture(match, "productFamily") ?? fixedProductFamily,
+                fixedVendor ?? Capture(match, "vendor"),
+                fixedProductFamily ?? Capture(match, "productFamily"),
                 Capture(match, "model"),
                 Capture(match, "version"),
                 match.Value,

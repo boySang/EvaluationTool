@@ -71,7 +71,8 @@ public sealed class BuiltInIdentificationRulesTests
         Assert.Equal("Windows Server", candidate.ProductFamily);
         Assert.Equal(expectedVersion, candidate.Version);
         Assert.Equal(expectedModel, candidate.Model);
-        Assert.Equal(0.98, candidate.Confidence);
+        Assert.Equal(0.89, candidate.Confidence);
+        Assert.True(result.RequiresUserConfirmation);
     }
 
     [Theory]

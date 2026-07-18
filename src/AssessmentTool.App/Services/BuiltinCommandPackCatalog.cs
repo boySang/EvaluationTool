@@ -31,7 +31,7 @@ public sealed class BuiltinCommandPackCatalog
     private const string WindowsServerSshPackId = "windows-server-ssh";
     private const string WindowsServerSshRelativePath = "command-packs/builtin/windows-server-ssh.json";
     private const string WindowsServerSshResourceName = "AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json";
-    private const string WindowsServerSshSha256 = "98a2ea3624b1362ded40091aea3c4314bce2b45d0cecb2f924a1d68af00a8193";
+    private const string WindowsServerSshSha256 = "70fb04f8bf8cb146880fc40bbc8da5a495a2df764cc1a82e65ea3097b3d0a822";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]

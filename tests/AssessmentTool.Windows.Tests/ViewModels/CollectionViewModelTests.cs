@@ -291,7 +291,7 @@ public sealed class CollectionViewModelTests
             "Standard",
             "2022",
             "ProductName REG_SZ Windows Server 2022 Standard",
-            0.98);
+            0.89);
         var pending = new PendingDeviceIdentificationBatch(
             Guid.NewGuid(),
             device.Id,
@@ -305,6 +305,10 @@ public sealed class CollectionViewModelTests
         viewModel.SelectProject(project);
 
         await viewModel.RestorePendingIdentificationAsync(device);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
 
         Assert.Equal(CollectionAdapterId.WindowsServerSsh, viewModel.SelectedAdapterOption!.Id);
         Assert.Equal(CollectionViewModelState.AwaitingConfirmation, viewModel.State);

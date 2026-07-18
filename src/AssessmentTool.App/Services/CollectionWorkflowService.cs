@@ -231,21 +231,29 @@ public sealed class CollectionWorkflowService : ICollectionWorkflowService
 
                 if (result.Outcome != CollectionOutcome.Completed)
                 {
-                    if (isNetworkDeviceWorkflow
+                    if ((isNetworkDeviceWorkflow || isWindowsServerSshWorkflow)
                         && result.Outcome == CollectionOutcome.NeedsUserConfirmation
                         && (result.Detection == null || result.Detection.Candidates.Count == 0))
                     {
                         return CollectionWorkflowResult.Failed(new CollectionError(
-                            isHuaweiVrpWorkflow
-                                ? "未识别为华为 VRP 网络设备"
-                                : "未识别为 H3C Comware 网络设备",
-                            "固定 display version 查询没有返回可由所选厂商官方特征规则确认的结果",
-                            isHuaweiVrpWorkflow
-                                ? "请核对设备厂商；H3C、Cisco、锐捷等设备不得选择华为 VRP 适配器"
-                                : "请核对设备厂商；华为、Cisco、锐捷等设备不得选择 H3C Comware 适配器",
-                            isHuaweiVrpWorkflow
-                                ? "HuaweiVrpIdentityNotDetected"
-                                : "H3cComwareIdentityNotDetected"));
+                            isWindowsServerSshWorkflow
+                                ? "未识别为受支持的 Windows Server"
+                                : isHuaweiVrpWorkflow
+                                    ? "未识别为华为 VRP 网络设备"
+                                    : "未识别为 H3C Comware 网络设备",
+                            isWindowsServerSshWorkflow
+                                ? "固定注册表查询没有返回 Windows Server 2016/2019/2022/2025 产品特征"
+                                : "固定 display version 查询没有返回可由所选厂商官方特征规则确认的结果",
+                            isWindowsServerSshWorkflow
+                                ? "请核对操作系统和适配器；Windows 客户端、旧版本及无法确认身份的服务器不会继续采集"
+                                : isHuaweiVrpWorkflow
+                                    ? "请核对设备厂商；H3C、Cisco、锐捷等设备不得选择华为 VRP 适配器"
+                                    : "请核对设备厂商；华为、Cisco、锐捷等设备不得选择 H3C Comware 适配器",
+                            isWindowsServerSshWorkflow
+                                ? "WindowsServerIdentityNotDetected"
+                                : isHuaweiVrpWorkflow
+                                    ? "HuaweiVrpIdentityNotDetected"
+                                    : "H3cComwareIdentityNotDetected"));
                     }
 
                     var identification = executionObserver.HasTask
