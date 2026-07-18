@@ -25,5 +25,7 @@
     <EmbeddedResource Include="../../command-packs/builtin/huawei-vrp.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json" />
     <Content Include="../../command-packs/builtin/h3c-comware.json" Link="command-packs/builtin/h3c-comware.json" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="../../command-packs/builtin/h3c-comware.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.H3cComware.json" />
+    <Content Include="../../command-packs/builtin/windows-server-ssh.json" Link="command-packs/builtin/windows-server-ssh.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../command-packs/builtin/windows-server-ssh.json" LogicalName="AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json" />
   </ItemGroup>
 </Project>

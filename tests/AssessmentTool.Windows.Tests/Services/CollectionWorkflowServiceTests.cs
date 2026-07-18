@@ -356,6 +356,93 @@ public sealed class CollectionWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Windows_server_ssh_requires_human_confirmation_then_runs_only_account_policy_query()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, ConnectionProtocol.Ssh, TargetCategory.Server, "192.0.2.64", "audit-user");
+        var trust = CreateTrust(device.Host, device.Port, HostKeyTrustState.Verified);
+        const string productOutput = "ProductName    REG_SZ    Windows Server 2022 Standard";
+        const string buildOutput = "CurrentBuildNumber    REG_SZ    20348";
+        var firstSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["windows-server-ssh-product-name"] = Success("windows-server-ssh-product-name", productOutput),
+            ["windows-server-ssh-build-number"] = Success("windows-server-ssh-build-number", buildOutput)
+        });
+        var secondSession = new ScriptedRemoteSession(new Dictionary<string, CommandOutput>(StringComparer.Ordinal)
+        {
+            ["windows-server-ssh-product-name"] = Success("windows-server-ssh-product-name", productOutput),
+            ["windows-server-ssh-build-number"] = Success("windows-server-ssh-build-number", buildOutput),
+            ["windows-server-ssh-account-policy"] = Success(
+                "windows-server-ssh-account-policy",
+                "Minimum password length: 14\nLockout threshold: 5")
+        });
+        var sessions = new Queue<ScriptedRemoteSession>(new[] { firstSession, secondSession });
+        var identifications = new RecordingIdentificationRepository();
+        var releaseDirectory = Path.Combine(Path.GetTempPath(), "EvaluationTool.Workflow.WindowsServer", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(releaseDirectory);
+        try
+        {
+            var service = new CollectionWorkflowService(
+                new BuiltinCommandPackCatalog(releaseDirectory),
+                _ => sessions.Dequeue(),
+                new RecordingEvidenceService(),
+                identifications);
+            var selection = new CollectionDeviceSelection(device, true, trust);
+
+            var detected = await service.RunAsync(
+                new CollectionWorkflowRequest(project, selection, CollectionAdapterId.WindowsServerSsh),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.RequiresConfirmation, detected.Outcome);
+            var candidate = Assert.Single(detected.DetectionCandidates);
+            Assert.Equal("Microsoft", candidate.Vendor);
+            Assert.Equal("Windows Server", candidate.ProductFamily);
+            Assert.Equal("2022", candidate.Version);
+            Assert.Equal("Standard", candidate.Model);
+            var pending = Assert.Single(identifications.PendingBatches);
+            Assert.Equal(
+                new[] { "windows-server-ssh-product-name", "windows-server-ssh-build-number" },
+                firstSession.ExecutedIds);
+            Assert.Empty(identifications.Tasks);
+
+            var completed = await service.RunAsync(
+                new CollectionWorkflowRequest(
+                    project,
+                    selection,
+                    CollectionAdapterId.WindowsServerSsh,
+                    candidate,
+                    pending.BatchId),
+                new CountingProgress(),
+                CancellationToken.None);
+
+            Assert.Equal(CollectionWorkflowOutcome.Completed, completed.Outcome);
+            Assert.Equal(
+                new[]
+                {
+                    "windows-server-ssh-product-name",
+                    "windows-server-ssh-build-number",
+                    "windows-server-ssh-account-policy"
+                },
+                secondSession.ExecutedIds);
+            Assert.Equal(
+                new[] { "windows-server-ssh-account-policy" },
+                completed.CompletedCommands.Select(command => command.CommandId));
+            var identification = Assert.Single(identifications.Records);
+            Assert.True(identification.WasUserConfirmed);
+            Assert.Equal("Microsoft", identification.Vendor);
+            var task = Assert.Single(identifications.Tasks);
+            Assert.All(task.Commands, command => Assert.Equal("windows-server-ssh", command.CommandPackId));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("generic-linux", StringComparison.Ordinal));
+            Assert.DoesNotContain(secondSession.ExecutedIds, command => command.StartsWith("database-host-discovery", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Network_device_without_matching_adapter_is_rejected_before_session_creation()
     {
         var project = CreateProject();

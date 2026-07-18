@@ -28,6 +28,10 @@ public sealed class BuiltinCommandPackCatalog
     private const string H3cComwareRelativePath = "command-packs/builtin/h3c-comware.json";
     private const string H3cComwareResourceName = "AssessmentTool.App.CommandPacks.Builtin.H3cComware.json";
     private const string H3cComwareSha256 = "c4422bf699583a2abc1bf476c78060580c2ac09ebfbc1bd0d4377a381e449e97";
+    private const string WindowsServerSshPackId = "windows-server-ssh";
+    private const string WindowsServerSshRelativePath = "command-packs/builtin/windows-server-ssh.json";
+    private const string WindowsServerSshResourceName = "AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json";
+    private const string WindowsServerSshSha256 = "98a2ea3624b1362ded40091aea3c4314bce2b45d0cecb2f924a1d68af00a8193";
 
     private static readonly IReadOnlyList<string> IdentificationIds =
         new ReadOnlyCollection<string>(new[]
@@ -64,6 +68,16 @@ public sealed class BuiltinCommandPackCatalog
     private static readonly IReadOnlyList<string> H3cComwareCollectionIds =
         new ReadOnlyCollection<string>(new[] { "h3c-comware-display-password-control" });
 
+    private static readonly IReadOnlyList<string> WindowsServerSshIdentificationIds =
+        new ReadOnlyCollection<string>(new[]
+        {
+            "windows-server-ssh-product-name",
+            "windows-server-ssh-build-number"
+        });
+
+    private static readonly IReadOnlyList<string> WindowsServerSshCollectionIds =
+        new ReadOnlyCollection<string>(new[] { "windows-server-ssh-account-policy" });
+
     private readonly string releaseDirectory;
     private readonly Assembly resourceAssembly;
 
@@ -95,6 +109,8 @@ public sealed class BuiltinCommandPackCatalog
     public IReadOnlyList<string> HuaweiVrpIdentificationCommandIds => HuaweiVrpIdentificationIds;
 
     public IReadOnlyList<string> H3cComwareIdentificationCommandIds => H3cComwareIdentificationIds;
+
+    public IReadOnlyList<string> WindowsServerSshIdentificationCommandIds => WindowsServerSshIdentificationIds;
 
     public CommandPack LoadGenericLinux()
     {
@@ -140,6 +156,17 @@ public sealed class BuiltinCommandPackCatalog
         return pack;
     }
 
+    public CommandPack LoadWindowsServerSsh()
+    {
+        var packBytes = LoadPackBytes(
+            WindowsServerSshRelativePath,
+            WindowsServerSshResourceName,
+            "Windows Server SSH 命令包");
+        var pack = new CommandPackLoader().Load(packBytes, WindowsServerSshSha256);
+        EnsureWindowsServerSshLayout(pack);
+        return pack;
+    }
+
     public IReadOnlyList<CommandDefinition> SelectGenericLinuxIdentificationCommands(CommandPack pack)
     {
         return SelectCommands(pack, IdentificationIds);
@@ -178,6 +205,18 @@ public sealed class BuiltinCommandPackCatalog
     {
         EnsureH3cComwareLayout(pack);
         return pack.SelectCommands(H3cComwareCollectionIds);
+    }
+
+    public IReadOnlyList<CommandDefinition> SelectWindowsServerSshIdentificationCommands(CommandPack pack)
+    {
+        EnsureWindowsServerSshLayout(pack);
+        return SelectCommandsUnchecked(pack, WindowsServerSshIdentificationIds);
+    }
+
+    public CommandPack CreateWindowsServerSshCollectionPack(CommandPack pack)
+    {
+        EnsureWindowsServerSshLayout(pack);
+        return pack.SelectCommands(WindowsServerSshCollectionIds);
     }
 
     private byte[] LoadPackBytes(string relativePath, string resourceName, string description)
@@ -366,6 +405,38 @@ public sealed class BuiltinCommandPackCatalog
                 StringComparison.Ordinal)))
         {
             throw new CommandPackException("H3C Comware 固定识别命令缺少 IDENTIFY 安全标记。");
+        }
+    }
+
+    private static void EnsureWindowsServerSshLayout(CommandPack pack)
+    {
+        if (pack == null)
+        {
+            throw new ArgumentNullException(nameof(pack));
+        }
+
+        if (!string.Equals(pack.Id, WindowsServerSshPackId, StringComparison.Ordinal))
+        {
+            throw new CommandPackException("命令包不是受支持的 Windows Server SSH 内置命令包。");
+        }
+
+        var expectedIds = WindowsServerSshIdentificationIds
+            .Concat(WindowsServerSshCollectionIds)
+            .ToArray();
+        if (!expectedIds.SequenceEqual(pack.Commands.Select(command => command.Id), StringComparer.Ordinal)
+            || pack.Commands.Any(command => command.TargetCategory != TargetCategory.Server
+                || !string.Equals(command.Vendor, "Microsoft", StringComparison.Ordinal)
+                || !string.Equals(command.ProductFamily, "Windows Server", StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("Windows Server SSH 内置命令包的命令顺序或对象边界不正确。");
+        }
+
+        if (WindowsServerSshIdentificationIds.Any(commandId =>
+            !string.Equals(pack.Commands.Single(command => command.Id == commandId).CheckItem,
+                "IDENTIFY",
+                StringComparison.Ordinal)))
+        {
+            throw new CommandPackException("Windows Server SSH 固定识别命令缺少 IDENTIFY 安全标记。");
         }
     }
 }

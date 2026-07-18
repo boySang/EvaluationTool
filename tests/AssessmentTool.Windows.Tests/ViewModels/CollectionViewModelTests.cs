@@ -34,6 +34,7 @@ public sealed class CollectionViewModelTests
         Assert.False(viewModel.StartCommand.CanExecute(null));
 
         viewModel.SelectDevice(CreateSelection(project, componentAvailable: true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
         Assert.True(viewModel.StartCommand.CanExecute(null));
     }
 
@@ -63,6 +64,34 @@ public sealed class CollectionViewModelTests
         await viewModel.StartAsync();
 
         Assert.Equal(CollectionAdapterId.HuaweiVrp, Assert.Single(service.Requests).AdapterId);
+    }
+
+    [Fact]
+    public async Task Server_requires_explicit_linux_or_windows_adapter_selection_before_collection()
+    {
+        var service = new FakeCollectionWorkflowService();
+        var project = CreateProject();
+        var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
+        viewModel.SelectProject(project);
+        var device = CreateDevice(project, TargetCategory.Server);
+        viewModel.SelectDevice(new CollectionDeviceSelection(
+            device,
+            true,
+            CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+
+        Assert.True(viewModel.IsAdapterSelectionVisible);
+        Assert.Contains(viewModel.AdapterOptions, item => item.Id == CollectionAdapterId.GenericLinux);
+        var windowsOption = Assert.Single(
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.WindowsServerSsh);
+        Assert.Null(viewModel.SelectedAdapterOption);
+        Assert.False(viewModel.StartCommand.CanExecute(null));
+
+        viewModel.SelectedAdapterOption = windowsOption;
+        await viewModel.StartAsync();
+
+        Assert.Equal(CollectionAdapterId.WindowsServerSsh, Assert.Single(service.Requests).AdapterId);
+        Assert.Contains("域控制器", viewModel.AdapterScopeNotice);
     }
 
     [Fact]
@@ -100,6 +129,7 @@ public sealed class CollectionViewModelTests
         var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         viewModel.SelectProject(project);
         viewModel.SelectDevice(CreateSelection(project, componentAvailable: true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
 
         viewModel.SetRequiredComponentAvailability(false);
 
@@ -127,6 +157,7 @@ public sealed class CollectionViewModelTests
         var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         viewModel.SelectProject(firstProject);
         viewModel.SelectDevice(CreateSelection(firstProject, componentAvailable: true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
         Assert.True(viewModel.StartCommand.CanExecute(null));
 
         viewModel.ClearDeviceSelection();
@@ -134,6 +165,7 @@ public sealed class CollectionViewModelTests
         Assert.False(viewModel.StartCommand.CanExecute(null));
 
         viewModel.SelectDevice(CreateSelection(firstProject, componentAvailable: true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
         viewModel.SelectProject(secondProject);
 
         Assert.False(viewModel.StartCommand.CanExecute(null));
@@ -248,6 +280,38 @@ public sealed class CollectionViewModelTests
     }
 
     [Fact]
+    public async Task Restored_windows_server_candidate_selects_windows_adapter_without_running_commands()
+    {
+        var project = CreateProject();
+        var device = CreateDevice(project, TargetCategory.Server);
+        var candidate = new DetectionCandidate(
+            TargetCategory.Server,
+            "Microsoft",
+            "Windows Server",
+            "Standard",
+            "2022",
+            "ProductName REG_SZ Windows Server 2022 Standard",
+            0.98);
+        var pending = new PendingDeviceIdentificationBatch(
+            Guid.NewGuid(),
+            device.Id,
+            1,
+            new[] { candidate },
+            DateTimeOffset.UtcNow);
+        var viewModel = new CollectionViewModel(
+            new FakeCollectionWorkflowService(),
+            new FakeDatabaseConfirmationService(),
+            new FakePendingIdentificationRepository(pending));
+        viewModel.SelectProject(project);
+
+        await viewModel.RestorePendingIdentificationAsync(device);
+
+        Assert.Equal(CollectionAdapterId.WindowsServerSsh, viewModel.SelectedAdapterOption!.Id);
+        Assert.Equal(CollectionViewModelState.AwaitingConfirmation, viewModel.State);
+        Assert.Contains("域控制器", viewModel.AdapterScopeNotice);
+    }
+
+    [Fact]
     public async Task Pending_identification_restore_blocks_collection_until_local_lookup_finishes()
     {
         var project = CreateProject();
@@ -262,6 +326,7 @@ public sealed class CollectionViewModelTests
             device,
             true,
             CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+        SelectGenericLinuxAdapter(viewModel);
         Assert.True(viewModel.StartCommand.CanExecute(null));
 
         var restoring = viewModel.RestorePendingIdentificationAsync(device);
@@ -291,11 +356,13 @@ public sealed class CollectionViewModelTests
         var viewModel = new CollectionViewModel(service, new FakeDatabaseConfirmationService());
         viewModel.SelectProject(project);
         viewModel.SelectDevice(CreateSelection(project, true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
         await viewModel.StartAsync();
         Assert.NotEmpty(viewModel.DatabaseCandidates);
         Assert.NotEmpty(viewModel.CompletedCommands);
 
         viewModel.SelectDevice(CreateSelection(project, true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
 
         Assert.Equal(CollectionViewModelState.Ready, viewModel.State);
         Assert.Null(viewModel.ProgressState);
@@ -381,6 +448,7 @@ public sealed class CollectionViewModelTests
             device,
             true,
             CreateHostKeyTrust(device.Host, device.Port, HostKeyTrustState.Verified)));
+        SelectGenericLinuxAdapter(viewModel);
 
         await viewModel.StartAsync();
 
@@ -616,7 +684,15 @@ public sealed class CollectionViewModelTests
             confirmationService ?? new FakeDatabaseConfirmationService());
         viewModel.SelectProject(project);
         viewModel.SelectDevice(CreateSelection(project, componentAvailable: true, HostKeyTrustState.Verified));
+        SelectGenericLinuxAdapter(viewModel);
         return viewModel;
+    }
+
+    private static void SelectGenericLinuxAdapter(CollectionViewModel viewModel)
+    {
+        viewModel.SelectedAdapterOption = Assert.Single(
+            viewModel.AdapterOptions,
+            item => item.Id == CollectionAdapterId.GenericLinux);
     }
 
     private static HostSoftwareDiscoveryBatchRecord CreateHostSoftwareBatch(
@@ -852,12 +928,12 @@ public sealed class CollectionViewModelTests
     private static DetectionCandidate CreateCandidate(string model, double confidence)
     {
         return new DetectionCandidate(
-            TargetCategory.NetworkDevice,
-            "Vendor",
-            "Family",
+            TargetCategory.Server,
+            "ubuntu",
+            null,
             model,
-            "1.0",
-            "只读识别依据",
+            "24.04",
+            "ID=ubuntu",
             confidence);
     }
 

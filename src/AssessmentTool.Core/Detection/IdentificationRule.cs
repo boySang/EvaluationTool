@@ -10,8 +10,16 @@ public sealed class IdentificationRule
 {
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
     private readonly Regex expression;
+    private readonly string? fixedVendor;
+    private readonly string? fixedProductFamily;
 
-    private IdentificationRule(TargetCategory category, string pattern, double confidence, string verifiedSource)
+    private IdentificationRule(
+        TargetCategory category,
+        string pattern,
+        double confidence,
+        string verifiedSource,
+        string? fixedVendor = null,
+        string? fixedProductFamily = null)
     {
         if (pattern == null)
         {
@@ -45,9 +53,12 @@ public sealed class IdentificationRule
             throw new ArgumentException("Identification pattern is not a valid regular expression.", nameof(pattern), exception);
         }
 
-        if (!expression.GetGroupNames().Contains("vendor", StringComparer.Ordinal))
+        if (!expression.GetGroupNames().Contains("vendor", StringComparer.Ordinal)
+            && string.IsNullOrWhiteSpace(fixedVendor))
         {
-            throw new ArgumentException("Identification pattern must capture the vendor in a named 'vendor' group.", nameof(pattern));
+            throw new ArgumentException(
+                "Identification pattern must capture the vendor or provide a fixed verified vendor.",
+                nameof(pattern));
         }
 
         Category = category;
@@ -55,6 +66,8 @@ public sealed class IdentificationRule
         Confidence = confidence;
         VerificationStatus = VerificationStatus.Verified;
         VerifiedSource = verifiedSource;
+        this.fixedVendor = NormalizeFixedIdentity(fixedVendor, nameof(fixedVendor));
+        this.fixedProductFamily = NormalizeFixedIdentity(fixedProductFamily, nameof(fixedProductFamily));
     }
 
     public TargetCategory Category { get; }
@@ -82,6 +95,33 @@ public sealed class IdentificationRule
         return new IdentificationRule(category, pattern, confidence, verifiedSource);
     }
 
+    internal static IdentificationRule CreateVerifiedWithFixedIdentity(
+        TargetCategory category,
+        string pattern,
+        double confidence,
+        string verifiedSource,
+        string vendor,
+        string productFamily)
+    {
+        if (verifiedSource == null)
+        {
+            throw new ArgumentNullException(nameof(verifiedSource));
+        }
+
+        if (string.IsNullOrWhiteSpace(verifiedSource))
+        {
+            throw new ArgumentException("Verified source cannot be blank.", nameof(verifiedSource));
+        }
+
+        return new IdentificationRule(
+            category,
+            pattern,
+            confidence,
+            verifiedSource,
+            vendor,
+            productFamily);
+    }
+
     internal IReadOnlyList<DetectionCandidate> FindMatches(string transcript)
     {
         if (transcript == null)
@@ -100,8 +140,8 @@ public sealed class IdentificationRule
 
             candidates.Add(new DetectionCandidate(
                 Category,
-                Capture(match, "vendor"),
-                Capture(match, "productFamily"),
+                Capture(match, "vendor") ?? fixedVendor,
+                Capture(match, "productFamily") ?? fixedProductFamily,
                 Capture(match, "model"),
                 Capture(match, "version"),
                 match.Value,
@@ -137,5 +177,21 @@ public sealed class IdentificationRule
     {
         var group = match.Groups[groupName];
         return group.Success && group.Length > 0 ? group.Value : null;
+    }
+
+    private static string? NormalizeFixedIdentity(string? value, string parameterName)
+    {
+        if (value == null)
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        if (normalized.Length == 0)
+        {
+            throw new ArgumentException("Fixed identification values cannot be blank.", parameterName);
+        }
+
+        return normalized;
     }
 }

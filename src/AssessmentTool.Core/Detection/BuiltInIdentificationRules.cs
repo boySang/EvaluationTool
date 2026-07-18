@@ -23,9 +23,20 @@ public static class BuiltInIdentificationRules
             0.85,
             "https://www.h3c.com/cn/d_202503/2368787_30005_0.htm");
 
+    private static readonly IdentificationRule WindowsServerRule =
+        IdentificationRule.CreateVerifiedWithFixedIdentity(
+            Domain.TargetCategory.Server,
+            "^\\s*ProductName\\s+REG_SZ\\s+Windows Server (?<version>2016|2019|2022|2025)(?: (?<model>.+?))?\\s*$",
+            0.98,
+            "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/reg-query",
+            "Microsoft",
+            "Windows Server");
+
     public static IdentificationRule LinuxOsReleaseId => LinuxOsReleaseIdRule;
 
     public static IdentificationRule HuaweiVrp => HuaweiVrpRule;
 
     public static IdentificationRule H3cComware => H3cComwareRule;
+
+    public static IdentificationRule WindowsServer => WindowsServerRule;
 }

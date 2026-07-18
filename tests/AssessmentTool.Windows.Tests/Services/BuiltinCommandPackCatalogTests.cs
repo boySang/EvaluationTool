@@ -103,6 +103,42 @@ public sealed class BuiltinCommandPackCatalogTests
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.HuaweiVrp.json\"", project);
         Assert.Contains("Link=\"command-packs/builtin/h3c-comware.json\"", project);
         Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.H3cComware.json\"", project);
+        Assert.Contains("Link=\"command-packs/builtin/windows-server-ssh.json\"", project);
+        Assert.Contains("LogicalName=\"AssessmentTool.App.CommandPacks.Builtin.WindowsServerSsh.json\"", project);
+    }
+
+    [Fact]
+    public void LoadWindowsServerSsh_uses_fixed_hash_layout_and_exact_read_only_groups()
+    {
+        var releaseDirectory = CreateReleaseDirectory();
+        try
+        {
+            var catalog = new BuiltinCommandPackCatalog(releaseDirectory);
+            var pack = catalog.LoadWindowsServerSsh();
+            var identification = catalog.SelectWindowsServerSshIdentificationCommands(pack);
+            var collection = catalog.CreateWindowsServerSshCollectionPack(pack);
+
+            Assert.Equal("windows-server-ssh", pack.Id);
+            Assert.Equal("1.0.0", pack.Version);
+            Assert.Equal(
+                new[] { "windows-server-ssh-product-name", "windows-server-ssh-build-number" },
+                identification.Select(command => command.Id));
+            Assert.Equal(
+                new[] { "windows-server-ssh-account-policy" },
+                collection.Commands.Select(command => command.Id));
+            Assert.All(pack.Commands, command =>
+            {
+                Assert.Equal(AssessmentTool.Core.Domain.TargetCategory.Server, command.TargetCategory);
+                Assert.Equal("Microsoft", command.Vendor);
+                Assert.Equal("Windows Server", command.ProductFamily);
+                Assert.True(command.IsEligibleForAutomaticExecution);
+                Assert.True(new AssessmentTool.Core.Security.CommandSafetyPolicy().Validate(command).Allowed);
+            });
+        }
+        finally
+        {
+            Directory.Delete(releaseDirectory, recursive: true);
+        }
     }
 
     [Fact]

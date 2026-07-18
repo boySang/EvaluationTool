@@ -184,6 +184,32 @@ public sealed class CommandSafetyPolicyTests
     }
 
     [Theory]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v ProductName")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v CurrentBuildNumber")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts")]
+    public void Allows_only_exact_windows_server_query_templates(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.True(result.Allowed);
+        Assert.Equal("allowed", result.Code);
+    }
+
+    [Theory]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\"")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v ProductName /s")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\reg.exe add \"HKLM\\SOFTWARE\\Audit\" /v Enabled /d 1")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts /minpwlen:14")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\net.exe user auditor /add")]
+    [InlineData("cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts > policy.txt")]
+    public void Rejects_windows_server_query_variants_outside_exact_allowlist(string commandText)
+    {
+        var result = new CommandSafetyPolicy().Validate(VerifiedReadOnlyCommand(commandText));
+
+        Assert.False(result.Allowed);
+    }
+
+    [Theory]
     [InlineData("docker exec db ps", "unsafe-command")]
     [InlineData("podman exec db ps", "unsafe-command")]
     [InlineData("systemctl restart sshd", "unsafe-command")]

@@ -45,6 +45,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         CollectionAdapterId.H3cComware,
         "H3C Comware 7/9 网络设备",
         "仅适用于已确认的 H3C Comware 7.1 或 9.x 设备；当前执行版本识别和全局口令控制策略只读查询，不适用于 Comware 5、华为、Cisco、锐捷等设备。");
+    private static readonly CollectionAdapterOption WindowsServerSshAdapter = new CollectionAdapterOption(
+        CollectionAdapterId.WindowsServerSsh,
+        "Windows Server（SSH）",
+        "仅适用于已开通 OpenSSH 的 Windows Server 2016/2019/2022/2025 成员服务器；只查询产品名称、构建号和当前账户策略，不运行 PowerShell 脚本或修改命令，初版不支持域控制器。");
     private readonly ICollectionWorkflowService workflowService;
     private readonly IDatabaseConfirmationService databaseConfirmationService;
     private readonly IHostSoftwareCandidateConfirmationService? hostSoftwareConfirmationService;
@@ -150,11 +154,10 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
             RefreshReadiness();
         }
     }
-    public bool IsAdapterSelectionVisible =>
-        selectedDevice?.Device.Category == TargetCategory.NetworkDevice;
+    public bool IsAdapterSelectionVisible => adapterOptions.Count > 0;
     public string AdapterScopeNotice => selectedAdapterOption?.ScopeNotice
         ?? (IsAdapterSelectionVisible
-            ? "必须明确选择与实际厂商一致的已验证适配器，未选择时不会连接或执行命令。"
+            ? "必须明确选择与实际系统或厂商一致的已验证适配器，未选择时不会连接或执行命令。"
             : string.Empty);
     public DatabaseInstanceCandidate? SelectedDatabaseCandidate => selectedDatabaseCandidate;
     public CollectionState? ProgressState => progressState;
@@ -807,8 +810,12 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         {
             case TargetCategory.Automatic:
             case TargetCategory.Server:
-                nextOptions = new[] { GenericLinuxAdapter };
-                nextSelection = GenericLinuxAdapter;
+                nextOptions = new[] { GenericLinuxAdapter, WindowsServerSshAdapter };
+                nextSelection = selectedAdapterOption?.Id == CollectionAdapterId.GenericLinux
+                    ? GenericLinuxAdapter
+                    : selectedAdapterOption?.Id == CollectionAdapterId.WindowsServerSsh
+                        ? WindowsServerSshAdapter
+                        : null;
                 break;
             case TargetCategory.NetworkDevice:
                 nextOptions = new[] { HuaweiVrpAdapter, H3cComwareAdapter };
@@ -836,19 +843,35 @@ public sealed class CollectionViewModel : INotifyPropertyChanged
         TargetCategory category,
         IReadOnlyList<DetectionCandidate> candidates)
     {
-        if (category != TargetCategory.NetworkDevice || selectedAdapterOption != null)
+        if (selectedAdapterOption != null)
         {
             return;
         }
 
-        selectedAdapterOption = candidates.Any(candidate =>
-                string.Equals(candidate.Vendor, "Huawei", StringComparison.OrdinalIgnoreCase))
-            ? HuaweiVrpAdapter
-            : candidates.Any(candidate =>
-                string.Equals(candidate.Vendor, "H3C", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(candidate.ProductFamily, "Comware", StringComparison.OrdinalIgnoreCase))
-                ? H3cComwareAdapter
-                : null;
+        if (category == TargetCategory.NetworkDevice)
+        {
+            selectedAdapterOption = candidates.Any(candidate =>
+                    string.Equals(candidate.Vendor, "Huawei", StringComparison.OrdinalIgnoreCase))
+                ? HuaweiVrpAdapter
+                : candidates.Any(candidate =>
+                    string.Equals(candidate.Vendor, "H3C", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(candidate.ProductFamily, "Comware", StringComparison.OrdinalIgnoreCase))
+                    ? H3cComwareAdapter
+                    : null;
+        }
+        else if (category == TargetCategory.Automatic || category == TargetCategory.Server)
+        {
+            selectedAdapterOption = candidates.Any(candidate =>
+                    string.Equals(candidate.Vendor, "Microsoft", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(candidate.ProductFamily, "Windows Server", StringComparison.OrdinalIgnoreCase))
+                ? WindowsServerSshAdapter
+                : candidates.Any(candidate =>
+                    candidate.Category == TargetCategory.Server
+                    && !string.Equals(candidate.Vendor, "Microsoft", StringComparison.OrdinalIgnoreCase))
+                    ? GenericLinuxAdapter
+                    : null;
+        }
+
         if (selectedAdapterOption == null)
         {
             return;

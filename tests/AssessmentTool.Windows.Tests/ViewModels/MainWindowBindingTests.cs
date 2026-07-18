@@ -71,9 +71,11 @@ public sealed class MainWindowBindingTests
         Assert.Contains("选择离线安装包", text);
         Assert.Contains("确认前不会复制或替换文件", text);
         Assert.Contains("自动识别（推荐）", text);
-        Assert.Contains("网络设备采集适配器 *", text);
+        Assert.Contains("采集适配器 *", text);
         Assert.Contains("未选择时不会连接或执行命令", text);
         Assert.Contains("H3C Comware 网络设备", text);
+        Assert.Contains("Windows Server", text);
+        Assert.Contains("域控制器", text);
         Assert.Contains("SSH 用户名 *", text);
         Assert.Contains("密码验证", text);
         Assert.Contains("PuTTY PPK 私钥", text);

@@ -11,6 +11,12 @@ public sealed class CommandSafetyPolicy
     private const string HuaweiDisplayVersionCommand = "display version | no-more";
     private const string HuaweiDisplayAaaConfigurationCommand = "display aaa configuration | no-more";
     private const string H3cDisplayPasswordControlCommand = "display password-control | no-more";
+    private const string WindowsServerProductNameCommand =
+        "cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v ProductName";
+    private const string WindowsServerBuildNumberCommand =
+        "cmd.exe /d /c %SystemRoot%\\System32\\reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\" /v CurrentBuildNumber";
+    private const string WindowsServerAccountPolicyCommand =
+        "cmd.exe /d /c %SystemRoot%\\System32\\net.exe accounts";
 
     private static readonly Regex RecognizedReadOnlyRoot = new Regex(
         @"^(?:(?:show|display)\b|uname\b|hostname\b|cat\b|ps\b|systemctl\s+list-units\b|(?:docker|podman)\s+ps\b|Get-ComputerInfo$|(?:select|with)\b)",
@@ -41,17 +47,21 @@ public sealed class CommandSafetyPolicy
         }
 
         var commandText = command.CommandText?.Trim();
-        if (ForbiddenSyntax.IsMatch(commandText) && !IsAllowedNetworkNoMore(commandText))
+        if (ForbiddenSyntax.IsMatch(commandText)
+            && !IsAllowedNetworkNoMore(commandText)
+            && !IsAllowedWindowsServerCommand(commandText))
         {
             return SafetyDecision.Reject("unsafe-command", "命令包含可能修改目标或组合执行的语法。");
         }
 
-        if (string.IsNullOrEmpty(commandText) ||
-            !RecognizedReadOnlyRoot.IsMatch(commandText) ||
-            (!AllowedReadOnlyShape.IsMatch(commandText)
+        var isAllowedWindowsServerCommand = IsAllowedWindowsServerCommand(commandText);
+        if (string.IsNullOrEmpty(commandText)
+            || (!isAllowedWindowsServerCommand
+                && (!RecognizedReadOnlyRoot.IsMatch(commandText)
+                    || (!AllowedReadOnlyShape.IsMatch(commandText)
                 && !AllowedSqlMetadataTemplate.IsMatch(commandText)
                 && !IsAllowedContainerInventory(commandText)
-                && !IsAllowedNetworkNoMore(commandText)))
+                && !IsAllowedNetworkNoMore(commandText)))))
         {
             return SafetyDecision.Reject("unsupported-command-shape", "命令不属于允许自动执行的只读命令形状。");
         }
@@ -70,6 +80,13 @@ public sealed class CommandSafetyPolicy
         return string.Equals(commandText, HuaweiDisplayVersionCommand, StringComparison.Ordinal)
             || string.Equals(commandText, HuaweiDisplayAaaConfigurationCommand, StringComparison.Ordinal)
             || string.Equals(commandText, H3cDisplayPasswordControlCommand, StringComparison.Ordinal);
+    }
+
+    private static bool IsAllowedWindowsServerCommand(string? commandText)
+    {
+        return string.Equals(commandText, WindowsServerProductNameCommand, StringComparison.Ordinal)
+            || string.Equals(commandText, WindowsServerBuildNumberCommand, StringComparison.Ordinal)
+            || string.Equals(commandText, WindowsServerAccountPolicyCommand, StringComparison.Ordinal);
     }
 }
 

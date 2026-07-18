@@ -52,6 +52,43 @@ public sealed class BuiltInIdentificationRulesTests
     }
 
     [Theory]
+    [InlineData("ProductName    REG_SZ    Windows Server 2016 Standard", "2016", "Standard")]
+    [InlineData("ProductName    REG_SZ    Windows Server 2019 Datacenter", "2019", "Datacenter")]
+    [InlineData("ProductName    REG_SZ    Windows Server 2022 Standard Evaluation", "2022", "Standard Evaluation")]
+    [InlineData("ProductName    REG_SZ    Windows Server 2025 Datacenter", "2025", "Datacenter")]
+    public void Windows_server_registry_product_name_creates_verified_fixed_identity_candidate(
+        string output,
+        string expectedVersion,
+        string expectedModel)
+    {
+        var result = new DetectionEngine().Detect(
+            output,
+            new[] { BuiltInIdentificationRules.WindowsServer });
+
+        var candidate = Assert.Single(result.Candidates);
+        Assert.Equal(TargetCategory.Server, candidate.Category);
+        Assert.Equal("Microsoft", candidate.Vendor);
+        Assert.Equal("Windows Server", candidate.ProductFamily);
+        Assert.Equal(expectedVersion, candidate.Version);
+        Assert.Equal(expectedModel, candidate.Model);
+        Assert.Equal(0.98, candidate.Confidence);
+    }
+
+    [Theory]
+    [InlineData("ProductName    REG_SZ    Windows 11 Enterprise")]
+    [InlineData("ProductName    REG_SZ    Windows Server 2012 R2 Standard")]
+    [InlineData("ProductName    REG_SZ    Windows Server Preview")]
+    public void Windows_server_rule_rejects_clients_and_unverified_versions(string output)
+    {
+        var result = new DetectionEngine().Detect(
+            output,
+            new[] { BuiltInIdentificationRules.WindowsServer });
+
+        Assert.Empty(result.Candidates);
+        Assert.True(result.RequiresUserConfirmation);
+    }
+
+    [Theory]
     [InlineData("ID=ubuntu", "ubuntu")]
     [InlineData("ID=\"kylin\"", "kylin")]
     [InlineData("ID=uos", "uos")]
