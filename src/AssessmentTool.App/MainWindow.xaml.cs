@@ -39,6 +39,60 @@ public partial class MainWindow : Window
         ShellNavigation.SelectedIndex = 6;
     }
 
+    private async void SelectPlinkInstallPackage_Click(object sender, RoutedEventArgs eventArgs)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择 PuTTY Plink 0.84 x64 离线组件",
+            Filter = "Plink 可执行文件 (plink.exe)|plink.exe|Windows 可执行文件 (*.exe)|*.exe",
+            CheckFileExists = true,
+            CheckPathExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        await ViewModel.ComponentCenter.PrepareInstallAsync(dialog.FileName);
+        if (!ViewModel.ComponentCenter.HasPreparedInstall)
+        {
+            MessageBox.Show(
+                ViewModel.ComponentCenter.InstallStatusMessage,
+                "离线组件不可用",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var confirmation = MessageBox.Show(
+            "所选文件已通过固定 SHA-256 校验。\n\n"
+                + ViewModel.ComponentCenter.PreparedInstallSummary
+                + "\n\n来源要求：PuTTY 官方 0.84 x64\n"
+                + "安装体积：约 1 MB\n"
+                + "管理员权限：绿色版目录可写时不需要\n"
+                + "联网要求：不需要\n"
+                + "影响：替换软件目录中的 Plink；失败时自动回滚\n\n"
+                + "确认安装并在完成后重新检测吗？",
+            "确认安装可信 Plink 组件",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            ViewModel.ComponentCenter.CancelPreparedInstall();
+            return;
+        }
+
+        await ViewModel.ComponentCenter.InstallPreparedAsync();
+        MessageBox.Show(
+            ViewModel.ComponentCenter.InstallStatusMessage,
+            ViewModel.ComponentCenter.IsSshAvailable ? "组件安装成功" : "组件安装失败",
+            MessageBoxButton.OK,
+            ViewModel.ComponentCenter.IsSshAvailable
+                ? MessageBoxImage.Information
+                : MessageBoxImage.Error);
+    }
+
     private void OpenDeviceWizard_Click(object sender, RoutedEventArgs eventArgs)
     {
         DevicePasswordBox.Clear();

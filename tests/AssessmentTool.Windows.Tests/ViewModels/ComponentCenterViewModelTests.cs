@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -24,7 +25,7 @@ public sealed class ComponentCenterViewModelTests
         Assert.False(viewModel.IsSshAvailable);
         Assert.Equal(0, service.CallCount);
         Assert.Equal("Plink 连接组件", viewModel.ComponentName);
-        Assert.Contains("不会自动下载、安装或替换组件", viewModel.AutomaticActionNotice);
+        Assert.Contains("不会静默下载或安装", viewModel.AutomaticActionNotice);
     }
 
     [Fact]
@@ -157,6 +158,75 @@ public sealed class ComponentCenterViewModelTests
     }
 
     [Fact]
+    public async Task Offline_install_requires_preparation_and_explicit_confirmation_call()
+    {
+        var preview = new ComponentInstallPreview(
+            @"C:\Offline\plink.exe",
+            "plink.exe",
+            1024,
+            TrustedComponentCatalog.Plink.ExpectedSha256);
+        var service = new FakeComponentStatusService
+        {
+            PrepareResult = Task.FromResult(preview),
+            InstallResult = Task.FromResult(AvailableStatus())
+        };
+        var viewModel = new ComponentCenterViewModel(service);
+
+        await viewModel.PrepareInstallAsync(@"C:\Offline\plink.exe");
+
+        Assert.True(viewModel.HasPreparedInstall);
+        Assert.Contains("SHA-256", viewModel.PreparedInstallSummary);
+        Assert.Equal(1, service.PrepareCallCount);
+        Assert.Equal(0, service.InstallCallCount);
+
+        await viewModel.InstallPreparedAsync();
+
+        Assert.False(viewModel.HasPreparedInstall);
+        Assert.Equal(1, service.InstallCallCount);
+        Assert.True(viewModel.IsSshAvailable);
+        Assert.Contains("已安装", viewModel.InstallStatusMessage);
+    }
+
+    [Fact]
+    public async Task Invalid_offline_package_does_not_become_installable_or_leak_path()
+    {
+        var service = new FakeComponentStatusService
+        {
+            PrepareResult = Task.FromException<ComponentInstallPreview>(
+                new InvalidDataException(@"bad C:\Secret\plink.exe"))
+        };
+        var viewModel = new ComponentCenterViewModel(service);
+
+        await viewModel.PrepareInstallAsync(@"C:\Secret\plink.exe");
+
+        Assert.False(viewModel.HasPreparedInstall);
+        Assert.DoesNotContain("C:\\Secret", viewModel.InstallStatusMessage);
+        Assert.Contains(nameof(InvalidDataException), viewModel.InstallStatusMessage);
+        Assert.Equal(0, service.InstallCallCount);
+    }
+
+    [Fact]
+    public async Task Cancelling_prepared_install_never_calls_installer()
+    {
+        var service = new FakeComponentStatusService
+        {
+            PrepareResult = Task.FromResult(new ComponentInstallPreview(
+                @"C:\Offline\plink.exe",
+                "plink.exe",
+                1024,
+                TrustedComponentCatalog.Plink.ExpectedSha256))
+        };
+        var viewModel = new ComponentCenterViewModel(service);
+        await viewModel.PrepareInstallAsync(@"C:\Offline\plink.exe");
+
+        viewModel.CancelPreparedInstall();
+
+        Assert.False(viewModel.HasPreparedInstall);
+        Assert.Equal(0, service.InstallCallCount);
+        Assert.Contains("已取消", viewModel.InstallStatusMessage);
+    }
+
+    [Fact]
     public void Production_service_only_exposes_fixed_component_construction()
     {
         var publicConstructors = typeof(ComponentStatusService)
@@ -164,9 +234,16 @@ public sealed class ComponentCenterViewModelTests
 
         Assert.Single(publicConstructors);
         Assert.Empty(publicConstructors[0].GetParameters());
-        Assert.Single(typeof(IComponentStatusService).GetMethods());
-        Assert.Equal(nameof(IComponentStatusService.GetPlinkStatusAsync),
-            typeof(IComponentStatusService).GetMethods().Single().Name);
+        Assert.Equal(
+            new[]
+            {
+                nameof(IComponentStatusService.GetPlinkStatusAsync),
+                nameof(IComponentStatusService.InstallPreparedPlinkAsync),
+                nameof(IComponentStatusService.PreparePlinkInstallAsync)
+            },
+            typeof(IComponentStatusService).GetMethods()
+                .Select(method => method.Name)
+                .OrderBy(name => name, StringComparer.Ordinal));
     }
 
     internal static ComponentStatus AvailableStatus()
@@ -225,6 +302,10 @@ public sealed class ComponentCenterViewModelTests
         }
 
         public int CallCount { get; private set; }
+        public int PrepareCallCount { get; private set; }
+        public int InstallCallCount { get; private set; }
+        public Task<ComponentInstallPreview>? PrepareResult { get; set; }
+        public Task<ComponentStatus>? InstallResult { get; set; }
 
         public Task<ComponentStatus> GetPlinkStatusAsync()
         {
@@ -235,6 +316,20 @@ public sealed class ComponentCenterViewModelTests
             }
 
             return results.Dequeue();
+        }
+
+        public Task<ComponentInstallPreview> PreparePlinkInstallAsync(string sourcePath)
+        {
+            PrepareCallCount++;
+            return PrepareResult
+                ?? throw new InvalidOperationException("测试未配置离线组件校验结果。");
+        }
+
+        public Task<ComponentStatus> InstallPreparedPlinkAsync(ComponentInstallPreview preview)
+        {
+            InstallCallCount++;
+            return InstallResult
+                ?? throw new InvalidOperationException("测试未配置离线组件安装结果。");
         }
     }
 }

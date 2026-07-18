@@ -68,6 +68,8 @@ public sealed class MainWindowBindingTests
         Assert.Contains("DeviceWizardPanel", names);
         Assert.Contains("命令库", text);
         Assert.Contains("组件中心", text);
+        Assert.Contains("选择离线安装包", text);
+        Assert.Contains("确认前不会复制或替换文件", text);
         Assert.Contains("自动识别（推荐）", text);
         Assert.Contains("网络设备采集适配器 *", text);
         Assert.Contains("未选择时不会连接或执行命令", text);
@@ -86,6 +88,7 @@ public sealed class MainWindowBindingTests
         Assert.DoesNotContain("漏洞扫描", text);
         Assert.Contains("TaskHistory.Items", File.ReadAllText(FindMainWindowXaml()));
         Assert.Contains("Collection.SelectedAdapterOption, Mode=TwoWay", File.ReadAllText(FindMainWindowXaml()));
+        Assert.Contains("SelectPlinkInstallPackage_Click", File.ReadAllText(FindMainWindowXaml()));
     }
 
     [Fact]

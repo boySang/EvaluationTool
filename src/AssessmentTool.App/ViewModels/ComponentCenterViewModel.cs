@@ -12,6 +12,8 @@ public enum ComponentCenterState
 {
     NotChecked,
     Refreshing,
+    PreparingInstall,
+    Installing,
     Ready,
     Failed
 }
@@ -36,11 +38,17 @@ public sealed class ComponentCenterViewModel : INotifyPropertyChanged
     private ComponentItemState componentState = ComponentItemState.Missing;
     private string userImpact = InitialImpact;
     private string offlineInstructions = InitialInstructions;
+    private ComponentInstallPreview? preparedInstall;
+    private string installStatusMessage = "尚未选择离线组件。";
 
     public ComponentCenterViewModel(IComponentStatusService service)
     {
         this.service = service ?? throw new ArgumentNullException(nameof(service));
-        refreshCommand = new DelegateCommand(() => _ = RefreshAsync(), () => true);
+        refreshCommand = new DelegateCommand(
+            () => _ = RefreshAsync(),
+            () => State != ComponentCenterState.Refreshing
+                && State != ComponentCenterState.PreparingInstall
+                && State != ComponentCenterState.Installing);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -62,6 +70,16 @@ public sealed class ComponentCenterViewModel : INotifyPropertyChanged
             if (State == ComponentCenterState.Refreshing)
             {
                 return "状态：正在检测（保留上次检测结果）";
+            }
+
+            if (State == ComponentCenterState.PreparingInstall)
+            {
+                return "状态：正在校验离线组件";
+            }
+
+            if (State == ComponentCenterState.Installing)
+            {
+                return "状态：正在安装并复核";
             }
 
             if (State == ComponentCenterState.Failed)
@@ -91,12 +109,27 @@ public sealed class ComponentCenterViewModel : INotifyPropertyChanged
     public string NetworkRequirement => "正常使用无需联网；重新获取时需要联网";
     public string AdministratorRequirement => "不需要";
     public string RestartRequirement => "不需要";
-    public string AutomaticActionNotice => "软件不会自动下载、安装或替换组件";
+    public string AutomaticActionNotice => "软件不会静默下载或安装；只有选择文件、通过固定哈希校验并再次确认后才会替换组件";
+    public bool HasPreparedInstall => preparedInstall != null;
+    public string PreparedInstallSummary => preparedInstall == null
+        ? "尚未选择离线组件。"
+        : preparedInstall.FileName
+            + " · "
+            + Math.Ceiling(preparedInstall.SizeBytes / 1024d).ToString("0")
+            + " KB\nSHA-256："
+            + preparedInstall.Sha256;
+    public string InstallStatusMessage => installStatusMessage;
 
     public Task RefreshAsync()
     {
         lock (refreshSync)
         {
+            if (State == ComponentCenterState.PreparingInstall
+                || State == ComponentCenterState.Installing)
+            {
+                return Task.CompletedTask;
+            }
+
             if (activeRefresh != null && !activeRefresh.IsCompleted)
             {
                 return activeRefresh;
@@ -118,12 +151,7 @@ public sealed class ComponentCenterViewModel : INotifyPropertyChanged
                 throw new InvalidOperationException("组件检测服务未返回结果。");
             }
 
-            componentState = Map(status.Failure);
-            userImpact = status.UserImpact;
-            offlineInstructions = status.OfflineInstructions;
-            OnPropertyChanged(nameof(ComponentState));
-            OnPropertyChanged(nameof(UserImpact));
-            OnPropertyChanged(nameof(OfflineInstructions));
+            ApplyStatus(status);
             SetState(ComponentCenterState.Ready);
         }
         catch (Exception)
@@ -136,6 +164,97 @@ public sealed class ComponentCenterViewModel : INotifyPropertyChanged
             OnPropertyChanged(nameof(OfflineInstructions));
             SetState(ComponentCenterState.Failed);
         }
+    }
+
+    public async Task PrepareInstallAsync(string sourcePath)
+    {
+        if (State == ComponentCenterState.Refreshing
+            || State == ComponentCenterState.PreparingInstall
+            || State == ComponentCenterState.Installing)
+        {
+            return;
+        }
+
+        ClearPreparedInstall();
+        installStatusMessage = "正在校验所选文件的来源固定哈希和大小。";
+        OnPropertyChanged(nameof(InstallStatusMessage));
+        SetState(ComponentCenterState.PreparingInstall);
+        try
+        {
+            preparedInstall = await service.PreparePlinkInstallAsync(sourcePath);
+            installStatusMessage = "离线组件已通过固定 SHA-256 校验，等待人工确认安装。";
+            OnPropertyChanged(nameof(HasPreparedInstall));
+            OnPropertyChanged(nameof(PreparedInstallSummary));
+            OnPropertyChanged(nameof(InstallStatusMessage));
+            SetState(ComponentCenterState.Ready);
+        }
+        catch (Exception exception)
+        {
+            installStatusMessage = "所选文件未通过可信组件校验，未复制或替换任何文件。技术信息："
+                + exception.GetType().Name;
+            OnPropertyChanged(nameof(InstallStatusMessage));
+            SetState(ComponentCenterState.Ready);
+        }
+    }
+
+    public async Task InstallPreparedAsync()
+    {
+        var preview = preparedInstall
+            ?? throw new InvalidOperationException("尚未准备可安装的离线组件。");
+        SetState(ComponentCenterState.Installing);
+        installStatusMessage = "正在原子安装组件并执行安装后复核。";
+        OnPropertyChanged(nameof(InstallStatusMessage));
+        try
+        {
+            var status = await service.InstallPreparedPlinkAsync(preview);
+            ApplyStatus(status);
+            installStatusMessage = "Plink 已安装并通过 SHA-256、版本、架构和文件身份复核，SSH 功能已恢复。";
+            ClearPreparedInstall();
+            OnPropertyChanged(nameof(InstallStatusMessage));
+            SetState(ComponentCenterState.Ready);
+        }
+        catch (Exception exception)
+        {
+            installStatusMessage = "组件安装失败，软件已尝试保留或恢复原文件。请重新解压完整软件包后重试。技术信息："
+                + exception.GetType().Name;
+            ClearPreparedInstall();
+            OnPropertyChanged(nameof(InstallStatusMessage));
+            SetState(ComponentCenterState.Failed);
+        }
+    }
+
+    public void CancelPreparedInstall()
+    {
+        if (State == ComponentCenterState.Installing)
+        {
+            return;
+        }
+
+        ClearPreparedInstall();
+        installStatusMessage = "已取消安装，未替换任何文件。";
+        OnPropertyChanged(nameof(InstallStatusMessage));
+    }
+
+    private void ApplyStatus(ComponentStatus status)
+    {
+        componentState = Map(status.Failure);
+        userImpact = status.UserImpact;
+        offlineInstructions = status.OfflineInstructions;
+        OnPropertyChanged(nameof(ComponentState));
+        OnPropertyChanged(nameof(UserImpact));
+        OnPropertyChanged(nameof(OfflineInstructions));
+    }
+
+    private void ClearPreparedInstall()
+    {
+        if (preparedInstall == null)
+        {
+            return;
+        }
+
+        preparedInstall = null;
+        OnPropertyChanged(nameof(HasPreparedInstall));
+        OnPropertyChanged(nameof(PreparedInstallSummary));
     }
 
     private static ComponentItemState Map(ComponentFailure failure)
@@ -164,6 +283,7 @@ public sealed class ComponentCenterViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(State));
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(IsSshAvailable));
+        refreshCommand.RaiseCanExecuteChanged();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
