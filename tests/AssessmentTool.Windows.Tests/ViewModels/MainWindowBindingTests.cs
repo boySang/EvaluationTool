@@ -151,6 +151,21 @@ public sealed class MainWindowBindingTests
     }
 
     [Fact]
+    public void Content_only_tab_template_keeps_pages_in_the_accessibility_tree()
+    {
+        var mainWindowPath = FindMainWindowXaml();
+        var theme = File.ReadAllText(Path.Combine(
+            Path.GetDirectoryName(mainWindowPath)!,
+            "Themes",
+            "Fluent.xaml"));
+
+        Assert.Contains("<TabPanel", theme);
+        Assert.Contains("IsItemsHost=\"True\"", theme);
+        Assert.Contains("x:Name=\"PART_SelectedContentHost\"", theme);
+        Assert.Contains("SelectedContentTemplateSelector", theme);
+    }
+
+    [Fact]
     public void Collection_page_exposes_detection_confirmation_and_completed_command_bindings()
     {
         var source = File.ReadAllText(FindMainWindowXaml());

@@ -95,9 +95,23 @@
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="TabControl">
-          <Border Background="{TemplateBinding Background}">
-            <ContentPresenter ContentSource="SelectedContent" />
-          </Border>
+          <Grid Background="{TemplateBinding Background}">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="0" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TabPanel Grid.Row="0"
+                      IsItemsHost="True"
+                      Height="0"
+                      Opacity="0"
+                      IsHitTestVisible="False" />
+            <ContentPresenter x:Name="PART_SelectedContentHost"
+                              Grid.Row="1"
+                              Content="{TemplateBinding SelectedContent}"
+                              ContentTemplate="{TemplateBinding SelectedContentTemplate}"
+                              ContentTemplateSelector="{TemplateBinding SelectedContentTemplateSelector}"
+                              ContentStringFormat="{TemplateBinding SelectedContentStringFormat}" />
+          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
