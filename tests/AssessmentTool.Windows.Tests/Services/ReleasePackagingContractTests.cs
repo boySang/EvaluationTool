@@ -18,6 +18,7 @@ public sealed class ReleasePackagingContractTests
         Assert.Contains("MinVersion=10.0.10240", source);
         Assert.Contains("DotNet48Release = 528040", source);
         Assert.Contains("dotnet.microsoft.com/download/dotnet-framework/net48", source);
+        Assert.Contains("MessagesFile: \"compiler:Default.isl\"", source);
         Assert.Contains("Source: \"{#ReleaseRoot}\\*\"", source);
         Assert.DoesNotContain("[UninstallDelete]", source);
     }
@@ -45,6 +46,7 @@ public sealed class ReleasePackagingContractTests
         Assert.Contains("EvaluationTool-Installer-windows-x64", source);
         Assert.Contains("-PackageKind installer-windows-x64", source);
         Assert.Contains("-TargetMaximumMegabytes 60", source);
+        Assert.Contains("steps.packaged_startup.outcome == 'failure'", source);
     }
 
     private static string FindRepositoryRoot()

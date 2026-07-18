@@ -197,6 +197,7 @@ jobs:
           Copy-Item -Path $downloadPath -Destination (Join-Path $componentDirectory 'plink.exe') -Force
 
       - name: Smoke test packaged application startup
+        id: packaged_startup
         run: |
           $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
           $appPath = Join-Path $releaseDirectory 'AssessmentTool.App.exe'
@@ -456,7 +457,7 @@ jobs:
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
 
       - name: Publish packaged startup diagnostics
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.packaged_startup.outcome == 'failure' }}
         run: |
           $diagnosticDirectory = Join-Path $PWD 'artifacts\startup-diagnostics'
           New-Item -ItemType Directory -Path $diagnosticDirectory -Force | Out-Null
@@ -488,7 +489,7 @@ jobs:
           retention-days: 14
 
       - name: Upload packaged startup diagnostics
-        if: ${{ failure() }}
+        if: ${{ failure() && steps.packaged_startup.outcome == 'failure' }}
         uses: actions/upload-artifact@v6
         with:
           name: EvaluationTool-startup-diagnostics-windows
