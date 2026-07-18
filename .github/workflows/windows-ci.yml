@@ -293,6 +293,168 @@ jobs:
             "- 是否达标：$($report.WithinTarget)"
           ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
 
+      - name: Generate and verify Release integrity manifest
+        run: |
+          & '.\build\Write-ReleaseManifest.ps1' `
+            -ReleaseRoot (Join-Path $PWD 'artifacts\release\EvaluationTool') `
+            -GitCommit '${{ github.sha }}'
+
+      - name: Build per-user Windows installer
+        run: |
+          $isccCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+            (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+          )
+          $isccPath = $isccCandidates |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($isccPath)) {
+            $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($null -ne $command) {
+              $isccPath = $command.Source
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($isccPath)) {
+            throw 'Inno Setup 6 compiler is not available on the Windows runner.'
+          }
+
+          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
+          $installerDirectory = Join-Path $PWD 'artifacts\installer'
+          New-Item -ItemType Directory -Path $installerDirectory -Force | Out-Null
+          $appVersion = "0.1.${{ github.run_number }}.0"
+          & $isccPath `
+            "/DAppVersion=$appVersion" `
+            "/DReleaseRoot=$releaseDirectory" `
+            "/DOutputDir=$installerDirectory" `
+            'installer\AssessmentTool.iss'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compiler failed with exit code $LASTEXITCODE."
+          }
+
+          $setupPath = Join-Path $installerDirectory 'EvaluationTool-Setup-windows-x64.exe'
+          if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+            throw "Installer output is missing: $setupPath"
+          }
+
+      - name: Smoke test installer and data-preserving uninstall
+        run: |
+          $installerDirectory = Join-Path $PWD 'artifacts\installer'
+          $setupPath = Join-Path $installerDirectory 'EvaluationTool-Setup-windows-x64.exe'
+          $installDirectory = Join-Path $env:RUNNER_TEMP 'EvaluationTool-Installed'
+          $installLog = Join-Path $env:RUNNER_TEMP 'EvaluationTool-install.log'
+          $uninstallLog = Join-Path $env:RUNNER_TEMP 'EvaluationTool-uninstall.log'
+          $productDataDirectory = Join-Path $env:LOCALAPPDATA 'EvaluationTool'
+          $sentinelPath = Join-Path $productDataDirectory 'installer-preservation-sentinel.txt'
+          Remove-Item -LiteralPath $installDirectory -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $productDataDirectory -Force | Out-Null
+          Set-Content -LiteralPath $sentinelPath -Value 'preserve-on-uninstall' -Encoding UTF8
+
+          $install = Start-Process `
+            -FilePath $setupPath `
+            -ArgumentList @(
+              '/VERYSILENT',
+              '/SUPPRESSMSGBOXES',
+              '/NORESTART',
+              "/DIR=$installDirectory",
+              "/LOG=$installLog") `
+            -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            Get-Content -LiteralPath $installLog -ErrorAction SilentlyContinue
+            throw "Installer smoke test failed with exit code $($install.ExitCode)."
+          }
+
+          $installedApp = Join-Path $installDirectory 'AssessmentTool.App.exe'
+          $installedPlink = Join-Path $installDirectory '依赖组件\plink.exe'
+          $uninstaller = Join-Path $installDirectory 'unins000.exe'
+          foreach ($requiredPath in @($installedApp, $installedPlink, $uninstaller)) {
+            if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
+              throw "Installed package is missing required file: $requiredPath"
+            }
+          }
+
+          $markerPath = Join-Path ([System.IO.Path]::GetTempPath()) 'EvaluationTool-startup-success.json'
+          Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+          $installedProcess = Start-Process `
+            -FilePath $installedApp `
+            -WorkingDirectory $installDirectory `
+            -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(15)
+            $marker = $null
+            while ((Get-Date) -lt $deadline) {
+              $installedProcess.Refresh()
+              if ($installedProcess.HasExited) {
+                throw "Installed application exited during startup with code $($installedProcess.ExitCode)."
+              }
+              if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+                try {
+                  $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+                  if ($marker.status -eq 'main-window-displayed' -and
+                      [int]$marker.processId -eq $installedProcess.Id) {
+                    break
+                  }
+                }
+                catch {
+                  $marker = $null
+                }
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if ($null -eq $marker -or
+                $marker.status -ne 'main-window-displayed' -or
+                [int]$marker.processId -ne $installedProcess.Id) {
+              throw 'Installed application did not display its main window within 15 seconds.'
+            }
+          }
+          finally {
+            $installedProcess.Refresh()
+            if (-not $installedProcess.HasExited) {
+              Stop-Process -Id $installedProcess.Id -Force
+              $installedProcess.WaitForExit(5000) | Out-Null
+            }
+            $installedProcess.Dispose()
+            Remove-Item -LiteralPath $markerPath -Force -ErrorAction SilentlyContinue
+          }
+
+          $uninstall = Start-Process `
+            -FilePath $uninstaller `
+            -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$uninstallLog") `
+            -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            Get-Content -LiteralPath $uninstallLog -ErrorAction SilentlyContinue
+            throw "Uninstaller smoke test failed with exit code $($uninstall.ExitCode)."
+          }
+          if (Test-Path -LiteralPath $installedApp -PathType Leaf) {
+            throw 'Uninstaller left the installed application executable behind.'
+          }
+          if (-not (Test-Path -LiteralPath $sentinelPath -PathType Leaf)) {
+            throw 'Uninstaller removed current-user EvaluationTool project data.'
+          }
+          Remove-Item -LiteralPath $sentinelPath -Force
+
+      - name: Measure installer package size
+        run: |
+          $installerDirectory = Join-Path $PWD 'artifacts\installer'
+          $setupPath = Join-Path $installerDirectory 'EvaluationTool-Setup-windows-x64.exe'
+          $hash = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  EvaluationTool-Setup-windows-x64.exe" |
+            Set-Content -LiteralPath (Join-Path $installerDirectory 'SHA256SUMS.txt') -Encoding utf8NoBOM
+          & '.\build\Measure-Package.ps1' `
+            -ReleaseRoot $installerDirectory `
+            -PackageKind installer-windows-x64 `
+            -TargetMaximumMegabytes 60
+          $report = Get-Content `
+            -LiteralPath (Join-Path $installerDirectory 'package-size.json') `
+            -Raw | ConvertFrom-Json
+          @(
+            '### Windows x64 安装版体积',
+            '',
+            "- 总大小：$($report.TotalMegabytes) MB",
+            "- 文件数：$($report.FileCount)",
+            "- 目标上限：$($report.TargetMaximumMegabytes) MB",
+            "- 是否达标：$($report.WithinTarget)"
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+
       - name: Publish packaged startup diagnostics
         if: ${{ failure() }}
         run: |
@@ -314,49 +476,6 @@ jobs:
               -Value $message `
               -Encoding UTF8
             Write-Output "::error title=Packaged application startup failed::$message"
-          }
-
-      - name: Generate and verify Release integrity manifest
-        run: |
-          $releaseDirectory = Join-Path $PWD 'artifacts\release\EvaluationTool'
-          $buildInfoPath = Join-Path $releaseDirectory '版本与使用说明.txt'
-          $manifestPath = Join-Path $releaseDirectory 'SHA256SUMS.txt'
-          $buildInfo = @(
-            'EvaluationTool Windows x64 体验版',
-            "Git 提交：${{ github.sha }}",
-            "构建时间（UTC）：$([DateTimeOffset]::UtcNow.ToString('O'))",
-            '支持系统：Windows 10 / Windows 11 x64',
-            '运行方式：完整解压后运行 AssessmentTool.App.exe',
-            '安全边界：自动采集仅执行内置、已校验的只读命令。',
-            '首次 SSH 连接必须人工核对完整主机指纹。'
-          )
-          Set-Content -LiteralPath $buildInfoPath -Value $buildInfo -Encoding UTF8
-          Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
-
-          $files = Get-ChildItem -LiteralPath $releaseDirectory -File -Recurse |
-            Where-Object { $_.FullName -ne $manifestPath } |
-            Sort-Object FullName
-          $lines = foreach ($file in $files) {
-            $relativePath = [System.IO.Path]::GetRelativePath($releaseDirectory, $file.FullName).Replace('\', '/')
-            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $relativePath"
-          }
-          Set-Content -LiteralPath $manifestPath -Value $lines -Encoding utf8NoBOM
-
-          foreach ($line in Get-Content -LiteralPath $manifestPath) {
-            if ($line -notmatch '^(?<hash>[0-9a-f]{64})  (?<path>.+)$') {
-              throw "Invalid SHA-256 manifest line: $line"
-            }
-
-            $filePath = Join-Path $releaseDirectory $Matches.path
-            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
-              throw "Manifest file is missing: $($Matches.path)"
-            }
-
-            $actual = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash
-            if (-not [string]::Equals($actual, $Matches.hash, [System.StringComparison]::OrdinalIgnoreCase)) {
-              throw "Manifest verification failed: $($Matches.path)"
-            }
           }
 
       - name: Upload test results
@@ -382,5 +501,13 @@ jobs:
         with:
           name: EvaluationTool-Release-windows-x64
           path: artifacts\release\EvaluationTool
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: EvaluationTool-Installer-windows-x64
+          path: artifacts\installer
           if-no-files-found: error
           retention-days: 14

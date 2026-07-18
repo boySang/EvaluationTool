@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $ReleaseRoot,
 
+    [ValidateSet('portable-windows-x64', 'installer-windows-x64')]
+    [string] $PackageKind = 'portable-windows-x64',
+
     [ValidateRange(1, 1024)]
     [int] $TargetMaximumMegabytes = 40
 )
@@ -38,7 +41,7 @@ $largestFiles = @(
 
 $report = [ordered]@{
     FormatVersion = 1
-    PackageKind = 'portable-windows-x64'
+    PackageKind = $PackageKind
     GeneratedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
     TargetMaximumMegabytes = $TargetMaximumMegabytes
     WithinTarget = $totalBytes -le $maximumBytes
@@ -52,5 +55,5 @@ $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $reportPath -Encodi
 $report | ConvertTo-Json -Depth 5
 
 if (-not $report.WithinTarget) {
-    throw "Portable package is $($report.TotalMegabytes) MB and exceeds the $TargetMaximumMegabytes MB target. Review package-size.json."
+    throw "$PackageKind package is $($report.TotalMegabytes) MB and exceeds the $TargetMaximumMegabytes MB target. Review package-size.json."
 }
